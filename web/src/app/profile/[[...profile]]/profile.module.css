@@ -1,0 +1,15 @@
+.page { padding-top: 40px; padding-bottom: 96px; display: grid; gap: 28px; justify-items: start; }
+.head { display: grid; gap: 8px; }
+.head p { margin: 0; max-width: 60ch; }
+.page :global(.cl-rootBox) { width: 100%; max-width: 100%; }
+.page :global(.cl-cardBox) { width: 100%; max-width: 100%; }
+
+.defaults { display: grid; gap: 22px; max-width: 520px; font-family: var(--font-sans); color: var(--text); }
+.defaultsHead { display: grid; gap: 6px; }
+.defaultsHead p { margin: 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.actions { display: flex; gap: 8px; align-items: center; }
+
+@media (max-width: 767px) {
+  .page { padding-top: 24px; }
+}

@@ -1,0 +1,29 @@
+import { defineConfig } from "@playwright/test";
+
+const PORT = Number(process.env.E2E_PORT ?? 3100);
+
+export default defineConfig({
+  testDir: "./tests/e2e",
+  timeout: 120_000,
+  expect: { timeout: 15_000 },
+  fullyParallel: false,
+  workers: 1,
+  retries: 0,
+  reporter: [["list"]],
+  use: {
+    baseURL: `http://localhost:${PORT}`,
+    // Uses the installed Microsoft Edge, so no browser download is needed.
+    channel: process.env.E2E_CHANNEL ?? "msedge",
+    headless: true,
+    viewport: { width: 1440, height: 900 },
+    trace: "retain-on-failure",
+  },
+  webServer: {
+    command: `npx next dev -p ${PORT}`,
+    url: `http://localhost:${PORT}/api/ai/status`,
+    // Next allows one dev server per project; reuse it if it is already running (in mock mode).
+    reuseExistingServer: true,
+    timeout: 120_000,
+    env: { BAMIO_AI_MOCK: "1" },
+  },
+});

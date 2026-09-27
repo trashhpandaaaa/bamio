@@ -1,0 +1,18 @@
+.page { padding-top: 40px; padding-bottom: 96px; display: grid; gap: 28px; }
+.head { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.templates { display: grid; gap: 10px; }
+.templateRow { display: flex; gap: 8px; flex-wrap: wrap; }
+.templateRow :global(.chip) { text-decoration: none; }
+
+.grid { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 24px 16px; }
+.card { display: grid; gap: 8px; min-width: 0; }
+.card :global(.thumb) > img, .card :global(.thumb) > div { width: 100%; height: 100%; border-radius: 0; }
+.cardFoot { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+.cardActions { display: flex; gap: 2px; flex: none; }
+.skeletonCard { display: grid; gap: 10px; }
+.skeletonCard > :first-child { aspect-ratio: 9 / 16; border-radius: var(--r-md); }
+
+@media (max-width: 767px) {
+  .page { padding-top: 24px; }
+  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 12px; }
+}

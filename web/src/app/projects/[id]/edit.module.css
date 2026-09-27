@@ -1,0 +1,41 @@
+.studio {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "stage timeline" "stage inspector";
+  gap: 16px 20px; align-items: start;
+  padding: 20px; border-radius: var(--r-xl); background: var(--bg); color: var(--text);
+}
+/* Player sized from the viewport height so preview, timeline and controls fit on a laptop screen. */
+.stage { grid-area: stage; display: grid; gap: 12px; align-content: start; width: clamp(220px, calc((100dvh - 330px) * 9 / 16), 340px); }
+.player { position: relative; border-radius: var(--r-frame); overflow: hidden; background: #050505; }
+.canvas { display: block; width: 100%; height: auto; aspect-ratio: 9 / 16; }
+.loading { position: absolute; inset: 0; border-radius: 0; opacity: .6; }
+.transport { display: flex; align-items: center; gap: 8px; }
+.transport :global(.timecode) { margin-left: auto; }
+.play { width: 52px; height: 52px; padding: 0; border-radius: 50%; }
+
+.inspector { grid-area: inspector; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; min-width: 0; }
+.group { display: grid; gap: 16px; padding: 18px; border-radius: var(--r-lg); background: var(--surface); border: 1px solid var(--line); }
+.groupTitle { font: var(--t-heading-sm); letter-spacing: -0.01em; margin: 0; }
+.noticeBody { display: grid; gap: 10px; justify-items: start; }
+
+.timeline { grid-area: timeline; min-width: 0; container-type: inline-size; display: grid; gap: 8px; padding: 16px 18px 18px; border-radius: var(--r-lg); background: var(--surface); border: 1px solid var(--line); }
+.scrub { position: relative; height: 26px; cursor: ew-resize; touch-action: none; border-bottom: 1px solid var(--line); border-radius: var(--r-xs); }
+.scrub:focus-visible { outline-offset: 2px; }
+.tick { position: absolute; top: 4px; transform: translateX(-50%); font: 500 10.5px/16px var(--font-mono); color: var(--text-tertiary); font-variant-numeric: tabular-nums; pointer-events: none; user-select: none; }
+.tick:first-child { transform: none; }
+.tick:last-child:not(:first-child) { transform: translateX(-100%); }
+/* Thin out tick labels when the timeline is narrow so they never overlap. */
+@container (max-width: 520px) {
+  .tick:nth-child(even) { display: none; }
+}
+.tracks { position: relative; display: grid; gap: 6px; padding-top: 14px; }
+.tracks :global(.playhead) { top: 0; }
+.tracks :global(.clip-video) { justify-content: center; font: 700 13px/1 var(--font-sans); }
+.tracks :global(.clip) > svg { flex: none; }
+
+@media (max-width: 1100px) {
+  .inspector { grid-template-columns: 1fr; }
+}
+@media (max-width: 767px) {
+  .studio { grid-template-columns: 1fr; grid-template-areas: "stage" "timeline" "inspector"; padding: 12px; border-radius: var(--r-lg); }
+  .stage { width: 100%; max-width: 320px; justify-self: center; }
+}

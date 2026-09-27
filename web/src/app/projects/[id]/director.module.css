@@ -1,0 +1,12 @@
+.wrap { display: grid; gap: 20px; max-width: 860px; }
+.intro { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+.intro p { margin: 8px 0 0; max-width: 52ch; }
+.summary { display: flex; gap: 12px; align-items: baseline; margin: 0; padding: 16px 18px; border-radius: var(--r-lg); background: var(--volt-subtle); font: var(--t-body); }
+.list { margin: 0; padding: 0; list-style: none; display: grid; gap: 12px; }
+.note { display: grid; gap: 10px; padding: 20px; border-radius: var(--r-lg); background: var(--surface); border: 1px solid var(--line); }
+.note[data-applied="true"] { opacity: .72; }
+.note p { margin: 0; color: var(--text-secondary); font: var(--t-body-sm); max-width: 70ch; }
+.noteHead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.noteHead strong { font: var(--t-heading-sm); letter-spacing: -0.01em; }
+.change { padding: 10px 12px; border-radius: var(--r-sm); background: var(--surface-sunken); color: var(--text) !important; font: var(--t-body-sm); }
+.noteActions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }

@@ -1,0 +1,6 @@
+.shell {
+  min-height: 100dvh; display: grid; place-content: center; justify-items: center; gap: 28px;
+  padding: 48px var(--gutter-mobile);
+}
+.brand { display: grid; justify-items: center; gap: 10px; text-align: center; }
+.title { margin: 0; font: var(--t-body); color: var(--text-secondary); }

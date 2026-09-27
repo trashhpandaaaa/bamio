@@ -1,0 +1,55 @@
+/* App-level layout on top of the design system (tokens.css, components.css). */
+
+html { scroll-behavior: auto; }
+@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+
+a { color: inherit; }
+[id] { scroll-margin-top: calc(var(--topbar) + 16px); }
+
+.container { width: 100%; max-width: var(--container); margin: 0 auto; padding: 0 var(--gutter); }
+@media (max-width: 767px) { .container { padding: 0 var(--gutter-mobile); } }
+
+.link { color: var(--text); text-decoration: underline; text-decoration-thickness: 1.5px; text-underline-offset: 3px; }
+.link:hover { text-decoration-color: var(--text-tertiary); }
+
+/* Wordmark: lowercase bamio, the dot of the i is a 9:16 frame tilted 12deg. */
+.wordmark { display: inline-flex; flex: none; white-space: nowrap; font: 800 27px/1 var(--font-sans); letter-spacing: -0.05em; color: var(--text); text-decoration: none; }
+.wordmark .i { position: relative; display: inline-block; }
+.wordmark .tittle {
+  position: absolute; left: 50%; top: -0.07em; width: 0.145em; height: 0.258em;
+  border-radius: 0.05em; background: currentColor; transform: translateX(-50%) rotate(12deg);
+}
+
+/* Shared state panels */
+.state-panel { display: grid; justify-items: center; gap: 12px; text-align: center; padding: 64px 24px; }
+.state-panel p { margin: 0; max-width: 46ch; color: var(--text-secondary); }
+
+.spin { animation: bm-spin .9s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .spin { animation-duration: 3s; } }
+
+/* Native dialog used for confirmations */
+dialog.dialog { padding: 28px; color: var(--text); }
+dialog.dialog::backdrop { background: var(--overlay); }
+dialog.dialog[open] { animation: bm-dialog-in var(--dur-slow) var(--ease-out); }
+@keyframes bm-dialog-in { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
+
+/* Toasts */
+.toast-region {
+  position: fixed; right: 16px; bottom: 16px; z-index: var(--z-toast);
+  display: grid; gap: 10px; width: min(400px, calc(100vw - 32px)); pointer-events: none;
+}
+.toast-region .toast { pointer-events: auto; animation: bm-toast-in var(--dur-slow) var(--ease-out); }
+@keyframes bm-toast-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+
+/* Inline notices */
+.notice {
+  display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; border-radius: var(--r-md);
+  background: var(--surface-sunken); color: var(--text); font: var(--t-body-sm);
+}
+.notice > svg { flex: none; margin-top: 1px; }
+.notice.is-warning { background: var(--warning-bg); }
+.notice.is-warning > svg { color: var(--warning); }
+.notice.is-error { background: var(--error-bg); }
+.notice.is-error > svg { color: var(--error); }
+.notice p { margin: 0; }
+.notice strong { display: block; font: var(--t-label); margin-bottom: 2px; }

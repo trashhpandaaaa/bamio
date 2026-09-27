@@ -1,0 +1,15 @@
+.frame {
+  position: relative; width: 100%; max-width: 340px; margin-left: auto;
+  border-radius: var(--r-frame); overflow: hidden; background: #0A0A0A;
+  box-shadow: var(--shadow-3);
+  transform: rotate(2deg);
+}
+.canvas { display: block; width: 100%; height: auto; aspect-ratio: 9 / 16; }
+.control {
+  position: absolute; right: 12px; bottom: 12px;
+  background: rgb(18 18 18 / .72); color: #F2F2EE; border-color: rgb(255 255 255 / .28);
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+}
+.control:hover { background: rgb(18 18 18 / .9); border-color: #F2F2EE; }
+@media (max-width: 767px) { .frame { margin: 0 auto; transform: none; max-width: 300px; } }
+@media (prefers-reduced-motion: reduce) { .frame { transform: none; } }
