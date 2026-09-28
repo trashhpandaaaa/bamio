@@ -53,3 +53,15 @@ dialog.dialog[open] { animation: bm-dialog-in var(--dur-slow) var(--ease-out); }
 .notice.is-error > svg { color: var(--error); }
 .notice p { margin: 0; }
 .notice strong { display: block; font: var(--t-label); margin-bottom: 2px; }
+
+/* Disabled states the component library leaves to the app */
+.chip:disabled, .seg button:disabled { opacity: .45; cursor: not-allowed; }
+.chip:disabled:hover { border-color: var(--line-control); }
+.seg button:disabled:hover { color: var(--text-secondary); }
+
+/* Progress with no known value yet */
+.progress[data-indeterminate] > span { width: 30% !important; animation: bm-indeterminate 1.3s var(--ease-in-out) infinite; }
+@keyframes bm-indeterminate { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+@media (prefers-reduced-motion: reduce) { .progress[data-indeterminate] > span { animation-duration: 4s; } }
+
+code { font: var(--t-mono); font-size: .92em; padding: 1px 5px; border-radius: 6px; background: var(--surface-sunken); }

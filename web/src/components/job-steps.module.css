@@ -1,0 +1,14 @@
+.wrap { display: grid; gap: 18px; }
+.steps { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 0; padding: 0; list-style: none; }
+.steps[hidden] { display: none; }
+.step { display: inline-flex; align-items: center; gap: 8px; font: var(--t-label-sm); color: var(--text-tertiary); }
+.step[data-state="active"] { color: var(--text); }
+.step[data-state="done"] { color: var(--text-secondary); }
+.dot {
+  display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
+  border: 1.5px solid var(--line-control); font: 600 11px/1 var(--font-mono);
+}
+.step[data-state="active"] .dot { border-color: var(--text); background: var(--text); color: var(--bg); }
+.step[data-state="done"] .dot { border-color: transparent; background: var(--volt); color: var(--on-volt); }
+.now { display: grid; gap: 8px; }
+.message { margin: 0; font: var(--t-body-sm); color: var(--text-secondary); }

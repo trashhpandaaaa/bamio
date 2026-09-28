@@ -1,9 +1,9 @@
 "use client";
 
 import { Show, SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
-import { FilmSlate } from "@phosphor-icons/react";
+import { Scissors } from "@phosphor-icons/react";
 
-/** Sign in / sign up when signed out; the account menu (edit profile, video defaults, sign out) when signed in. */
+/** Sign in / sign up when signed out; the account menu (edit profile, clip defaults, sign out) when signed in. */
 export function AuthControls() {
   return (
     <>
@@ -24,7 +24,7 @@ export function AuthControls() {
         <UserButton userProfileMode="navigation" userProfileUrl="/profile">
           <UserButton.MenuItems>
             <UserButton.Action label="manageAccount" />
-            <UserButton.Link label="Video defaults" labelIcon={<FilmSlate size={16} />} href="/profile/video-defaults" />
+            <UserButton.Link label="Clip defaults" labelIcon={<Scissors size={16} />} href="/profile/clip-defaults" />
             <UserButton.Action label="signOut" />
           </UserButton.MenuItems>
         </UserButton>

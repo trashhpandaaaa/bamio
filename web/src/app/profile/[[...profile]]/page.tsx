@@ -12,7 +12,7 @@ export default function ProfilePage() {
       <main id="main" className={`container ${styles.page}`}>
         <div className={styles.head}>
           <h1 className="t-heading-xl">Profile</h1>
-          <p className="t-secondary">Your name, photo, sign-in methods and the defaults every new video starts with.</p>
+          <p className="t-secondary">Your name, photo, sign-in methods and the settings every new import starts with.</p>
         </div>
         <ProfileView />
       </main>

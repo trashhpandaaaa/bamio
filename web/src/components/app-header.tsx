@@ -6,34 +6,40 @@ import { usePathname } from "next/navigation";
 import { AuthControls } from "@/components/auth-controls";
 import { Wordmark } from "@/components/brand";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { useAiStatus } from "@/hooks/use-ai-status";
+import { useSystemStatus } from "@/hooks/use-project";
 import styles from "./app-header.module.css";
 
 export function AppHeader() {
   const pathname = usePathname();
-  const { status } = useAiStatus();
-  const needsKey = status && !status.configured;
+  const status = useSystemStatus();
+  const onProjects = pathname === "/projects" || pathname.startsWith("/projects/");
 
   return (
     <header className={styles.bar}>
       <div className={styles.inner}>
         <Wordmark href="/projects" size={25} />
         <nav className={styles.nav} aria-label="Main">
-          <Link href="/projects" aria-current={pathname === "/projects" ? "page" : undefined}>
-            Videos
+          <Link href="/projects" aria-current={onProjects ? "page" : undefined}>
+            Projects
           </Link>
           <Link href="/new" aria-current={pathname === "/new" ? "page" : undefined}>
-            New video
+            Import
           </Link>
         </nav>
         <div className={styles.right}>
-          {needsKey ? (
-            <span className="badge is-warning" title="Add GEMINI_API_KEY to web/.env.local">
+          {status && !status.ai.configured ? (
+            <span className="badge is-warning" title="Add GEMINI_API_KEY to web/.env, then restart the server">
               <Warning size={14} aria-hidden />
-              AI not connected
+              AI off
             </span>
           ) : null}
-          {status?.mock ? <span className="badge is-info">Demo AI</span> : null}
+          {status && !status.ytdlp ? (
+            <span className="badge is-warning" title="Run npm run setup:media in web/, then restart the server">
+              <Warning size={14} aria-hidden />
+              Link import off
+            </span>
+          ) : null}
+          {status?.ai.mock ? <span className="badge is-info">Demo AI</span> : null}
           <ThemeToggle />
           <AuthControls />
         </div>

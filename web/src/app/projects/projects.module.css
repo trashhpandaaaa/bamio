@@ -1,18 +1,29 @@
 .page { padding-top: 40px; padding-bottom: 96px; display: grid; gap: 28px; }
-.head { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-.templates { display: grid; gap: 10px; }
-.templateRow { display: flex; gap: 8px; flex-wrap: wrap; }
-.templateRow :global(.chip) { text-decoration: none; }
+.head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.head p { margin: 8px 0 0; }
 
-.grid { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 24px 16px; }
-.card { display: grid; gap: 8px; min-width: 0; }
-.card :global(.thumb) > img, .card :global(.thumb) > div { width: 100%; height: 100%; border-radius: 0; }
-.cardFoot { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
-.cardActions { display: flex; gap: 2px; flex: none; }
-.skeletonCard { display: grid; gap: 10px; }
-.skeletonCard > :first-child { aspect-ratio: 9 / 16; border-radius: var(--r-md); }
+.grid { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 28px 20px; }
+.cardSkeleton { display: grid; gap: 12px; }
+
+.card { position: relative; display: grid; gap: 8px; min-width: 0; }
+.link { display: grid; gap: 10px; color: inherit; text-decoration: none; min-width: 0; border-radius: var(--r-md); }
+.thumb { position: relative; aspect-ratio: 16 / 9; overflow: hidden; border-radius: var(--r-md); background: var(--surface-sunken); }
+.thumb img { width: 100%; height: 100%; object-fit: cover; transition: transform var(--dur-slow) var(--ease-out); }
+.link:hover .thumb img { transform: scale(1.03); }
+.placeholder { display: grid; place-items: center; width: 100%; height: 100%; color: var(--text-tertiary); }
+.dur {
+  position: absolute; right: 8px; bottom: 8px; padding: 3px 7px; border-radius: 7px;
+  background: rgb(10 10 10 / .72); color: var(--paper); font: var(--t-mono); font-size: 12px;
+}
+.overlay {
+  position: absolute; inset: 0; display: grid; align-content: end; padding: 14px;
+  background: linear-gradient(transparent, rgb(10 10 10 / .92) 55%); color: var(--text);
+}
+.delete { position: absolute; top: 8px; right: 8px; background: color-mix(in srgb, var(--surface-raised) 88%, transparent); opacity: 0; }
+.card:hover .delete, .delete:focus-visible { opacity: 1; }
+@media (hover: none) { .delete { opacity: 1; } }
 
 @media (max-width: 767px) {
   .page { padding-top: 24px; }
-  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 12px; }
+  .grid { grid-template-columns: 1fr; }
 }

@@ -1,76 +1,110 @@
 "use client";
 
-import { useCallback, useEffect, useReducer, useRef, useState } from "react";
-import { projectReducer, type ProjectAction } from "@/lib/project/ops";
-import type { Project } from "@/lib/project/schema";
-import { getProject, saveProject } from "@/lib/storage/db";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { api, ApiError } from "@/lib/clips/api";
+import { isJobActive, type Project, type SystemStatus, type Transcript } from "@/lib/clips/schema";
 
-export type LoadState = "loading" | "ready" | "missing" | "error";
-export type SaveState = "saved" | "saving" | "error";
-
-const SAVE_DELAY_MS = 400;
-
-function reducer(project: Project | null, action: ProjectAction): Project | null {
-  if (action.type === "replace") return action.project;
-  return project ? projectReducer(project, action) : null;
+/** True while the server is working on the project (import, analysis or an export). */
+export function isBusy(project: Project): boolean {
+  return isJobActive(project.job.status) || project.clips.some((c) => c.export?.status === "queued" || c.export?.status === "rendering");
 }
 
-/** Load a project, edit it through the reducer, and autosave changes to IndexedDB. */
-export function useProject(id: string) {
-  const [project, dispatch] = useReducer(reducer, null);
-  const [load, setLoad] = useState<{ state: LoadState; error?: string }>({ state: "loading" });
-  const [save, setSave] = useState<SaveState>("saved");
-  const saved = useRef<Project | null>(null);
-  const latest = useRef<Project | null>(null);
+/**
+ * Load a resource and keep polling it while `shouldPoll` says so. Also refreshes when
+ * the tab becomes visible again. `set` lets callers apply a fresher copy from a mutation.
+ */
+function usePolled<T>(load: (signal: AbortSignal) => Promise<T>, shouldPoll: (value: T) => boolean, intervalMs: number) {
+  const [data, setData] = useState<T | null>(null);
+  const [error, setError] = useState<ApiError | null>(null);
+  const [tick, setTick] = useState(0);
+  const loadRef = useRef(load);
+  const pollRef = useRef(shouldPoll);
+  useEffect(() => {
+    loadRef.current = load;
+    pollRef.current = shouldPoll;
+  });
 
   useEffect(() => {
-    let alive = true;
-    getProject(id)
-      .then((p) => {
-        if (!alive) return;
-        if (!p) return setLoad({ state: "missing" });
-        saved.current = p;
-        dispatch({ type: "replace", project: p });
-        setLoad({ state: "ready" });
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    loadRef
+      .current(controller.signal)
+      .then((value) => {
+        setData(value);
+        setError(null);
+        if (pollRef.current(value)) timer = setTimeout(() => setTick((t) => t + 1), intervalMs);
       })
-      .catch((err: unknown) => alive && setLoad({ state: "error", error: err instanceof Error ? err.message : String(err) }));
+      .catch((err: unknown) => {
+        if (controller.signal.aborted) return;
+        const apiError = err instanceof ApiError ? err : new ApiError(0, "error", "Something went wrong. Try again.");
+        setError(apiError);
+        // Keep trying through brief network trouble, but not after a 4xx.
+        if (apiError.status === 0 || apiError.status >= 500) timer = setTimeout(() => setTick((t) => t + 1), intervalMs * 3);
+      });
     return () => {
-      alive = false;
+      controller.abort();
+      if (timer) clearTimeout(timer);
     };
-  }, [id]);
+  }, [tick, intervalMs]);
 
-  const persist = useCallback(async (p: Project) => {
-    setSave("saving");
-    try {
-      await saveProject(p);
-      saved.current = p;
-      setSave(latest.current === p ? "saved" : "saving");
-    } catch {
-      setSave("error");
-    }
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") setTick((t) => t + 1);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
   }, []);
 
-  // Debounced autosave whenever the project object changes.
-  useEffect(() => {
-    latest.current = project;
-    if (!project || project === saved.current) return;
-    setSave("saving");
-    const timer = setTimeout(() => void persist(project), SAVE_DELAY_MS);
-    return () => clearTimeout(timer);
-  }, [project, persist]);
+  const refresh = useCallback(() => setTick((t) => t + 1), []);
+  const set = useCallback((value: T) => {
+    setData(value);
+    setTick((t) => t + 1);
+  }, []);
+  return { data, error, refresh, set };
+}
 
-  // Flush unsaved edits when leaving the page or closing the tab.
+export function useProject(id: string) {
+  const { data, error, refresh, set } = usePolled((signal) => api.project(id, signal), isBusy, 1000);
+  return { project: data, error, refresh, setProject: set };
+}
+
+export function useProjects() {
+  const { data, error, refresh, set } = usePolled((signal) => api.projects(signal), (list) => list.some(isBusy), 2000);
+  return { projects: data, error, refresh, setProjects: set };
+}
+
+/** The transcript, reloaded whenever its revision changes. */
+export function useTranscript(id: string, enabled: boolean, rev: number) {
+  const [transcript, setTranscript] = useState<Transcript | null>(null);
   useEffect(() => {
-    const flush = () => {
-      const p = latest.current;
-      if (p && p !== saved.current) void saveProject(p).then(() => (saved.current = p)).catch(() => undefined);
-    };
-    window.addEventListener("pagehide", flush);
+    if (!enabled) return;
+    const controller = new AbortController();
+    api
+      .transcript(id, controller.signal)
+      .then(setTranscript)
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [id, enabled, rev]);
+  return { transcript: enabled ? transcript : null, setTranscript };
+}
+
+let statusPromise: Promise<SystemStatus | null> | null = null;
+
+/** What this server can do (link import, AI). Fetched once per page load. */
+export function useSystemStatus() {
+  const [status, setStatus] = useState<SystemStatus | null>(null);
+  useEffect(() => {
+    let live = true;
+    statusPromise ??= api.status().catch(() => {
+      statusPromise = null;
+      return null;
+    });
+    void statusPromise.then((s) => {
+      if (live) setStatus(s);
+    });
     return () => {
-      window.removeEventListener("pagehide", flush);
-      flush();
+      live = false;
     };
   }, []);
-
-  return { project, dispatch, load, save, saveNow: persist };
+  return status;
 }

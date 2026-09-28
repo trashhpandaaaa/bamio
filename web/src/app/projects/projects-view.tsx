@@ -1,180 +1,154 @@
 "use client";
 
-import { Check, CopySimple, Plus, Trash } from "@phosphor-icons/react";
+import { Plus, Scissors, Trash, WarningCircle } from "@phosphor-icons/react";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
-import { AiMark } from "@/components/brand";
+import { useState } from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { SceneThumb } from "@/components/scene-thumb";
+import { JobSteps } from "@/components/job-steps";
+import { PlatformIcon } from "@/components/platform-icon";
 import { useToast } from "@/components/toast";
-import type { Project } from "@/lib/project/schema";
-import { TEMPLATES } from "@/lib/project/templates";
-import { buildTimeline, formatDuration } from "@/lib/project/timeline";
-import { deleteProject, duplicateProject, listProjects } from "@/lib/storage/db";
+import { useProjects } from "@/hooks/use-project";
+import { api, thumbUrl } from "@/lib/clips/api";
+import { formatAgo, JOB_LABEL } from "@/lib/clips/labels";
+import { formatTimecode } from "@/lib/clips/logic";
+import { isJobActive, type Project } from "@/lib/clips/schema";
+import { PLATFORM_LABEL } from "@/lib/clips/url";
 import styles from "./projects.module.css";
 
-const relative = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
-function edited(at: number): string {
-  const diff = (at - Date.now()) / 1000;
-  const units: [Intl.RelativeTimeFormatUnit, number][] = [
-    ["day", 86_400],
-    ["hour", 3_600],
-    ["minute", 60],
-  ];
-  for (const [unit, secs] of units) if (Math.abs(diff) >= secs) return `Edited ${relative.format(Math.round(diff / secs), unit)}`;
-  return "Edited just now";
-}
-
-type State = { status: "loading" } | { status: "ready"; projects: Project[] } | { status: "error"; message: string };
-
 export function ProjectsView() {
-  const [state, setState] = useState<State>({ status: "loading" });
-  const [pendingDelete, setPendingDelete] = useState<Project | null>(null);
+  const { projects, error, refresh, setProjects } = useProjects();
   const toast = useToast();
+  const [deleting, setDeleting] = useState<Project | null>(null);
 
-  const refresh = useCallback(async () => {
+  async function remove(project: Project) {
     try {
-      setState({ status: "ready", projects: await listProjects() });
+      await api.deleteProject(project.id);
+      setProjects((projects ?? []).filter((p) => p.id !== project.id));
+      toast({ tone: "success", title: "Project deleted" });
     } catch (err) {
-      setState({ status: "error", message: err instanceof Error ? err.message : "Couldn’t load your videos." });
-    }
-  }, []);
-
-  useEffect(() => {
-    let alive = true;
-    listProjects()
-      .then((projects) => alive && setState({ status: "ready", projects }))
-      .catch((err: unknown) => alive && setState({ status: "error", message: err instanceof Error ? err.message : "Couldn’t load your videos." }));
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  async function onDuplicate(p: Project) {
-    try {
-      await duplicateProject(p.id);
-      toast({ tone: "success", title: "Video duplicated", body: `“${p.title}” was copied with all its media.` });
-      await refresh();
-    } catch {
-      toast({ tone: "error", title: "Couldn’t duplicate the video", body: "Try again. If it keeps failing, free up some disk space." });
-    }
-  }
-
-  async function onDelete(p: Project) {
-    try {
-      await deleteProject(p.id);
-      toast({ tone: "success", title: "Video deleted" });
-      await refresh();
-    } catch {
-      toast({ tone: "error", title: "Couldn’t delete the video", body: "Try again." });
+      toast({ tone: "error", title: "Couldn’t delete the project", body: err instanceof Error ? err.message : undefined });
     }
   }
 
   return (
-    <div className={`container ${styles.page}`}>
+    <main id="main" className={`container ${styles.page}`}>
       <div className={styles.head}>
-        <h1 className="t-heading-xl">Your videos</h1>
+        <div>
+          <h1 className="t-heading-xl">Projects</h1>
+          <p className="t-secondary">Every video you import, with the clips cut from it.</p>
+        </div>
         <Link href="/new" className="btn btn-volt">
           <Plus size={18} weight="bold" aria-hidden />
-          Make a video
+          Import a video
         </Link>
       </div>
 
-      <section aria-label="Start from a template" className={styles.templates}>
-        <span className="t-label t-secondary">Start from a template</span>
-        <div className={styles.templateRow}>
-          {TEMPLATES.map((t) => (
-            <Link key={t.id} href={`/new?template=${t.id}`} className="chip">
-              {t.label}
-            </Link>
-          ))}
-        </div>
-      </section>
-
-      {state.status === "loading" ? (
-        <div className={styles.grid} aria-busy="true" aria-label="Loading your videos">
-          {[0, 1, 2, 3].map((i) => (
-            <div key={i} className={styles.skeletonCard} aria-hidden="true">
-              <div className="skeleton" />
-              <div className="skeleton" style={{ height: 16, width: "75%" }} />
-              <div className="skeleton" style={{ height: 12, width: "45%" }} />
-            </div>
-          ))}
-        </div>
-      ) : null}
-
-      {state.status === "error" ? (
+      {error && !projects ? (
         <div className="notice is-error" role="alert">
-          <p>
-            <strong>Couldn’t load your videos</strong>
-            {state.message}
-          </p>
+          <WarningCircle size={20} weight="fill" aria-hidden />
+          <div>
+            <strong>Couldn’t load your projects</strong>
+            <p>{error.message}</p>
+          </div>
+          <button className="btn btn-secondary btn-sm" type="button" onClick={refresh} style={{ marginLeft: "auto" }}>
+            Try again
+          </button>
         </div>
       ) : null}
 
-      {state.status === "ready" && state.projects.length === 0 ? (
+      {!projects && !error ? (
+        <ul className={styles.grid} aria-busy="true" aria-label="Loading projects">
+          {[0, 1, 2].map((i) => (
+            <li key={i} className={styles.cardSkeleton}>
+              <div className="skeleton" style={{ aspectRatio: "16 / 9", borderRadius: "var(--r-md)" }} />
+              <div className="skeleton" style={{ height: 18, width: "70%" }} />
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      {projects && projects.length === 0 ? (
         <div className="empty">
-          <AiMark size={44} />
-          <p className="empty-title">Nothing here yet.</p>
-          <p className="empty-body">Drop in an idea, a link or a rough clip and we’ll find the hook.</p>
-          <Link href="/new" className="btn btn-volt">
-            <Plus size={18} weight="bold" aria-hidden />
-            Make a video
+          <Scissors size={40} aria-hidden />
+          <h2 className="empty-title">No projects yet</h2>
+          <p className="empty-body">Paste a YouTube, Twitch or Kick link, or upload a video. Bamio finds the moments worth posting.</p>
+          <Link href="/new" className="btn btn-primary">
+            Import your first video
           </Link>
         </div>
       ) : null}
 
-      {state.status === "ready" && state.projects.length > 0 ? (
-        <ul className={styles.grid} aria-label="Videos">
-          {state.projects.map((p) => {
-            const first = p.scenes[0];
-            const total = buildTimeline(p).total;
-            return (
-              <li key={p.id} className={styles.card}>
-                <Link href={`/projects/${p.id}`} className="card-project">
-                  <div className="thumb">
-                    {first ? <SceneThumb scene={first} index={0} /> : null}
-                    <span className="dur">{formatDuration(total)}</span>
-                  </div>
-                  <p className="card-title">{p.title}</p>
-                </Link>
-                <div className={styles.cardFoot}>
-                  <p className="card-meta">
-                    {p.lastExport ? (
-                      <span className="badge is-success">
-                        <Check size={14} aria-hidden />
-                        Exported
-                      </span>
-                    ) : (
-                      <span className="badge">Draft</span>
-                    )}
-                    {edited(p.updatedAt)}
-                  </p>
-                  <div className={styles.cardActions}>
-                    <button className="btn btn-ghost btn-icon btn-sm" type="button" aria-label={`Duplicate ${p.title}`} title="Duplicate" onClick={() => void onDuplicate(p)}>
-                      <CopySimple size={16} aria-hidden />
-                    </button>
-                    <button className="btn btn-ghost btn-icon btn-sm" type="button" aria-label={`Delete ${p.title}`} title="Delete" onClick={() => setPendingDelete(p)}>
-                      <Trash size={16} aria-hidden />
-                    </button>
-                  </div>
-                </div>
-              </li>
-            );
-          })}
+      {projects && projects.length > 0 ? (
+        <ul className={styles.grid} aria-label="Your projects">
+          {projects.map((p) => (
+            <ProjectCard key={p.id} project={p} onDelete={() => setDeleting(p)} />
+          ))}
         </ul>
       ) : null}
 
       <ConfirmDialog
-        open={pendingDelete !== null}
-        title={`Delete “${pendingDelete?.title ?? ""}”?`}
-        body="The video, its pictures and its voice-over are removed from this browser. This can’t be undone."
-        confirmLabel="Delete video"
-        cancelLabel="Keep it"
+        open={deleting !== null}
+        title="Delete this project?"
+        body={`“${deleting?.title ?? ""}” and all of its clips and exports will be deleted. This can’t be undone.`}
+        confirmLabel="Delete project"
         destructive
-        onConfirm={() => pendingDelete && void onDelete(pendingDelete)}
-        onClose={() => setPendingDelete(null)}
+        onConfirm={() => deleting && void remove(deleting)}
+        onClose={() => setDeleting(null)}
       />
-    </div>
+    </main>
+  );
+}
+
+function ProjectCard({ project, onDelete }: { project: Project; onDelete: () => void }) {
+  const prepared = project.source.width > 0;
+  const active = isJobActive(project.job.status);
+  const failed = project.job.status === "failed";
+  const exported = project.clips.filter((c) => c.export?.status === "done").length;
+
+  return (
+    <li className={styles.card}>
+      <Link href={`/projects/${project.id}`} className={styles.link}>
+        <div className={styles.thumb}>
+          {prepared ? (
+            // Served by our own API with auth cookies; next/image can't optimise it.
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={thumbUrl(project.id)} alt="" loading="lazy" />
+          ) : (
+            <span className={styles.placeholder}>
+              <PlatformIcon platform={project.source.platform} size={34} />
+            </span>
+          )}
+          {project.source.durationSec > 0 ? <span className={styles.dur}>{formatTimecode(project.source.durationSec)}</span> : null}
+          {active ? (
+            <span className={`studio ${styles.overlay}`}>
+              <JobSteps project={project} compact />
+            </span>
+          ) : null}
+        </div>
+        <h2 className="card-title">{project.title}</h2>
+      </Link>
+      <p className="card-meta">
+        {failed ? (
+          <span className="badge is-error">
+            <WarningCircle size={14} weight="fill" aria-hidden />
+            {JOB_LABEL.failed}
+          </span>
+        ) : active ? (
+          <span className="badge is-info">{JOB_LABEL[project.job.status]}</span>
+        ) : (
+          <span className="badge">
+            {project.clips.length} {project.clips.length === 1 ? "clip" : "clips"}
+            {exported > 0 ? `, ${exported} exported` : ""}
+          </span>
+        )}
+        <span>
+          <PlatformIcon platform={project.source.platform} size={13} style={{ verticalAlign: "-2px" }} /> {PLATFORM_LABEL[project.source.platform]}
+        </span>
+        <span>{formatAgo(project.updatedAt)}</span>
+      </p>
+      <button className={`btn btn-ghost btn-icon btn-sm ${styles.delete}`} type="button" aria-label={`Delete ${project.title}`} onClick={onDelete}>
+        <Trash size={16} aria-hidden />
+      </button>
+    </li>
   );
 }

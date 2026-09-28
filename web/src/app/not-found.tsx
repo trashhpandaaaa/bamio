@@ -8,7 +8,7 @@ export default function NotFound() {
       <h1 className="t-display-lg">this page isn’t here.</h1>
       <p>The link may be old, or the page moved.</p>
       <Link href="/projects" className="btn btn-primary">
-        Go to your videos
+        Go to your projects
       </Link>
     </main>
   );

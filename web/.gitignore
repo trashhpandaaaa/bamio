@@ -45,3 +45,8 @@ next-env.d.ts
 /test-results/
 /playwright-report/
 /qa/
+
+# Media tools (npm run setup:media) and server-side project storage
+/.bin/
+/.data/
+/.models/

@@ -45,4 +45,6 @@ export const clerkLocalization = {
     action__manageAccount: "Edit profile",
     action__signOut: "Sign out",
   },
+  signIn: { start: { subtitle: "Sign in to continue." } },
+  signUp: { start: { subtitle: "Create your account to start clipping." } },
 } satisfies NonNullable<ProviderProps["localization"]>;

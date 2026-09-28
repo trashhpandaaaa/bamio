@@ -21,8 +21,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: { default: "Bamio: make the first second count", template: "%s | Bamio" },
-  description: "Bamio turns an idea into a finished vertical video: hooks, script, storyboard, voice-over and export, directed by AI and finished by you.",
+  title: { default: "Bamio: clip the moments that hook", template: "%s | Bamio" },
+  description: "Turn YouTube, Twitch and Kick videos into vertical shorts. Bamio finds the best moments, reframes them and adds word-by-word captions.",
 };
 
 export const viewport: Viewport = {

@@ -1,52 +1,51 @@
 "use client";
 
 import { UserProfile, useUser } from "@clerk/nextjs";
-import { CaretDown, FilmSlate } from "@phosphor-icons/react";
+import { Scissors } from "@phosphor-icons/react";
 import { useId, useState } from "react";
 import { useToast } from "@/components/toast";
-import { readVideoDefaults, videoDefaultsSchema, type VideoDefaults } from "@/lib/profile/defaults";
-import { DURATIONS, TONES, VOICES, type Tone } from "@/lib/project/schema";
+import { ASPECT_LABEL, CAPTION_STYLE_LABEL, CLIP_LENGTH_LABEL, LANGUAGE_HELP, LANGUAGE_LABEL } from "@/lib/clips/labels";
+import { ASPECTS, CAPTION_STYLES, CLIP_LENGTHS, LANGUAGES } from "@/lib/clips/schema";
+import { clipDefaultsSchema, readClipDefaults, type ClipDefaults } from "@/lib/profile/defaults";
 import styles from "./profile.module.css";
 
-const TONE_LABEL: Record<Tone, string> = { funny: "Funny", bold: "Bold", calm: "Calm", heartfelt: "Heartfelt", educational: "Educational" };
-
-/** Clerk's profile (name, photo, emails, password, sessions) plus Bamio's video defaults. */
+/** Clerk's profile (name, photo, emails, password, sessions) plus Bamio's clip defaults. */
 export function ProfileView() {
   return (
     <UserProfile path="/profile" routing="path">
-      <UserProfile.Page label="Video defaults" url="video-defaults" labelIcon={<FilmSlate size={16} />}>
-        <VideoDefaultsPage />
+      <UserProfile.Page label="Clip defaults" url="clip-defaults" labelIcon={<Scissors size={16} />}>
+        <ClipDefaultsPage />
       </UserProfile.Page>
     </UserProfile>
   );
 }
 
-function VideoDefaultsPage() {
+function ClipDefaultsPage() {
   const { user, isLoaded } = useUser();
   if (!isLoaded || !user) return <div className="skeleton" style={{ height: 320 }} aria-busy="true" />;
-  return <VideoDefaultsForm key={user.id} initial={readVideoDefaults(user.unsafeMetadata)} />;
+  return <ClipDefaultsForm key={user.id} initial={readClipDefaults(user.unsafeMetadata)} />;
 }
 
-function VideoDefaultsForm({ initial }: { initial: VideoDefaults }) {
+function ClipDefaultsForm({ initial }: { initial: ClipDefaults }) {
   const { user } = useUser();
   const toast = useToast();
-  const [values, setValues] = useState<VideoDefaults>(initial);
-  const [saved, setSaved] = useState<VideoDefaults>(initial);
+  const [values, setValues] = useState<ClipDefaults>(initial);
+  const [saved, setSaved] = useState<ClipDefaults>(initial);
   const [saving, setSaving] = useState(false);
   const id = useId();
   const dirty = JSON.stringify(values) !== JSON.stringify(saved);
-  const set = <K extends keyof VideoDefaults>(key: K, value: VideoDefaults[K]) => setValues((v) => ({ ...v, [key]: value }));
+  const set = <K extends keyof ClipDefaults>(key: K, value: ClipDefaults[K]) => setValues((v) => ({ ...v, [key]: value }));
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
     if (!user) return;
-    const parsed = videoDefaultsSchema.safeParse(values);
+    const parsed = clipDefaultsSchema.safeParse(values);
     if (!parsed.success) return;
     setSaving(true);
     try {
-      await user.update({ unsafeMetadata: { ...user.unsafeMetadata, bamioDefaults: parsed.data } });
+      await user.update({ unsafeMetadata: { ...user.unsafeMetadata, bamioClipDefaults: parsed.data } });
       setSaved(parsed.data);
-      toast({ tone: "success", title: "Video defaults saved", body: "New videos will start with these settings." });
+      toast({ tone: "success", title: "Clip defaults saved", body: "New imports will start with these settings." });
     } catch {
       toast({ tone: "error", title: "Couldn’t save your defaults", body: "Check your connection and try again." });
     } finally {
@@ -57,61 +56,70 @@ function VideoDefaultsForm({ initial }: { initial: VideoDefaults }) {
   return (
     <form className={styles.defaults} onSubmit={(e) => void save(e)}>
       <div className={styles.defaultsHead}>
-        <h2 className="t-heading-md">Video defaults</h2>
-        <p className="t-body-sm t-secondary">Every new video starts with these. You can still change them for each video.</p>
+        <h2 className="t-heading-md">Clip defaults</h2>
+        <p className="t-body-sm t-secondary">Every new import starts with these. You can still change them for each video and each clip.</p>
       </div>
 
       <div className="field">
+        <span className="field-label" id={`${id}-lang`}>
+          Spoken language
+        </span>
+        <div className="seg" role="group" aria-labelledby={`${id}-lang`}>
+          {LANGUAGES.map((l) => (
+            <button key={l} type="button" aria-pressed={values.language === l} onClick={() => set("language", l)}>
+              {LANGUAGE_LABEL[l]}
+            </button>
+          ))}
+        </div>
+        <p className="field-help">{LANGUAGE_HELP[values.language]}</p>
+      </div>
+
+      <label className="choice">
+        <input className="switch" type="checkbox" role="switch" name="findClips" checked={values.findClips} onChange={(e) => set("findClips", e.target.checked)} />
+        Find clips with AI after importing
+      </label>
+
+      <div className="field">
         <span className="field-label" id={`${id}-len`}>
-          Length
+          Clip length
         </span>
         <div className="seg" role="group" aria-labelledby={`${id}-len`}>
-          {DURATIONS.map((d) => (
-            <button key={d} type="button" aria-pressed={values.durationSec === d} onClick={() => set("durationSec", d)}>
-              {d} sec
+          {CLIP_LENGTHS.map((l) => (
+            <button key={l} type="button" aria-pressed={values.clipLength === l} onClick={() => set("clipLength", l)}>
+              {CLIP_LENGTH_LABEL[l]}
             </button>
           ))}
         </div>
       </div>
 
       <div className="field">
-        <span className="field-label" id={`${id}-tone`}>
-          Tone
+        <span className="field-label" id={`${id}-aspect`}>
+          Format
         </span>
-        <div className={styles.chips} role="group" aria-labelledby={`${id}-tone`}>
-          {TONES.map((t) => (
-            <button key={t} type="button" className="chip" aria-pressed={values.tone === t} onClick={() => set("tone", t)}>
-              {TONE_LABEL[t]}
+        <div className="seg" role="group" aria-labelledby={`${id}-aspect`}>
+          {ASPECTS.map((a) => (
+            <button key={a} type="button" aria-pressed={values.aspect === a} onClick={() => set("aspect", a)}>
+              {ASPECT_LABEL[a]}
             </button>
           ))}
         </div>
       </div>
 
       <label className="choice">
-        <input className="switch" type="checkbox" role="switch" name="voiceover" checked={values.voiceover} onChange={(e) => set("voiceover", e.target.checked)} />
-        AI voice-over
+        <input className="switch" type="checkbox" role="switch" name="captions" checked={values.captions} onChange={(e) => set("captions", e.target.checked)} />
+        Captions on new clips
       </label>
 
       <div className="field">
-        <label className="field-label" htmlFor={`${id}-voice`}>
-          Voice
-        </label>
-        <div className="select-wrap">
-          <select
-            id={`${id}-voice`}
-            className="select"
-            name="voice"
-            value={values.voice}
-            disabled={!values.voiceover}
-            onChange={(e) => set("voice", e.target.value as VideoDefaults["voice"])}
-          >
-            {VOICES.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.id}, {v.label.toLowerCase()}
-              </option>
-            ))}
-          </select>
-          <CaretDown size={16} aria-hidden />
+        <span className="field-label" id={`${id}-style`}>
+          Caption style
+        </span>
+        <div className={styles.chips} role="group" aria-labelledby={`${id}-style`}>
+          {CAPTION_STYLES.map((s) => (
+            <button key={s} type="button" className="chip" aria-pressed={values.captionStyle === s} disabled={!values.captions} onClick={() => set("captionStyle", s)}>
+              {CAPTION_STYLE_LABEL[s]}
+            </button>
+          ))}
         </div>
       </div>
 

@@ -1,0 +1,39 @@
+.frame {
+  position: relative; width: 100%; max-width: 340px; margin: 0 0 0 auto;
+  border-radius: var(--r-frame); overflow: hidden; background: var(--surface-sunken);
+  box-shadow: var(--shadow-3); transform: rotate(2deg);
+}
+.scene { position: relative; aspect-ratio: 9 / 16; container-type: inline-size; overflow: hidden;
+  background:
+    radial-gradient(120% 70% at 50% 28%, color-mix(in srgb, var(--volt) 18%, var(--surface-raised)) 0%, transparent 60%),
+    linear-gradient(180deg, var(--surface-raised) 0%, var(--surface-sunken) 100%);
+}
+.glow { position: absolute; left: 50%; top: 18%; width: 70%; aspect-ratio: 1; margin-left: -35%; border-radius: 50%; background: var(--volt); opacity: .12; filter: blur(40px); }
+/* A simple head-and-shoulders shape, standing in for the person on camera. */
+.subject { position: absolute; left: 50%; bottom: 0; width: 78%; height: 62%; margin-left: -39%; }
+.subject::before { content: ""; position: absolute; left: 50%; top: 0; width: 38%; aspect-ratio: 1 / 1.15; margin-left: -19%; border-radius: 50%; background: color-mix(in srgb, var(--text) 16%, var(--surface-sunken)); }
+.subject::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 58%; border-radius: 48% 48% 0 0; background: color-mix(in srgb, var(--text) 13%, var(--surface-sunken)); }
+.badge {
+  position: absolute; top: 5%; right: 6%; display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px;
+  border-radius: var(--r-pill); background: var(--volt); color: var(--on-volt); font: 700 12px/1 var(--font-mono);
+}
+.badge :global(.ai-mark) { box-shadow: inset 0 0 0 1.5px var(--ink); background: transparent; }
+.caption {
+  position: absolute; left: 8%; right: 8%; bottom: 24%; margin: 0; text-align: center;
+  font: 800 calc(70 * 100cqw / 1080)/1.25 var(--font-sans); color: #fff; letter-spacing: 0;
+  -webkit-text-stroke: calc(14 * 100cqw / 1080) #000; paint-order: stroke fill;
+}
+.past { color: #fff; }
+.now { display: inline-block; color: var(--volt); animation: pop var(--dur-base) var(--ease-pop) both; }
+.next { visibility: hidden; }
+@keyframes pop { from { transform: scale(.7); } to { transform: scale(1.1); } }
+.bar { position: absolute; left: 6%; right: 6%; bottom: 5%; height: 4px; border-radius: 2px; background: rgb(255 255 255 / .18); overflow: hidden; }
+.bar span { display: block; height: 100%; background: var(--volt); transition: width var(--dur-base) linear; }
+.control {
+  position: absolute; left: 12px; top: 12px;
+  background: rgb(18 18 18 / .72); color: var(--paper); border-color: rgb(255 255 255 / .28);
+}
+.control:hover { background: rgb(18 18 18 / .9); border-color: var(--paper); }
+
+@media (max-width: 1023px) { .frame { margin: 0 auto; transform: none; max-width: 300px; } }
+@media (prefers-reduced-motion: reduce) { .frame { transform: none; } .now { animation: none; transform: scale(1.1); } }

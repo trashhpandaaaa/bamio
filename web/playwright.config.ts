@@ -4,7 +4,8 @@ const PORT = Number(process.env.E2E_PORT ?? 3100);
 
 export default defineConfig({
   testDir: "./tests/e2e",
-  timeout: 120_000,
+  globalSetup: "./tests/e2e/global-setup.ts",
+  timeout: 180_000,
   expect: { timeout: 15_000 },
   fullyParallel: false,
   workers: 1,
@@ -20,7 +21,7 @@ export default defineConfig({
   },
   webServer: {
     command: `npx next dev -p ${PORT}`,
-    url: `http://localhost:${PORT}/api/ai/status`,
+    url: `http://localhost:${PORT}/`,
     // Next allows one dev server per project; reuse it if it is already running (in mock mode).
     reuseExistingServer: true,
     timeout: 120_000,
