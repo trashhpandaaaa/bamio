@@ -1,4 +1,4 @@
-import { OUTPUT_SIZE, type CaptionLine } from "@/lib/clips/logic";
+import { OUTPUT_SIZE, titleLines, wordGap, type CaptionLine } from "@/lib/clips/logic";
 import type { Aspect, CaptionPosition, CaptionStyle } from "@/lib/clips/schema";
 
 /*
@@ -48,6 +48,11 @@ export type AssOptions = {
   position: CaptionPosition;
   durationSec: number;
   title?: string;
+  /**
+   * Escapes text drawn at font size `size` (output pixels); the server's version also
+   * switches to the right font for other scripts (lib/server/caption-fonts.ts).
+   */
+  markup?: (text: string, size: number) => string;
 };
 
 /** Caption and title placement, as fractions of the output height (shared with the preview). */
@@ -55,10 +60,13 @@ export const captionMarginV = (aspect: Aspect, position: CaptionPosition) => (po
 export const TITLE_TOP = 0.08;
 export const MARGIN_H = 0.08;
 
-export function buildAss({ lines, aspect, style, position, durationSec, title }: AssOptions): string {
+export function buildAss({ lines, aspect, style, position, durationSec, title, markup = (t) => escapeAssText(t) }: AssOptions): string {
   const { width: W, height: H } = OUTPUT_SIZE[aspect];
   const unit = Math.min(W, H) / 1080;
   const px = (n: number) => Math.round(n * unit);
+  const captionSize = px(ASS_SIZES[style]);
+  /** Words joined as they read (no spaces in scripts written without them). */
+  const join = (texts: string[], words: { text: string }[]) => texts.reduce((acc, t, i) => (i === 0 ? t : acc + wordGap(words[i - 1]!.text, words[i]!.text) + t), "");
   const alignment = position === "middle" ? 5 : 2;
   const marginV = Math.round(H * captionMarginV(aspect, position));
   const marginH = Math.round(W * MARGIN_H);
@@ -72,25 +80,29 @@ export function buildAss({ lines, aspect, style, position, durationSec, title }:
 
   const events: string[] = [];
   if (title?.trim()) {
-    events.push(`Dialogue: 1,${assTime(0)},${assTime(durationSec)},Title,,0,0,0,,${escapeAssText(title.trim())}`);
+    const text = titleLines(title.trim())
+      .map((l) => markup(l, px(ASS_SIZES.title)))
+      .join("\\N");
+    events.push(`Dialogue: 1,${assTime(0)},${assTime(durationSec)},Title,,0,0,0,,${text}`);
   }
   for (const line of lines) {
     if (style === "pop") {
       line.words.forEach((word, i) => {
         const end = i + 1 < line.words.length ? line.words[i + 1]!.start : line.end;
         if (end <= word.start) return;
-        const text = line.words
-          .map((w, j) => {
-            const t = escapeAssText(w.text);
-            if (j < i) return t;
-            if (j === i) return `{\\c${VOLT}&\\fscx110\\fscy110}${t}{\\r}`;
-            return `{\\alpha&HFF&}${t}{\\r}`;
-          })
-          .join(" ");
-        events.push(`Dialogue: 0,${assTime(word.start)},${assTime(end)},Caption,,0,0,0,,${text}`);
+        const texts = line.words.map((w, j) => {
+          const t = markup(w.text, captionSize);
+          if (j < i) return t;
+          if (j === i) return `{\\c${VOLT}&\\fscx110\\fscy110}${t}{\\r}`;
+          return `{\\alpha&HFF&}${t}{\\r}`;
+        });
+        events.push(`Dialogue: 0,${assTime(word.start)},${assTime(end)},Caption,,0,0,0,,${join(texts, line.words)}`);
       });
     } else {
-      const text = line.words.map((w) => escapeAssText(w.text)).join(" ");
+      const text = join(
+        line.words.map((w) => markup(w.text, captionSize)),
+        line.words,
+      );
       events.push(`Dialogue: 0,${assTime(line.start)},${assTime(line.end)},Caption,,0,0,0,,${text}`);
     }
   }

@@ -4,8 +4,9 @@ import { UserProfile, useUser } from "@clerk/nextjs";
 import { Scissors } from "@phosphor-icons/react";
 import { useId, useState } from "react";
 import { useToast } from "@/components/toast";
-import { ASPECT_LABEL, CAPTION_STYLE_LABEL, CLIP_LENGTH_LABEL, LANGUAGE_HELP, LANGUAGE_LABEL } from "@/lib/clips/labels";
-import { ASPECTS, CAPTION_STYLES, CLIP_LENGTHS, LANGUAGES } from "@/lib/clips/schema";
+import { LanguageSelect } from "@/components/language-select";
+import { ASPECT_LABEL, CAPTION_STYLE_LABEL, CLIP_LENGTH_LABEL } from "@/lib/clips/labels";
+import { ASPECTS, CAPTION_STYLES, CLIP_LENGTHS } from "@/lib/clips/schema";
 import { clipDefaultsSchema, readClipDefaults, type ClipDefaults } from "@/lib/profile/defaults";
 import styles from "./profile.module.css";
 
@@ -60,19 +61,7 @@ function ClipDefaultsForm({ initial }: { initial: ClipDefaults }) {
         <p className="t-body-sm t-secondary">Every new import starts with these. You can still change them for each video and each clip.</p>
       </div>
 
-      <div className="field">
-        <span className="field-label" id={`${id}-lang`}>
-          Spoken language
-        </span>
-        <div className="seg" role="group" aria-labelledby={`${id}-lang`}>
-          {LANGUAGES.map((l) => (
-            <button key={l} type="button" aria-pressed={values.language === l} onClick={() => set("language", l)}>
-              {LANGUAGE_LABEL[l]}
-            </button>
-          ))}
-        </div>
-        <p className="field-help">{LANGUAGE_HELP[values.language]}</p>
-      </div>
+      <LanguageSelect value={values.language} onChange={(code) => set("language", code)} />
 
       <label className="choice">
         <input className="switch" type="checkbox" role="switch" name="findClips" checked={values.findClips} onChange={(e) => set("findClips", e.target.checked)} />

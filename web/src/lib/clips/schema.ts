@@ -8,10 +8,8 @@ export const FRAMINGS = ["crop", "fit"] as const;
 export const CAPTION_STYLES = ["pop", "clean", "boxed"] as const;
 export const CAPTION_POSITIONS = ["bottom", "middle"] as const;
 export const CLIP_LENGTHS = ["short", "medium", "long"] as const;
-/** Spoken language: English is transcribed on the device with word timing; other languages by Gemini. */
-export const LANGUAGES = ["en", "other"] as const;
 // "syncing" is no longer used; it stays so projects saved with it still load.
-export const JOB_STATUSES = ["queued", "uploading", "downloading", "preparing", "transcribing", "syncing", "finding", "ready", "failed"] as const;
+export const JOB_STATUSES = ["queued", "uploading", "downloading", "recording", "preparing", "transcribing", "syncing", "finding", "ready", "failed"] as const;
 export const EXPORT_STATUSES = ["queued", "rendering", "done", "failed"] as const;
 
 export const LIMITS = {
@@ -24,6 +22,8 @@ export const LIMITS = {
   maxClips: 60,
   maxMediaSec: 3 * 60 * 60,
   maxUploadBytes: 4 * 1024 ** 3,
+  /** Longest live recording from "now" onwards. */
+  maxLiveRecordSec: 60 * 60,
 } as const;
 
 /** Target clip length the AI aims for. */
@@ -36,7 +36,11 @@ export const CLIP_LENGTH_RANGE: Record<(typeof CLIP_LENGTHS)[number], { min: num
 export const platformSchema = z.enum(PLATFORMS);
 export const aspectSchema = z.enum(ASPECTS);
 export const clipLengthSchema = z.enum(CLIP_LENGTHS);
-export const languageSchema = z.enum(LANGUAGES);
+/**
+ * Spoken language: "auto" (detect it) or a code such as "en" or "hi" (see languages.ts).
+ * Every language is transcribed on the device. Older projects may say "other" (= auto).
+ */
+export const languageSchema = z.string().regex(/^(auto|other|[a-z]{2,3}(-[A-Za-z0-9]{2,8})?)$/, "Choose a language.");
 
 export const rangeSchema = z
   .object({ start: z.number().min(0), end: z.number().positive() })
@@ -105,6 +109,20 @@ export const sourceSchema = z.object({
   hasAudio: z.boolean(),
   /** The part of the original video that was imported, if not all of it. */
   range: z.object({ start: z.number(), end: z.number() }).optional(),
+  /** Set when the import was captured from a live stream. */
+  live: z
+    .object({
+      /** Seconds before `requestedAt` to include, and seconds after it to keep recording. */
+      rewindSec: z.number().min(0),
+      recordSec: z.number().min(0),
+      requestedAt: z.number(),
+      /** Twitch: the stream's in-progress VOD and its length when the capture was requested. */
+      vodUrl: z.string().max(2000).optional(),
+      vodDurationSec: z.number().min(0).optional(),
+      /** The part of the VOD that was captured, once known (lets a failed download be retried). */
+      vodRange: z.object({ start: z.number(), end: z.number() }).optional(),
+    })
+    .optional(),
 });
 
 export const jobSchema = z.object({
@@ -129,8 +147,10 @@ export const projectSchema = z.object({
   job: jobSchema,
   findClips: z.boolean(),
   clipLength: clipLengthSchema,
-  /** Spoken language; missing on older projects, which were English or auto-detected by Gemini. */
+  /** The spoken language asked for ("auto" to detect it); missing on older projects (English). */
   language: languageSchema.optional(),
+  /** The language the transcript is in: the one asked for, or the one detected. */
+  spokenLanguage: z.string().max(20).optional(),
   /** The look new clips start with. */
   defaultEdit: clipEditSchema,
   hasTranscript: z.boolean(),
@@ -177,11 +197,12 @@ export function isJobActive(status: JobStatus): boolean {
 }
 
 /**
- * True for English projects whose transcript wasn't made on the device (older projects):
- * their caption timing can be off, and "Transcribe again" fixes it.
+ * True for projects whose transcript wasn't made on the device (older projects, and
+ * languages other than English before every language was): their caption timing can be
+ * off, and "Transcribe again" fixes it.
  */
-export function needsRetranscribe(p: Pick<Project, "hasTranscript" | "transcriptEngine" | "language" | "source">): boolean {
-  return p.hasTranscript && p.source.hasAudio && p.transcriptEngine !== "device" && p.language !== "other";
+export function needsRetranscribe(p: Pick<Project, "hasTranscript" | "transcriptEngine" | "source">): boolean {
+  return p.hasTranscript && p.source.hasAudio && p.transcriptEngine !== "device";
 }
 
 /* ------------------------------ Requests ------------------------------ */
@@ -191,6 +212,8 @@ export const inspectRequestSchema = z.object({ url: z.string().trim().min(1).max
 export const createFromUrlSchema = z.object({
   url: z.string().trim().min(1).max(2000),
   range: rangeSchema.optional(),
+  /** For a live stream: how far back to start and how long to keep recording, in seconds. */
+  live: z.object({ rewindSec: z.number().min(0).max(LIMITS.maxMediaSec), recordSec: z.number().min(0).max(LIMITS.maxLiveRecordSec) }).optional(),
   findClips: z.boolean(),
   clipLength: clipLengthSchema,
   language: languageSchema.optional(),
@@ -244,6 +267,12 @@ export type InspectResult = {
   uploader?: string;
   durationSec: number;
   thumbnail?: string;
+  /**
+   * Present when the link is a live stream. `rewindSec` is how far back it can be captured:
+   * a Twitch stream with past broadcasts on can go back to its start; other streams only
+   * hold the last few seconds (included automatically).
+   */
+  live?: { rewindSec: number; canRewind: boolean; startedAt?: number };
 };
 
 export type SystemStatus = {

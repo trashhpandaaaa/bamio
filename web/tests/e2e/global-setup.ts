@@ -5,7 +5,7 @@ import path from "node:path";
 import { createClerkClient } from "@clerk/backend";
 import { clerkSetup } from "@clerk/testing/playwright";
 import { loadEnvConfig } from "@next/env";
-import { ensureModels } from "../../workers/speech-models.mjs";
+import { ensureModels, modelChoice, modelKey } from "../../workers/speech-models.mjs";
 import { E2E_EMAIL, E2E_USERNAME, SAMPLE_VIDEO } from "./auth";
 
 /*
@@ -14,13 +14,14 @@ import { E2E_EMAIL, E2E_USERNAME, SAMPLE_VIDEO } from "./auth";
  * 2. Fetches a Clerk testing token so automated browsers pass bot protection.
  * 3. Makes sure the e2e test user exists in the development instance.
  * 4. Generates the sample video the upload tests use (40 s, 1280x720, with speech), and makes
- *    sure the on-device speech models are downloaded (English is transcribed for real, even
- *    with mock AI).
+ *    sure the on-device speech models it needs are downloaded (English is transcribed for
+ *    real, even with mock AI).
  */
 export default async function globalSetup() {
   loadEnvConfig(process.cwd());
   makeSampleVideo();
-  await ensureModels(process.env.BAMIO_MODELS_DIR || path.join(process.cwd(), ".models"));
+  // English, and Whisper to detect the language (new imports detect it by default).
+  await ensureModels(process.env.BAMIO_MODELS_DIR || path.join(process.cwd(), ".models"), [modelKey("english", modelChoice()), "lid"]);
   const secretKey = process.env.CLERK_SECRET_KEY;
   const publishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
   if (!secretKey || !publishableKey) {

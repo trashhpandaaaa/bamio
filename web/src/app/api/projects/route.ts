@@ -1,7 +1,8 @@
 import { createFromUrlSchema, LIMITS } from "@/lib/clips/schema";
 import { HttpError, readJson, userRoute } from "@/lib/server/http";
 import { assertDiskSpace, plannedStages, startImport } from "@/lib/server/jobs";
-import { inspectCached } from "@/lib/server/media";
+import { liveCaptureProblem } from "@/lib/clips/live";
+import { inspectLink, liveInfo } from "@/lib/server/live";
 import { blankProject, createProject, listProjects } from "@/lib/server/store";
 
 export const GET = userRoute(async (_req, { userId }) => Response.json(await listProjects(userId)));
@@ -10,7 +11,42 @@ export const GET = userRoute(async (_req, { userId }) => Response.json(await lis
 export const POST = userRoute(
   async (req, { userId }) => {
     const input = await readJson(req, createFromUrlSchema);
-    const info = await inspectCached(input.url);
+    const info = await inspectLink(input.url);
+
+    if (info.live) {
+      if (!input.live) throw new HttpError(400, "live_options", "This stream is live. Choose how much of it to capture.");
+      // Fresh details: a Twitch VOD keeps growing, and the capture is measured from now.
+      const live = await liveInfo(info.url, info.platform);
+      const problem = liveCaptureProblem(input.live.rewindSec, input.live.recordSec, live);
+      if (problem) throw new HttpError(400, "bad_capture", problem);
+      const draft = blankProject({
+        title: info.title,
+        source: {
+          kind: "url",
+          url: info.url,
+          platform: info.platform,
+          title: info.title,
+          uploader: info.uploader,
+          durationSec: input.live.rewindSec + input.live.recordSec,
+          live: {
+            rewindSec: input.live.rewindSec,
+            recordSec: input.live.recordSec,
+            requestedAt: Date.now(),
+            vodUrl: live.vod?.url,
+            vodDurationSec: live.vod?.durationSec,
+          },
+        },
+        findClips: input.findClips,
+        clipLength: input.clipLength,
+        language: input.language,
+        edit: input.edit,
+        job: { status: "queued", message: "Waiting to start" },
+      });
+      const project = { ...draft, job: { ...draft.job, stages: plannedStages(draft) } };
+      await createProject(userId, project);
+      startImport(userId, project.id);
+      return Response.json(project, { status: 201 });
+    }
 
     let range = input.range;
     if (range) {

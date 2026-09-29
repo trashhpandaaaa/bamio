@@ -1,6 +1,7 @@
 import "server-only";
 import { z } from "zod";
 import { formatTimecode, normalizeClips, parseTimecode, type RawClip } from "@/lib/clips/logic";
+import { languageName } from "@/lib/clips/languages";
 import { CLIP_LENGTH_RANGE, LIMITS, type ClipLength, type Segment } from "@/lib/clips/schema";
 import { generateJson, isMock } from "@/lib/ai/server/gemini";
 
@@ -145,6 +146,8 @@ export async function findHighlights(opts: {
   durationSec: number;
   clipLength: ClipLength;
   title: string;
+  /** The transcript's language code, when known. */
+  language?: string;
   avoid?: { start: number; end: number }[];
   signal?: AbortSignal;
 }): Promise<RawClip[]> {
@@ -160,6 +163,7 @@ export async function findHighlights(opts: {
     prompt: [
       `Video title: ${opts.title}`,
       `Length: ${opts.durationSec.toFixed(0)} seconds.`,
+      opts.language ? `Spoken language: ${languageName(opts.language)}. The transcript may be lowercase and without punctuation; read it for meaning.` : "",
       `Find up to ${target} of the best clips, each ${range.min} to ${range.max} seconds long. Fewer is fine if the video has fewer strong moments.`,
       "Start and end every clip on the phrase boundaries in the transcript. Clips must not overlap.",
       avoid ? `The user already has clips at ${avoid}. Do not pick those moments again.` : "",

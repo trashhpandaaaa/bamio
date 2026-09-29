@@ -1,16 +1,18 @@
 "use client";
 
 import { useUser } from "@clerk/nextjs";
-import { CloudArrowUp, FilmStrip, Info, LinkSimple, WarningCircle, X } from "@phosphor-icons/react";
+import { CaretDown, CloudArrowUp, FilmStrip, Info, LinkSimple, WarningCircle, X } from "@phosphor-icons/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
 import { PlatformIcon } from "@/components/platform-icon";
 import { useToast } from "@/components/toast";
 import { useSystemStatus } from "@/hooks/use-project";
 import { api, ApiError, uploadFile } from "@/lib/clips/api";
-import { ASPECT_LABEL, CAPTION_STYLE_LABEL, CLIP_LENGTH_LABEL, formatBytes, LANGUAGE_HELP, LANGUAGE_LABEL } from "@/lib/clips/labels";
+import { LanguageSelect } from "@/components/language-select";
+import { ASPECT_LABEL, CAPTION_STYLE_LABEL, CLIP_LENGTH_LABEL, formatBytes } from "@/lib/clips/labels";
+import { formatSpan, liveCaptureProblem, RECORD_CHOICES, REWIND_CHOICES } from "@/lib/clips/live";
 import { formatTimecode, parseTimecode } from "@/lib/clips/logic";
-import { ASPECTS, CAPTION_STYLES, CLIP_LENGTHS, LANGUAGES, LIMITS, type InspectResult } from "@/lib/clips/schema";
+import { ASPECTS, CAPTION_STYLES, CLIP_LENGTHS, LIMITS, type InspectResult } from "@/lib/clips/schema";
 import { parseVideoUrl, PLATFORM_LABEL } from "@/lib/clips/url";
 import { FALLBACK_DEFAULTS, readClipDefaults, type ClipDefaults } from "@/lib/profile/defaults";
 import styles from "./import.module.css";
@@ -43,6 +45,8 @@ function ImportForm({ defaults }: { defaults: ClipDefaults }) {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [upload, setUpload] = useState<Upload | null>(null);
+  const [rewind, setRewind] = useState(0);
+  const [record, setRecord] = useState(300);
   const uploadAbort = useRef<AbortController | null>(null);
 
   const aiOn = status?.ai.configured !== false;
@@ -60,7 +64,11 @@ function ImportForm({ defaults }: { defaults: ClipDefaults }) {
         .inspect(text, controller.signal)
         .then((info) => {
           setInspect({ state: "ok", url: text, info });
-          if (info.durationSec > LIMITS.maxMediaSec) {
+          if (info.live) {
+            // Streams that can rewind (Twitch) default to "what just happened"; others record 5 min.
+            setRewind(info.live.canRewind ? Math.min(300, info.live.rewindSec) : 0);
+            setRecord(info.live.canRewind ? 0 : 300);
+          } else if (info.durationSec > LIMITS.maxMediaSec) {
             setUsePart(true);
             setPartStart("0:00");
             setPartEnd(formatTimecode(LIMITS.maxMediaSec));
@@ -87,7 +95,8 @@ function ImportForm({ defaults }: { defaults: ClipDefaults }) {
 
   const urlCheck = urlText.trim() ? parseVideoUrl(urlText) : null;
   const info = inspect.state === "ok" && inspect.url === urlText.trim() ? inspect.info : null;
-  const tooLong = info ? info.durationSec > LIMITS.maxMediaSec : false;
+  const tooLong = info && !info.live ? info.durationSec > LIMITS.maxMediaSec : false;
+  const liveProblem = info?.live ? liveCaptureProblem(rewind, record, info.live) : null;
   const edit = { aspect: options.aspect, captions: options.captions, captionStyle: options.captionStyle };
   const findClips = options.findClips && aiOn;
 
@@ -106,6 +115,25 @@ function ImportForm({ defaults }: { defaults: ClipDefaults }) {
 
   async function submitLink() {
     if (!info) return;
+    if (info.live) {
+      if (liveProblem) return setFormError(liveProblem);
+      setSubmitting(true);
+      try {
+        const project = await api.createFromUrl({
+          url: info.url,
+          live: { rewindSec: rewind, recordSec: record },
+          findClips,
+          clipLength: options.clipLength,
+          language: options.language,
+          edit,
+        });
+        router.push(`/projects/${project.id}`);
+      } catch (err) {
+        setSubmitting(false);
+        setFormError(err instanceof Error ? err.message : "Couldn’t start the capture.");
+      }
+      return;
+    }
     const range = partRange();
     if (typeof range === "string") return setFormError(range);
     if (tooLong && !range) return setFormError("This video is longer than 3 hours. Choose a part of it to import.");
@@ -237,7 +265,7 @@ function ImportForm({ defaults }: { defaults: ClipDefaults }) {
                   </p>
                 ) : (
                   <p className="field-help" id={`${id}-url-help`}>
-                    Videos, VODs and clips. Live streams can be clipped once the replay is up.
+                    Videos, VODs, clips and live streams.
                   </p>
                 )}
               </div>
@@ -262,7 +290,11 @@ function ImportForm({ defaults }: { defaults: ClipDefaults }) {
                     ) : (
                       <FilmStrip size={28} aria-hidden />
                     )}
-                    <span className={styles.previewDur}>{formatTimecode(info.durationSec)}</span>
+                    {info.live ? (
+                      <span className={`badge is-live ${styles.previewLive}`}>Live</span>
+                    ) : (
+                      <span className={styles.previewDur}>{formatTimecode(info.durationSec)}</span>
+                    )}
                   </div>
                   <div className={styles.previewText}>
                     <p className={styles.previewTitle}>{info.title}</p>
@@ -271,12 +303,25 @@ function ImportForm({ defaults }: { defaults: ClipDefaults }) {
                         <PlatformIcon platform={info.platform} size={14} /> {PLATFORM_LABEL[info.platform]}
                       </span>
                       {info.uploader ? <span>{info.uploader}</span> : null}
+                      {info.live && info.durationSec > 0 ? <span>Streaming for {formatSpan(info.durationSec)}</span> : null}
                     </p>
                   </div>
                 </div>
               ) : null}
 
-              {info ? (
+              {info?.live ? (
+                <LiveCapture
+                  live={info.live}
+                  rewind={rewind}
+                  record={record}
+                  onRewind={setRewind}
+                  onRecord={setRecord}
+                  disabled={submitting}
+                  problem={liveProblem}
+                />
+              ) : null}
+
+              {info && !info.live ? (
                 <div className={styles.part}>
                   <label className="choice">
                     <input className="switch" type="checkbox" role="switch" checked={usePart} disabled={submitting || tooLong} onChange={(e) => setUsePart(e.target.checked)} />
@@ -383,19 +428,7 @@ function ImportForm({ defaults }: { defaults: ClipDefaults }) {
         <aside className={styles.options} aria-label="Clip settings">
           <h2 className="t-heading-sm">Clip settings</h2>
 
-          <div className="field">
-            <span className="field-label" id={`${id}-lang`}>
-              Spoken language
-            </span>
-            <div className="seg" role="group" aria-labelledby={`${id}-lang`}>
-              {LANGUAGES.map((l) => (
-                <button key={l} type="button" aria-pressed={options.language === l} disabled={submitting} onClick={() => set("language", l)}>
-                  {LANGUAGE_LABEL[l]}
-                </button>
-              ))}
-            </div>
-            <p className="field-help">{options.language === "other" && !aiOn ? "Other languages are transcribed by Gemini, which is off on this server." : LANGUAGE_HELP[options.language]}</p>
-          </div>
+          <LanguageSelect value={options.language} disabled={submitting} onChange={(code) => set("language", code)} />
 
           <div className="field">
             <label className="choice">
@@ -454,10 +487,104 @@ function ImportForm({ defaults }: { defaults: ClipDefaults }) {
           ) : null}
 
           <button className="btn btn-volt btn-lg" type="submit" disabled={!canSubmit} aria-busy={submitting}>
-            {submitting ? (mode === "upload" ? "Uploading…" : "Starting…") : findClips ? "Import and find clips" : "Import"}
+            {submitting
+              ? mode === "upload"
+                ? "Uploading…"
+                : "Starting…"
+              : mode === "link" && info?.live
+                ? record > 0
+                  ? "Start recording"
+                  : "Capture"
+                : findClips
+                  ? "Import and find clips"
+                  : "Import"}
           </button>
         </aside>
       </form>
     </main>
+  );
+}
+
+/** How much of a live stream to capture: how far back to start (if the stream allows) and how long to keep recording. */
+function LiveCapture({
+  live,
+  rewind,
+  record,
+  onRewind,
+  onRecord,
+  disabled,
+  problem,
+}: {
+  live: NonNullable<InspectResult["live"]>;
+  rewind: number;
+  record: number;
+  onRewind: (s: number) => void;
+  onRecord: (s: number) => void;
+  disabled: boolean;
+  problem: string | null;
+}) {
+  const id = useId();
+  const rewindChoices: number[] = REWIND_CHOICES.filter((s) => s <= live.rewindSec);
+  // Offer the whole stream so far when it fits in one capture.
+  if (live.canRewind && live.rewindSec <= LIMITS.maxMediaSec && !rewindChoices.includes(live.rewindSec)) rewindChoices.push(live.rewindSec);
+  const recordChoices = RECORD_CHOICES.filter((s) => s > 0 || (live.canRewind && rewind > 0));
+  const summary = live.canRewind
+    ? rewind > 0 && record > 0
+      ? `Captures from ${formatSpan(rewind)} ago until ${formatSpan(record)} from now.`
+      : rewind > 0
+        ? `Captures the last ${formatSpan(rewind)}.`
+        : `Records the next ${formatSpan(record)}.`
+    : `Records the next ${formatSpan(record)}, plus the last few seconds the stream still has.`;
+
+  return (
+    <div className={styles.live}>
+      <p className={styles.liveTitle}>
+        <span className="badge is-live">Live now</span> Capture part of the stream
+      </p>
+      <div className={styles.liveRow}>
+        {live.canRewind ? (
+          <div className="field">
+            <label className="field-label" htmlFor={`${id}-rewind`}>
+              Start from
+            </label>
+            <div className="select-wrap">
+              <select id={`${id}-rewind`} className="select" value={rewind} disabled={disabled} onChange={(e) => onRewind(Number(e.target.value))}>
+                {rewindChoices.map((s) => (
+                  <option key={s} value={s}>
+                    {s === 0 ? "Now" : s === live.rewindSec && s > 3600 ? `The start of the stream (${formatSpan(s)} ago)` : s === live.rewindSec ? "The start of the stream" : `${formatSpan(s)} ago`}
+                  </option>
+                ))}
+              </select>
+              <CaretDown size={16} aria-hidden />
+            </div>
+          </div>
+        ) : null}
+        <div className="field">
+          <label className="field-label" htmlFor={`${id}-record`}>
+            Keep recording for
+          </label>
+          <div className="select-wrap">
+            <select id={`${id}-record`} className="select" value={record} disabled={disabled} onChange={(e) => onRecord(Number(e.target.value))}>
+              {recordChoices.map((s) => (
+                <option key={s} value={s}>
+                  {s === 0 ? "Stop at now" : formatSpan(s)}
+                </option>
+              ))}
+            </select>
+            <CaretDown size={16} aria-hidden />
+          </div>
+        </div>
+      </div>
+      {problem ? (
+        <p className="field-error" role="alert">
+          <WarningCircle size={14} weight="fill" aria-hidden /> {problem}
+        </p>
+      ) : (
+        <p className="field-help">
+          {summary} {record > 0 ? "You can stop the recording early." : ""}
+          {!live.canRewind ? " This stream keeps only a few seconds of history, so start recording before the moment you want." : ""}
+        </p>
+      )}
+    </div>
   );
 }

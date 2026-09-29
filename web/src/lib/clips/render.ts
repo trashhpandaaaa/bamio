@@ -33,7 +33,8 @@ export function renderFilter(plan: Pick<RenderPlan, "srcW" | "srcH" | "edit" | "
       `[bg][fg]overlay=(main_w-overlay_w)/2:(main_h-overlay_h)/2,setsar=1[base]`,
     );
   }
-  chain.push(plan.subtitles ? `[base]subtitles=subs.ass:fontsdir=fonts,format=yuv420p[v]` : `[base]format=yuv420p[v]`);
+  // Complex shaping: without it libass draws Indic scripts without their conjuncts.
+  chain.push(plan.subtitles ? `[base]ass=subs.ass:fontsdir=fonts:shaping=complex,format=yuv420p[v]` : `[base]format=yuv420p[v]`);
   return chain.join(";");
 }
 

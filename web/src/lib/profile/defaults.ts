@@ -16,7 +16,7 @@ export const clipDefaultsSchema = z.object({
 
 export type ClipDefaults = z.infer<typeof clipDefaultsSchema>;
 
-export const FALLBACK_DEFAULTS: ClipDefaults = { language: "en", findClips: true, clipLength: "medium", aspect: "9:16", captions: true, captionStyle: "pop" };
+export const FALLBACK_DEFAULTS: ClipDefaults = { language: "auto", findClips: true, clipLength: "medium", aspect: "9:16", captions: true, captionStyle: "pop" };
 
 /** Read saved defaults from user metadata, falling back field by field when missing or invalid. */
 export function readClipDefaults(unsafeMetadata: unknown): ClipDefaults {
@@ -27,8 +27,10 @@ export function readClipDefaults(unsafeMetadata: unknown): ClipDefaults {
     const parsed = clipDefaultsSchema.shape[key].safeParse(record[key]);
     return parsed.success ? (parsed.data as ClipDefaults[K]) : FALLBACK_DEFAULTS[key];
   };
+  const language = pick("language");
   return {
-    language: pick("language"),
+    // "other" was the choice for any language but English; now that's detected automatically.
+    language: language === "other" ? "auto" : language,
     findClips: pick("findClips"),
     clipLength: pick("clipLength"),
     aspect: pick("aspect"),

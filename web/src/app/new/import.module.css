@@ -23,6 +23,10 @@
 .previewTitle { margin: 0; font: var(--t-heading-sm); letter-spacing: -.01em; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 
 .part { display: grid; gap: 12px; }
+.previewLive { position: absolute; left: 6px; top: 6px; }
+.live { display: grid; gap: 12px; padding: 16px; border-radius: var(--r-lg); background: var(--surface); border: 1px solid var(--line); }
+.liveTitle { display: flex; align-items: center; gap: 10px; margin: 0; font: var(--t-label); }
+.liveRow { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
 .partRow { display: grid; grid-template-columns: 140px 140px minmax(0, 1fr); gap: 12px; align-items: end; }
 .partRow :global(.field-help) { margin-bottom: 12px; }
 .time { font: var(--t-mono); font-size: 15px; }

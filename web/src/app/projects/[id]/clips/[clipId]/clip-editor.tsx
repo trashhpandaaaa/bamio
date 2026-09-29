@@ -350,6 +350,7 @@ function Editor({ project, clip, setProject }: { project: Project; clip: Clip; s
               edit={draft.edit}
               lines={lines}
               title={title}
+              language={transcript?.language ?? project.spokenLanguage}
               onTime={setTime}
               onPlaying={setPlaying}
               onFocusX={(focusX) => setEdit({ focusX: Math.round(focusX * 1000) / 1000 })}
@@ -531,6 +532,8 @@ function Editor({ project, clip, setProject }: { project: Project; clip: Clip; s
                           <input
                             className="input"
                             defaultValue={p.text}
+                            lang={transcript?.language ?? project.spokenLanguage}
+                            dir="auto"
                             maxLength={LIMITS.captionText}
                             aria-label={`Caption at ${formatTimecode(p.start)}`}
                             onBlur={(e) => void saveSegment(p.index, e.target.value)}
@@ -589,10 +592,9 @@ function Editor({ project, clip, setProject }: { project: Project; clip: Clip; s
   );
 }
 
-/** Whether caption timing is measured from the audio, with a way to do it for older projects. */
 /**
- * Caption timing: word-accurate when transcribed on this device. Older projects (and other
- * languages, transcribed by Gemini) have approximate timing; English ones can be redone here.
+ * Caption timing: word-accurate when transcribed on this device. Older projects (transcribed
+ * by Gemini) have approximate timing, and can be transcribed again here.
  */
 function TranscriptStatus({ project, onRetranscribe }: { project: Project; onRetranscribe: () => void }) {
   const working = project.job.status === "transcribing" || (project.job.status === "queued" && project.job.stages?.includes("transcribing"));
@@ -607,7 +609,6 @@ function TranscriptStatus({ project, onRetranscribe }: { project: Project; onRet
       </div>
     );
   }
-  if (project.language === "other") return <p className="field-help">Caption timing is approximate for videos in languages other than English.</p>;
   if (!needsRetranscribe(project)) return null;
   return (
     <div className={styles.sync}>

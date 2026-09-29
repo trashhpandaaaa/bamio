@@ -50,7 +50,8 @@ function requireYtdlp() {
   }
 }
 
-const ytdlpBase = () => ["--no-playlist", "--no-warnings", "--ignore-config", "--js-runtimes", `node:${process.execPath}`];
+/** Arguments every yt-dlp call uses. */
+export const ytdlpArgs = () => ["--no-playlist", "--no-warnings", "--ignore-config", "--js-runtimes", `node:${process.execPath}`];
 
 /** Turn yt-dlp's stderr into a message the user can act on. */
 export function explainYtdlpError(stderr: string): string {
@@ -83,6 +84,8 @@ type YtdlpInfo = {
   is_live?: boolean;
   live_status?: string;
   webpage_url?: string;
+  release_timestamp?: number;
+  timestamp?: number;
 };
 
 /** Read a link's title, length and thumbnail without downloading it. */
@@ -91,7 +94,7 @@ export async function inspectUrl(input: string, signal?: AbortSignal): Promise<I
   requireYtdlp();
   let stdout: string;
   try {
-    ({ stdout } = await run("yt-dlp", [...ytdlpBase(), "-J", "--skip-download", "--", url.href], {
+    ({ stdout } = await run("yt-dlp", [...ytdlpArgs(), "-J", "--skip-download", "--", url.href], {
       signal,
       timeoutMs: 60_000,
       collectStdout: 30 * 1024 * 1024,
@@ -110,12 +113,17 @@ export async function inspectUrl(input: string, signal?: AbortSignal): Promise<I
   if (info._type === "playlist" || info._type === "multi_video") {
     throw new HttpError(422, "playlist", "That’s a playlist. Paste the link to one video.");
   }
-  if (info.is_live || info.live_status === "is_live" || info.live_status === "post_live") {
-    throw new HttpError(422, "live", "That stream is still live. Clip it once the replay (VOD) is ready.");
+  if (info.live_status === "post_live") {
+    throw new HttpError(422, "post_live", "That stream just ended. Its replay should be ready in a few minutes.");
   }
   if (info.live_status === "is_upcoming") throw new HttpError(422, "upcoming", "That video hasn’t started yet.");
-  const durationSec = Number(info.duration);
-  if (!Number.isFinite(durationSec) || durationSec <= 0) {
+  const isLive = info.is_live === true || info.live_status === "is_live";
+  const startedAt = isLive ? (info.release_timestamp ?? info.timestamp) : undefined;
+  let durationSec = Number(info.duration);
+  if (isLive) {
+    // A live stream's length is how long it has been running (if the site says).
+    durationSec = startedAt ? Math.max(0, Date.now() / 1000 - startedAt) : 0;
+  } else if (!Number.isFinite(durationSec) || durationSec <= 0) {
     throw new HttpError(422, "no_duration", "Bamio couldn’t tell how long that video is, so it can’t be imported.");
   }
   const title = (info.title ?? info.fulltitle ?? "").trim() || "Untitled video";
@@ -128,21 +136,29 @@ export async function inspectUrl(input: string, signal?: AbortSignal): Promise<I
     uploader: (info.channel ?? info.uploader)?.slice(0, 200),
     durationSec,
     thumbnail: thumb,
+    // Twitch rewind is filled in by lib/server/live.ts (inspectLink).
+    live: isLive ? { rewindSec: 30, canRewind: false, startedAt: startedAt ? startedAt * 1000 : undefined } : undefined,
   };
 }
 
-type CachedInspect = { at: number; result: Promise<InspectResult> };
+type CachedInspect = { at: number; ttl: number; result: Promise<InspectResult> };
 const inspectCache: Map<string, CachedInspect> = ((globalThis as { __bamioInspect?: Map<string, CachedInspect> }).__bamioInspect ??= new Map());
 
-/** inspectUrl, remembered for 10 minutes so the import step doesn't ask the site twice. */
+/**
+ * inspectUrl, remembered for 10 minutes (live streams: 1 minute, they change) so the
+ * import step doesn't ask the site twice.
+ */
 export function inspectCached(input: string): Promise<InspectResult> {
   const key = input.trim();
   const now = Date.now();
   const hit = inspectCache.get(key);
-  if (hit && now - hit.at < 10 * 60 * 1000) return hit.result;
+  if (hit && now - hit.at < hit.ttl) return hit.result;
   const result = inspectUrl(key);
-  inspectCache.set(key, { at: now, result });
-  result.catch(() => inspectCache.delete(key));
+  const entry: CachedInspect = { at: now, ttl: 10 * 60 * 1000, result };
+  inspectCache.set(key, entry);
+  result.then((r) => {
+    if (r.live) entry.ttl = 60_000;
+  }, () => inspectCache.delete(key));
   if (inspectCache.size > 300) {
     for (const [k, v] of inspectCache) if (now - v.at > 10 * 60 * 1000) inspectCache.delete(k);
   }
@@ -156,7 +172,15 @@ export function inspectCached(input: string): Promise<InspectResult> {
 export async function downloadUrl(
   url: string,
   dir: string,
-  opts: { range?: { start: number; end: number }; signal?: AbortSignal; onProgress?: (p: number | null) => void },
+  opts: {
+    range?: { start: number; end: number };
+    /** Cut exactly at the range (re-encodes around the cuts). Off: cut at the nearest segment, much faster. */
+    precise?: boolean;
+    /** Extra yt-dlp options (for example --live-from-start for a VOD that is still being recorded). */
+    extraArgs?: string[];
+    signal?: AbortSignal;
+    onProgress?: (p: number | null) => void;
+  },
 ): Promise<string> {
   await checkPublicUrl(url);
   requireYtdlp();
@@ -165,7 +189,7 @@ export async function downloadUrl(
   await mkdir(dir, { recursive: true });
 
   const args = [
-    ...ytdlpBase(),
+    ...ytdlpArgs(),
     "--newline",
     "--no-mtime",
     "--ffmpeg-location",
@@ -183,7 +207,11 @@ export async function downloadUrl(
     "-o",
     "download.%(ext)s",
   ];
-  if (opts.range) args.push("--download-sections", `*${opts.range.start.toFixed(2)}-${opts.range.end.toFixed(2)}`, "--force-keyframes-at-cuts");
+  if (opts.extraArgs) args.push(...opts.extraArgs);
+  if (opts.range) {
+    args.push("--download-sections", `*${opts.range.start.toFixed(2)}-${opts.range.end.toFixed(2)}`);
+    if (opts.precise !== false) args.push("--force-keyframes-at-cuts");
+  }
   args.push("--", url);
 
   // Separate video and audio downloads each report 0 to 100%; fold them into one rising number.
@@ -265,7 +293,8 @@ export async function probe(file: string, signal?: AbortSignal): Promise<Probe> 
     rotation === 0 &&
     Math.max(rawW, rawH) <= 3840 &&
     (!audio || audio.codec_name === "aac") &&
-    /mp4|mov/.test(container);
+    // Recorded live streams are MPEG-TS: H.264/AAC in TS copies into MP4 without re-encoding.
+    /mp4|mov|mpegts/.test(container);
   return {
     durationSec: Number.isFinite(durationSec) ? durationSec : 0,
     width: rotation === 90 ? rawH : rawW,
@@ -288,12 +317,24 @@ function ffmpegProgress(durationSec: number, onProgress?: (p: number) => void) {
 /**
  * Make a browser-playable MP4 with its index at the front (so seeking works while
  * streaming). Remuxes when the codecs already fit, otherwise re-encodes to H.264/AAC.
+ * `live`: a recorded live stream, whose audio is re-timed (see below).
  */
-export async function prepareSource(input: string, output: string, info: Probe, opts: { signal?: AbortSignal; onProgress?: (p: number) => void }) {
+export async function prepareSource(
+  input: string,
+  output: string,
+  info: Probe,
+  opts: { live?: boolean; signal?: AbortSignal; onProgress?: (p: number) => void },
+) {
   const tmp = `${output}.part.mp4`;
   const common = ["-hide_banner", "-nostdin", "-y", "-i", input, "-map", "0:v:0", ...(info.hasAudio ? ["-map", "0:a:0"] : [])];
+  // A live recording's audio can repeat or skip a moment where the stream's segments join,
+  // and can start after the picture. Copied as is, the sound after a repeat plays late, so
+  // it is re-encoded against its timestamps (repeats dropped, gaps and the start filled with silence).
+  const audio = info.hasAudio ? [...(opts.live ? ["-af", "aresample=async=1:first_pts=0"] : []), "-c:a", "aac", "-b:a", "160k", "-ac", "2"] : [];
   const encode = info.webSafe
-    ? ["-c", "copy"]
+    ? opts.live
+      ? ["-c:v", "copy", ...audio]
+      : ["-c", "copy"]
     : [
         "-vf",
         "scale='min(iw,1920)':'min(ih,1920)':force_original_aspect_ratio=decrease:force_divisible_by=2,format=yuv420p",
@@ -303,7 +344,7 @@ export async function prepareSource(input: string, output: string, info: Probe, 
         "veryfast",
         "-crf",
         "20",
-        ...(info.hasAudio ? ["-c:a", "aac", "-b:a", "160k", "-ac", "2"] : []),
+        ...audio,
       ];
   try {
     await run("ffmpeg", [...common, ...encode, "-movflags", "+faststart", "-progress", "pipe:1", "-nostats", tmp], {
@@ -379,11 +420,12 @@ export async function extractAudioChunks(input: string, dir: string, chunkSec: n
 const FONT_FILE = "BricolageGrotesque-ExtraBold.ttf";
 
 /**
- * Render one clip. The work dir gets subs.ass and a fonts/ folder; ffmpeg runs inside
- * it so the subtitles filter sees plain relative paths (no drive-letter escaping).
+ * Render one clip. The work dir gets subs.ass and a fonts/ folder (Bricolage plus `fonts`,
+ * the files for any other scripts in the captions); ffmpeg runs inside it so the
+ * subtitles filter sees plain relative paths (no drive-letter escaping).
  */
 export async function renderClip(
-  plan: Omit<RenderPlan, "subtitles" | "output"> & { output: string; ass: string | null; workDir: string },
+  plan: Omit<RenderPlan, "subtitles" | "output"> & { output: string; ass: string | null; fonts?: string[]; workDir: string },
   opts: { signal?: AbortSignal; onProgress?: (p: number) => void },
 ) {
   await rm(plan.workDir, { recursive: true, force: true });
@@ -393,7 +435,8 @@ export async function renderClip(
   try {
     if (plan.ass) {
       await writeFile(path.join(plan.workDir, "subs.ass"), plan.ass, "utf8");
-      await copyFile(path.join(process.cwd(), "assets", "fonts", FONT_FILE), path.join(plan.workDir, "fonts", FONT_FILE));
+      await copyFile(path.join(/*turbopackIgnore: true*/ process.cwd(), "assets", "fonts", FONT_FILE), path.join(plan.workDir, "fonts", FONT_FILE));
+      for (const font of plan.fonts ?? []) await copyFile(font, path.join(plan.workDir, "fonts", path.basename(font)));
     }
     const args = renderArgs({ ...plan, output: tmp, subtitles: Boolean(plan.ass) });
     await run("ffmpeg", args, { cwd: plan.workDir, signal: opts.signal, onStdoutLine: ffmpegProgress(plan.duration, opts.onProgress) });

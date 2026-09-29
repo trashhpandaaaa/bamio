@@ -3,7 +3,7 @@
 import { Fragment, memo, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { ASS_EM, ASS_OUTLINE, ASS_SIZES, captionMarginV, MARGIN_H, TITLE_TOP } from "@/lib/clips/ass";
 import { sourceUrl, thumbUrl } from "@/lib/clips/api";
-import { cropRect, lineAt, OUTPUT_SIZE, type CaptionLine } from "@/lib/clips/logic";
+import { cropRect, joinWords, lineAt, OUTPUT_SIZE, titleLines, wordGap, type CaptionLine } from "@/lib/clips/logic";
 import type { ClipEdit } from "@/lib/clips/schema";
 import styles from "./editor.module.css";
 
@@ -26,6 +26,8 @@ type Props = {
   edit: ClipEdit;
   lines: CaptionLine[];
   title: string;
+  /** The transcript's language: picks the caption fonts (Chinese characters differ by language). */
+  language?: string;
   onTime: (t: number) => void;
   onPlaying: (playing: boolean) => void;
   onFocusX: (focusX: number) => void;
@@ -35,7 +37,7 @@ type Props = {
  * The clip as it will export: framed to the output aspect (crop with a focus point,
  * or fit over a blurred fill), with captions and title drawn like the ASS export.
  */
-export function ClipPreview({ ref, projectId, srcW, srcH, start, end, edit, lines, title, onTime, onPlaying, onFocusX }: Props) {
+export function ClipPreview({ ref, projectId, srcW, srcH, start, end, edit, lines, title, language, onTime, onPlaying, onFocusX }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
@@ -147,6 +149,8 @@ export function ClipPreview({ ref, projectId, srcW, srcH, start, end, edit, line
         drag.current = null;
       }}
     >
+      {/* The export's fonts for every script (Bricolage for Latin, Noto for the rest), loaded as needed. */}
+      <link rel="stylesheet" href={`/api/fonts/captions.css${language ? `?lang=${encodeURIComponent(language)}` : ""}`} precedence="default" />
       {edit.framing === "fit" ? <canvas ref={canvasRef} className={styles.fill} width={48} height={Math.round((48 * H) / W)} aria-hidden="true" /> : null}
       <video
         ref={videoRef}
@@ -177,6 +181,8 @@ export function ClipPreview({ ref, projectId, srcW, srcH, start, end, edit, line
       {title ? (
         <p
           className={styles.titleOverlay}
+          lang={language}
+          dir="auto"
           style={{
             top: `${TITLE_TOP * 100}%`,
             left: `${MARGIN_H * 100}%`,
@@ -184,11 +190,18 @@ export function ClipPreview({ ref, projectId, srcW, srcH, start, end, edit, line
             fontSize: u(ASS_SIZES.title * ASS_EM),
           }}
         >
-          <span style={{ padding: `${u(ASS_OUTLINE.title * 0.5)} ${u(ASS_OUTLINE.title)}` }}>{title}</span>
+          <span style={{ padding: `${u(ASS_OUTLINE.title * 0.5)} ${u(ASS_OUTLINE.title)}` }}>
+            {titleLines(title).map((l, i) => (
+              <Fragment key={i}>
+                {i > 0 ? <br /> : null}
+                {l}
+              </Fragment>
+            ))}
+          </span>
         </p>
       ) : null}
 
-      {edit.captions ? <Captions lines={lines} t={rel} edit={edit} W={W} /> : null}
+      {edit.captions ? <Captions lines={lines} t={rel} edit={edit} W={W} language={language} /> : null}
 
       {!playing ? <span className={styles.playHint} aria-hidden="true" /> : null}
     </div>
@@ -208,7 +221,7 @@ function paintFill(video: HTMLVideoElement, canvas: HTMLCanvasElement | null) {
   ctx.drawImage(video, (cw - w) / 2, (ch - h) / 2, w, h);
 }
 
-const Captions = memo(function Captions({ lines, t, edit, W }: { lines: CaptionLine[]; t: number; edit: ClipEdit; W: number }) {
+const Captions = memo(function Captions({ lines, t, edit, W, language }: { lines: CaptionLine[]; t: number; edit: ClipEdit; W: number; language?: string }) {
   const line = lineAt(lines, t);
   if (!line) return null;
   const style = edit.captionStyle;
@@ -227,6 +240,8 @@ const Captions = memo(function Captions({ lines, t, edit, W }: { lines: CaptionL
       data-style={style}
       data-testid="caption"
       aria-hidden="true"
+      lang={language}
+      dir="auto"
       style={{
         ...place,
         left: `${MARGIN_H * 100}%`,
@@ -243,11 +258,11 @@ const Captions = memo(function Captions({ lines, t, edit, W }: { lines: CaptionL
             <span className={i < active ? styles.wordPast : i === active ? styles.wordNow : styles.wordNext} data-active-word={i === active ? "" : undefined}>
               {w.text}
             </span>
-            {i < line.words.length - 1 ? " " : null}
+            {i < line.words.length - 1 ? wordGap(w.text, line.words[i + 1]!.text) || null : null}
           </Fragment>
         ))
       ) : (
-        <span className={styles.captionText}>{line.words.map((w) => w.text).join(" ")}</span>
+        <span className={styles.captionText}>{joinWords(line.words.map((w) => w.text))}</span>
       )}
     </p>
   );

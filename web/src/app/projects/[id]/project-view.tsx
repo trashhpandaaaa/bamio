@@ -13,6 +13,7 @@ import { useProject, useSystemStatus } from "@/hooks/use-project";
 import { api } from "@/lib/clips/api";
 import { CLIP_LENGTH_LABEL } from "@/lib/clips/labels";
 import { clipRangeError, formatTimecode, parseTimecode, sortClips } from "@/lib/clips/logic";
+import { languageName } from "@/lib/clips/languages";
 import { CLIP_LENGTHS, isJobActive, LIMITS, needsRetranscribe, type Clip, type ClipLength, type Project } from "@/lib/clips/schema";
 import { PLATFORM_LABEL } from "@/lib/clips/url";
 import { ClipCard } from "./clip-card";
@@ -78,8 +79,11 @@ function ProjectScreen({ project, setProject }: { project: Project; setProject: 
           <p className="t-body-sm t-secondary">
             {status === "uploading"
               ? "The upload continues in the tab where you started it. Keep that tab open."
-              : "You can leave this page. Processing continues on the server, and your clips will be here when it’s done."}
+              : status === "recording"
+                ? "Recording on the server: you can leave this page. Stop early to process what’s been recorded so far."
+                : "You can leave this page. Processing continues on the server, and your clips will be here when it’s done."}
           </p>
+          {status === "recording" ? <StopRecording project={project} setProject={setProject} /> : null}
         </section>
       ) : null}
 
@@ -176,9 +180,15 @@ function ProjectHeader({ project, setProject, onDelete }: { project: Project; se
         </span>
         {src.uploader ? <span>{src.uploader}</span> : null}
         {src.durationSec > 0 ? <span className="t-mono">{formatTimecode(src.durationSec)}</span> : null}
+        {project.spokenLanguage ? <span>{languageName(project.spokenLanguage)}</span> : null}
         {src.range ? (
           <span>
             Part {formatTimecode(src.range.start)} to {formatTimecode(src.range.end)}
+          </span>
+        ) : null}
+        {src.live ? (
+          <span>
+            Captured live {new Date(src.live.requestedAt).toLocaleString(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}
           </span>
         ) : null}
         {src.url ? (
@@ -188,6 +198,27 @@ function ProjectHeader({ project, setProject, onDelete }: { project: Project; se
         ) : null}
       </p>
     </header>
+  );
+}
+
+function StopRecording({ project, setProject }: { project: Project; setProject: (p: Project) => void }) {
+  const toast = useToast();
+  const [stopping, setStopping] = useState(false);
+  async function stop() {
+    setStopping(true);
+    try {
+      setProject(await api.stopRecording(project.id));
+    } catch (err) {
+      setStopping(false);
+      toast({ tone: "error", title: "Couldn’t stop the recording", body: err instanceof Error ? err.message : undefined });
+    }
+  }
+  return (
+    <div>
+      <button className="btn btn-secondary" type="button" onClick={() => void stop()} disabled={stopping} aria-busy={stopping}>
+        {stopping ? "Stopping…" : "Stop recording now"}
+      </button>
+    </div>
   );
 }
 

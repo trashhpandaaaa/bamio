@@ -2,15 +2,20 @@
 /*
  * 1. Downloads the official yt-dlp binary for this OS into web/.bin/ and verifies it
  *    against the release's SHA2-256SUMS. Re-run any time to update (sites change often).
- * 2. Downloads the on-device speech models (Parakeet TDT 110M and Silero VAD, about 110 MB,
- *    checksum verified) into web/.models/ (or BAMIO_MODELS_DIR), so the first import doesn't wait.
+ * 2. Downloads the on-device speech models for every language (see workers/speech-models.mjs:
+ *    about 1.9 GB, or 1 GB with BAMIO_SPEECH_MODEL=fast; BAMIO_PREFETCH=english for English
+ *    only) and the caption fonts for every script (about 30 MB), checksum verified, into
+ *    web/.models/ (or BAMIO_MODELS_DIR), so no import waits for a download. Anything
+ *    skipped here is downloaded the first time it's needed.
  *   npm run setup:media
  * ffmpeg and ffprobe come from the ffmpeg-static / ffprobe-static npm packages.
  */
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmod, mkdir, rename, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { arch, platform } from "node:os";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const RELEASE = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/";
@@ -43,8 +48,29 @@ if (platform() !== "win32") await chmod(target, 0o755);
 console.log(`✓ yt-dlp saved to ${target} (sha256 verified)`);
 
 const modelsDir = process.env.BAMIO_MODELS_DIR || fileURLToPath(new URL("../.models/", import.meta.url));
-console.log("Downloading the speech models (first time only, about 110 MB)…");
+const only = process.env.BAMIO_PREFETCH === "english" ? "english" : "all";
+console.log(`Downloading the speech models${only === "english" ? " for English" : " for every language"} (first time only; this can take a while)…`);
 const worker = fileURLToPath(new URL("../workers/transcribe.mjs", import.meta.url));
-const prefetch = spawnSync(process.execPath, [worker, "--prefetch", modelsDir], { stdio: ["ignore", "pipe", "inherit"], encoding: "utf8" });
+const prefetch = spawnSync(process.execPath, [worker, "--prefetch", modelsDir, process.env.BAMIO_SPEECH_MODEL ?? "accurate", only], {
+  stdio: ["ignore", "pipe", "inherit"],
+  encoding: "utf8",
+});
 if (prefetch.status !== 0 || !prefetch.stdout.includes("READY")) throw new Error("Could not download the speech models.");
 console.log(`✓ speech models ready in ${modelsDir}`);
+
+// Caption fonts for every script (the table is made from the fonts themselves; see src/lib/server/caption-fonts.ts).
+const { fonts } = JSON.parse(await readFile(new URL("../src/lib/server/caption-fonts.json", import.meta.url), "utf8"));
+const fontsDir = path.join(modelsDir, "fonts");
+await mkdir(fontsDir, { recursive: true });
+let fetched = 0;
+for (const font of fonts) {
+  const file = path.join(fontsDir, font.file);
+  if (!font.url || existsSync(file)) continue;
+  const data = await get(font.url);
+  const hash = createHash("sha256").update(data).digest("hex");
+  if (hash !== font.sha256) throw new Error(`Checksum mismatch for ${font.file}: expected ${font.sha256}, got ${hash}`);
+  await writeFile(`${file}.download`, data);
+  await rename(`${file}.download`, file);
+  fetched++;
+}
+console.log(`✓ caption fonts ready in ${fontsDir} (${fetched} downloaded)`);

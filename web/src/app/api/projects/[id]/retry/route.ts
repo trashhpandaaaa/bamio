@@ -11,10 +11,12 @@ export const POST = userRoute<Params>(
     const project = await mutateProject(userId, params.id, (p) => {
       if (p.job.status !== "failed") throw new HttpError(409, "not_failed", "This project isn’t in a failed state.");
       const files = paths(userId, p.id);
+      const prepared = isPrepared(p) && existsSync(files.source);
+      if (!prepared && p.source.live && !p.source.live.vodRange) {
+        throw new HttpError(409, "live_gone", "A live recording can’t be redone once the moment has passed. Start a new capture from the stream.");
+      }
       const canResume =
-        (isPrepared(p) && existsSync(files.source)) ||
-        p.source.kind === "url" ||
-        (p.upload !== undefined && p.upload.received === p.upload.size && existsSync(files.upload));
+        prepared || p.source.kind === "url" || (p.upload !== undefined && p.upload.received === p.upload.size && existsSync(files.upload));
       if (!canResume) throw new HttpError(409, "upload_missing", "The uploaded file didn’t fully arrive. Start a new import and upload it again.");
       return { ...p, job: { status: "queued", progress: 0, message: "Waiting to start", updatedAt: Date.now(), stages: plannedStages(p) } };
     });

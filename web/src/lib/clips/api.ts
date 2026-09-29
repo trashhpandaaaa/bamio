@@ -52,7 +52,15 @@ export const api = {
   status: (signal?: AbortSignal) => request<SystemStatus>("GET", "/api/system/status", undefined, signal),
   inspect: (url: string, signal?: AbortSignal) => request<InspectResult>("POST", "/api/sources/inspect", { url }, signal),
   projects: (signal?: AbortSignal) => request<Project[]>("GET", "/api/projects", undefined, signal),
-  createFromUrl: (input: { url: string; range?: { start: number; end: number }; findClips: boolean; clipLength: ClipLength; language: Language; edit?: Partial<ClipEdit> }) =>
+  createFromUrl: (input: {
+    url: string;
+    range?: { start: number; end: number };
+    live?: { rewindSec: number; recordSec: number };
+    findClips: boolean;
+    clipLength: ClipLength;
+    language: Language;
+    edit?: Partial<ClipEdit>;
+  }) =>
     request<Project>("POST", "/api/projects", input),
   createUpload: (input: { fileName: string; size: number; findClips: boolean; clipLength: ClipLength; language: Language; edit?: Partial<ClipEdit> }) =>
     request<{ project: Project; chunkBytes: number }>("POST", "/api/projects/upload", input),
@@ -65,6 +73,7 @@ export const api = {
   updateSegment: (id: string, index: number, text: string) => request<{ transcriptRev: number }>("PATCH", `${base(id)}/transcript`, { index, text }),
   findClips: (id: string, clipLength: ClipLength) => request<Project>("POST", `${base(id)}/find-clips`, { clipLength }),
   retranscribe: (id: string) => request<Project>("POST", `${base(id)}/retranscribe`),
+  stopRecording: (id: string) => request<Project>("POST", `${base(id)}/stop-recording`),
   addClip: (id: string, input: { start: number; end: number; title?: string }) => request<{ project: Project; clipId: string }>("POST", `${base(id)}/clips`, input),
   updateClip: (id: string, clipId: string, patch: ClipPatch) => request<Project>("PATCH", `${base(id)}/clips/${encodeURIComponent(clipId)}`, patch),
   deleteClip: (id: string, clipId: string) => request<Project>("DELETE", `${base(id)}/clips/${encodeURIComponent(clipId)}`),

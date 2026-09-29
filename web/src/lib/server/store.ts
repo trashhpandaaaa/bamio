@@ -63,13 +63,16 @@ export const paths = (userId: string, projectId: string) => {
 /* --------------------------- Running work --------------------------- */
 
 export type RunningTask = { controller: AbortController; done: Promise<unknown> };
-type Registry = { imports: Map<string, RunningTask>; exports: Map<string, RunningTask> };
+/** stops: live recordings that can be ended early, by project id. */
+type Registry = { imports: Map<string, RunningTask>; exports: Map<string, RunningTask>; stops: Map<string, AbortController> };
 
 /** Imports and exports running in this server process (kept across dev reloads). */
 export const running: Registry = ((globalThis as { __bamioRunning?: Registry }).__bamioRunning ??= {
   imports: new Map(),
   exports: new Map(),
+  stops: new Map(),
 });
+running.stops ??= new Map(); // registries created before live capture existed
 
 export const exportKey = (projectId: string, clipId: string) => `${projectId}:${clipId}`;
 
@@ -184,7 +187,7 @@ export function blankProject(input: {
     job: { ...input.job, progress: 0, updatedAt: now },
     findClips: input.findClips,
     clipLength: input.clipLength,
-    language: input.language ?? "en",
+    language: input.language ?? "auto",
     defaultEdit: clipEditSchema.parse({ ...DEFAULT_EDIT, ...input.edit, titleText: "" }),
     hasTranscript: false,
     transcriptRev: 0,

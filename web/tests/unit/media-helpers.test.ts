@@ -123,7 +123,7 @@ describe("ASS subtitles", () => {
 describe("render arguments", () => {
   it("crops then scales for fill framing", () => {
     const f = renderFilter({ srcW: 1920, srcH: 1080, edit: { aspect: "9:16", framing: "crop", focusX: 0.5 }, subtitles: true });
-    expect(f).toBe("[0:v]crop=606:1080:656:0,scale=1080:1920:flags=lanczos,setsar=1[base];[base]subtitles=subs.ass:fontsdir=fonts,format=yuv420p[v]");
+    expect(f).toBe("[0:v]crop=606:1080:656:0,scale=1080:1920:flags=lanczos,setsar=1[base];[base]ass=subs.ass:fontsdir=fonts:shaping=complex,format=yuv420p[v]");
   });
 
   it("fits over a blurred fill", () => {

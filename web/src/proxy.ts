@@ -5,6 +5,7 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
  * AI API routes check the session themselves (see src/lib/ai/server/route.ts) so they
  * can answer with JSON 401 instead of a redirect.
  */
+
 const isAppPage = createRouteMatcher(["/projects(.*)", "/new(.*)", "/profile(.*)"]);
 
 export default clerkMiddleware(async (auth, req) => {
@@ -21,3 +22,4 @@ export const config = {
     "/__clerk/:path*",
   ],
 };
+

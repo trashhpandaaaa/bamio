@@ -7,10 +7,12 @@ import { buildAss } from "@/lib/clips/ass";
 import { captionLines, exportSignature, overlayTitle } from "@/lib/clips/logic";
 import { LIMITS, type Clip, type ClipLength, type JobStatus, type Project, type Segment, type Transcript } from "@/lib/clips/schema";
 import { isAbortError } from "@/lib/server/bin";
+import { assMarkup, ensureFont, fontsNeeded } from "@/lib/server/caption-fonts";
 import { HttpError } from "@/lib/server/http";
 import { downloadUrl, extractAudioChunks, extractFrame, prepareSource, probe, renderClip } from "@/lib/server/media";
 import { relocateAiClips } from "@/lib/clips/relocate";
-import { transcribeLocal, usesLocalTranscription } from "@/lib/server/transcribe";
+import { recordLive } from "@/lib/server/live";
+import { localTranscriptionOn, transcribeLocal } from "@/lib/server/transcribe";
 import {
   clipFile,
   dataRoot,
@@ -67,10 +69,10 @@ const errorText = (err: unknown) => (err instanceof HttpError ? err.message : "S
  * The steps a run will go through, for the progress stepper. Steps that turn out not to
  * be needed (no sound, AI off) are simply skipped when the run gets there.
  */
-export function plannedStages(p: Pick<Project, "source" | "findClips" | "hasTranscript" | "language">, opts: { findClips?: boolean } = {}): JobStatus[] {
+export function plannedStages(p: Pick<Project, "source" | "findClips" | "hasTranscript">, opts: { findClips?: boolean } = {}): JobStatus[] {
   const stages: JobStatus[] = [];
-  if (!isPrepared(p as Project)) stages.push(p.source.kind === "url" ? "downloading" : "uploading", "preparing");
-  if (!p.hasTranscript && (usesLocalTranscription(p.language) || aiConfigured())) stages.push("transcribing");
+  if (!isPrepared(p as Project)) stages.push(p.source.live ? "recording" : p.source.kind === "url" ? "downloading" : "uploading", "preparing");
+  if (!p.hasTranscript && (localTranscriptionOn() || aiConfigured())) stages.push("transcribing");
   if ((opts.findClips ?? p.findClips) && aiConfigured()) stages.push("finding");
   return stages;
 }
@@ -135,16 +137,17 @@ export async function startAnalysis(userId: string, projectId: string, clipLengt
 }
 
 /**
- * Transcribe an imported video again on this device (English), replacing its transcript.
- * For projects transcribed before on-device transcription, whose timing was approximate.
- * Clips are kept; their captions follow the new transcript.
+ * Transcribe an imported video again on this device, replacing its transcript. For
+ * projects transcribed before on-device transcription (English before 2026-09-28, other
+ * languages before 2026-09-29), whose timing was approximate. Clips are kept; their
+ * captions follow the new transcript.
  */
 export async function startRetranscribe(userId: string, projectId: string): Promise<Project> {
   if (running.imports.has(projectId)) throw new HttpError(409, "busy", "This project is still processing.");
   const queued = mutateProject(userId, projectId, (p) => {
     if (p.job.status !== "ready" || !isPrepared(p)) throw new HttpError(409, "not_ready", "Wait for the video to finish processing.");
     if (!p.source.hasAudio) throw new HttpError(409, "no_audio", "This video has no sound to transcribe.");
-    return { ...p, language: "en", job: { status: "queued", progress: 0, message: "Waiting to start", updatedAt: Date.now(), stages: ["transcribing"] } };
+    return { ...p, job: { status: "queued", progress: 0, message: "Waiting to start", updatedAt: Date.now(), stages: ["transcribing"] } };
   });
   track(running.imports, projectId, async (signal) => {
     const job = jobWriter(userId, projectId);
@@ -159,7 +162,8 @@ export async function startRetranscribe(userId: string, projectId: string): Prom
         await job.set("transcribing", 0, "Transcribing on this device");
         const files = paths(userId, projectId);
         const before = await readTranscript(userId, projectId);
-        const transcript = await transcribeLocal(files.source, files.transcribe, signal, (v, message) => job.progress("transcribing", v, message));
+        const { language } = await getProject(userId, projectId);
+        const transcript = await transcribeLocal(files.source, files.transcribe, language, signal, (v, message) => job.progress("transcribing", v, message));
         await mutateProject(userId, projectId, async (cur) => {
           await writeTranscript(userId, projectId, transcript);
           // AI clips were placed with the old transcript's times; put them where their words are.
@@ -171,6 +175,7 @@ export async function startRetranscribe(userId: string, projectId: string): Prom
             hasTranscript: true,
             transcriptEngine: "device",
             captionTiming: "synced",
+            spokenLanguage: transcript.language,
             transcriptRev: cur.transcriptRev + 1,
           };
         });
@@ -193,6 +198,7 @@ async function saveTranscript(userId: string, projectId: string, transcript: Tra
       hasTranscript: true,
       transcriptEngine: engine,
       captionTiming: engine === "device" ? "synced" : "estimated",
+      spokenLanguage: transcript.language ?? cur.spokenLanguage,
       transcriptRev: cur.transcriptRev + 1,
     };
   });
@@ -207,7 +213,25 @@ async function runImport(userId: string, projectId: string, signal: AbortSignal)
 
     if (!isPrepared(project) || !existsSync(p.source)) {
       let original: string;
-      if (project.source.kind === "url") {
+      if (project.source.live) {
+        await job.set("recording", 0, "Starting the recording");
+        const stop = new AbortController();
+        running.stops.set(projectId, stop);
+        try {
+          const recorded = await recordLive(project.source, p.download, {
+            signal,
+            stopSignal: stop.signal,
+            onProgress: (value, message) => job.progress("recording", value, message),
+          });
+          original = recorded.file;
+          if (recorded.vodRange) {
+            const vodRange = recorded.vodRange;
+            await mutateProject(userId, projectId, (cur) => ({ ...cur, source: { ...cur.source, live: cur.source.live ? { ...cur.source.live, vodRange } : undefined } }));
+          }
+        } finally {
+          if (running.stops.get(projectId) === stop) running.stops.delete(projectId);
+        }
+      } else if (project.source.kind === "url") {
         await job.set("downloading", 0, "Downloading the video");
         original = await downloadUrl(project.source.url ?? "", p.download, {
           range: project.source.range,
@@ -226,8 +250,13 @@ async function runImport(userId: string, projectId: string, signal: AbortSignal)
       if (info.durationSec > LIMITS.maxMediaSec + 5) {
         throw new HttpError(422, "too_long", "That video is longer than 3 hours. Import a part of it instead.");
       }
-      await prepareSource(original, p.source, info, { signal, onProgress: (v) => job.progress("preparing", v, "Preparing the video") });
-      const prepared = info.webSafe ? info : await probe(p.source, signal);
+      await prepareSource(original, p.source, info, {
+        live: Boolean(project.source.live),
+        signal,
+        onProgress: (v) => job.progress("preparing", v, "Preparing the video"),
+      });
+      // Measure the prepared file itself (a remuxed live recording can differ slightly from the capture).
+      const prepared = await probe(p.source, signal);
       await extractFrame(p.source, p.thumb, Math.min(prepared.durationSec * 0.1, 8), 640, signal).catch(() => undefined);
       await rm(original, { force: true });
       await rm(p.download, { recursive: true, force: true });
@@ -248,15 +277,15 @@ async function runImport(userId: string, projectId: string, signal: AbortSignal)
 }
 
 /**
- * Transcribe (unless a transcript exists) and optionally find clips. English is
- * transcribed on this device with word timing; other languages by Gemini. Returns a
- * warning when a step was skipped; the project stays usable for manual clipping.
+ * Transcribe (unless a transcript exists) and optionally find clips. Every language is
+ * transcribed on this device with word timing (Gemini only with BAMIO_LOCAL_TRANSCRIBE=0).
+ * Returns a warning when a step was skipped; the project stays usable for manual clipping.
  */
 async function analyze(userId: string, projectId: string, signal: AbortSignal, opts: { findClips: boolean }): Promise<string | undefined> {
   const job = jobWriter(userId, projectId);
   const project = await getProject(userId, projectId);
   if (!project.source.hasAudio) return "This video has no sound, so there are no captions or AI clips. You can still cut clips by hand.";
-  const local = usesLocalTranscription(project.language);
+  const local = localTranscriptionOn();
   const noAi = "Gemini isn’t connected. Add GEMINI_API_KEY to web/.env and restart.";
 
   let segments: Segment[];
@@ -271,7 +300,7 @@ async function analyze(userId: string, projectId: string, signal: AbortSignal, o
       if (local) {
         await job.set("transcribing", 0, "Transcribing on this device");
         const files = paths(userId, projectId);
-        transcript = await transcribeLocal(files.source, files.transcribe, signal, (v, message) => job.progress("transcribing", v, message));
+        transcript = await transcribeLocal(files.source, files.transcribe, project.language, signal, (v, message) => job.progress("transcribing", v, message));
       } else {
         await job.set("transcribing", 0, "Transcribing with Gemini");
         transcript = await transcribe(userId, projectId, project.source.durationSec, signal, (v) => job.progress("transcribing", v, "Transcribing with Gemini"));
@@ -303,6 +332,7 @@ async function findClipsStep(userId: string, projectId: string, segments: Segmen
       durationSec: project.source.durationSec,
       clipLength: project.clipLength,
       title: project.title,
+      language: project.spokenLanguage,
       avoid: project.clips.map((c) => ({ start: c.start, end: c.end })),
       signal,
     });
@@ -334,7 +364,7 @@ async function findClipsStep(userId: string, projectId: string, segments: Segmen
   }
 }
 
-/** Gemini transcription chunk (other languages). Long chunks drift and drop text; see DESIGN_STATUS.md. */
+/** Gemini transcription chunk (only with BAMIO_LOCAL_TRANSCRIBE=0). Long chunks drift and drop text; see DESIGN_STATUS.md. */
 const CHUNK_SEC = 300;
 
 async function transcribe(userId: string, projectId: string, durationSec: number, signal: AbortSignal, onProgress: (p: number) => void) {
@@ -397,9 +427,20 @@ export async function startExport(userId: string, projectId: string, clipId: str
         const lines = transcript ? captionLines(transcript.segments, clip.start, clip.end, clip.edit.captionStyle) : [];
         const title = overlayTitle(clip);
         const duration = clip.end - clip.start;
+        // Other scripts get their own fonts (downloaded the first time they're needed).
+        const language = transcript?.language ?? current.spokenLanguage;
+        const fonts = await Promise.all(fontsNeeded([...lines.flatMap((l) => l.words.map((w) => w.text)), title], language).map(ensureFont));
         const ass =
           lines.length > 0 || title
-            ? buildAss({ lines, aspect: clip.edit.aspect, style: clip.edit.captionStyle, position: clip.edit.captionPosition, durationSec: duration, title })
+            ? buildAss({
+                lines,
+                aspect: clip.edit.aspect,
+                style: clip.edit.captionStyle,
+                position: clip.edit.captionPosition,
+                durationSec: duration,
+                title,
+                markup: (text, size) => assMarkup(text, size, language),
+              })
             : null;
         const bytes = await renderClip(
           {
@@ -413,6 +454,7 @@ export async function startExport(userId: string, projectId: string, clipId: str
             hasAudio: current.source.hasAudio,
             edit: clip.edit,
             ass,
+            fonts,
           },
           {
             signal,

@@ -40,7 +40,64 @@ export type CaptionLine = { start: number; end: number; words: CaptionWord[] };
 
 const WORDS_PER_LINE: Record<CaptionStyle, number> = { pop: 3, clean: 7, boxed: 6 };
 
+/** Transcript text is stored with a space between every word, in every language. */
 export const splitWords = (text: string) => text.trim().split(/\s+/).filter(Boolean);
+
+/**
+ * Scripts written without spaces between words (Chinese, Japanese, Thai, Lao, Khmer,
+ * Burmese, Tibetan), with their punctuation. Keep in sync with workers/transcribe-core.mjs.
+ */
+const NO_SPACE = /[\p{scx=Han}\p{scx=Hiragana}\p{scx=Katakana}\p{scx=Thai}\p{scx=Lao}\p{scx=Khmer}\p{scx=Myanmar}\p{scx=Tibetan}　-〿＀-￯]/u;
+export const hasNoSpaceScript = (text: string) => NO_SPACE.test(text);
+
+/** What goes between two words on screen: nothing between words of scripts written without spaces. */
+export function wordGap(before: string, after: string): string {
+  const last = Array.from(before).at(-1) ?? "";
+  const first = Array.from(after)[0] ?? "";
+  return NO_SPACE.test(last) && NO_SPACE.test(first) ? "" : " ";
+}
+
+/** Words as they read on screen. */
+export const joinWords = (words: string[]) => words.reduce((text, w, i) => (i === 0 ? w : text + wordGap(words[i - 1]!, w) + w), "");
+
+/** A transcript phrase as it reads (see splitWords). */
+export const displayText = (text: string) => joinWords(splitWords(text));
+
+const WIDE = /[\p{scx=Han}\p{scx=Hiragana}\p{scx=Katakana}\p{Script=Hangul}　-〿！-｠]/u;
+
+/** Rough width of text in ems: full-width (CJK) characters 1, others about half. */
+export function textEm(text: string): number {
+  let em = 0;
+  for (const ch of text) em += WIDE.test(ch) ? 1 : /\s/.test(ch) ? 0.3 : /\p{M}/u.test(ch) ? 0 : 0.55;
+  return em;
+}
+
+/**
+ * The widest a caption line may be, in ems, when it can't wrap: libass only breaks lines
+ * at spaces, so lines in scripts without spaces must fit the 9:16 frame on their own
+ * (with room for the active word's 110%). Sizes: ASS_SIZES in ass.ts.
+ */
+const MAX_LINE_EM: Record<CaptionStyle, number> = { pop: 11, clean: 16, boxed: 16 };
+const MAX_TITLE_EM = 17;
+
+/**
+ * A title as lines. Titles in scripts without spaces are broken at word boundaries so
+ * they fit (libass can't wrap them); others stay one line and wrap at spaces.
+ */
+export function titleLines(title: string): string[] {
+  if (!hasNoSpaceScript(title)) return [title];
+  const lines: string[] = [];
+  let line = "";
+  for (const { segment } of new Intl.Segmenter(undefined, { granularity: "word" }).segment(title)) {
+    if (line && textEm(line + segment) > MAX_TITLE_EM && !/^[\p{P}\s]+$/u.test(segment)) {
+      lines.push(line.trim());
+      line = "";
+    }
+    line += segment;
+  }
+  if (line.trim()) lines.push(line.trim());
+  return lines;
+}
 
 /**
  * When each word of a phrase is spoken: the measured times when the captions were synced
@@ -76,14 +133,18 @@ export function captionLines(segments: Segment[], clipStart: number, clipEnd: nu
     if (words.length === 0) continue;
     // Keep only words that are mostly inside the clip.
     const inside = words.filter((w) => (w.start + w.end) / 2 >= clipStart && (w.start + w.end) / 2 < clipEnd);
-    for (let i = 0; i < inside.length; i += perLine) {
-      const chunk = inside.slice(i, i + perLine).map((w) => ({
-        text: w.text,
-        start: Math.max(0, w.start - clipStart),
-        end: Math.min(clipEnd, w.end) - clipStart,
-      }));
-      lines.push({ start: chunk[0]!.start, end: chunk.at(-1)!.end, words: chunk });
+    let chunk: CaptionWord[] = [];
+    const flush = () => {
+      if (chunk.length > 0) lines.push({ start: chunk[0]!.start, end: chunk.at(-1)!.end, words: chunk });
+      chunk = [];
+    };
+    for (const w of inside) {
+      const texts = [...chunk.map((c) => c.text), w.text];
+      const tooWide = chunk.length > 0 && hasNoSpaceScript(w.text) && textEm(joinWords(texts)) > MAX_LINE_EM[style];
+      if (chunk.length >= perLine || tooWide) flush();
+      chunk.push({ text: w.text, start: Math.max(0, w.start - clipStart), end: Math.min(clipEnd, w.end) - clipStart });
     }
+    flush();
   }
   return lines;
 }

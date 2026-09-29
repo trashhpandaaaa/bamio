@@ -1,4 +1,4 @@
-import { CLIP_LENGTH_RANGE, type Aspect, type CaptionPosition, type CaptionStyle, type ClipLength, type JobStatus, type Language } from "@/lib/clips/schema";
+import { CLIP_LENGTH_RANGE, type Aspect, type CaptionPosition, type CaptionStyle, type ClipLength, type JobStatus } from "@/lib/clips/schema";
 
 /* Words shown in the UI for schema values. */
 
@@ -17,16 +17,12 @@ export const CLIP_LENGTH_LABEL: Record<ClipLength, string> = {
   long: `${CLIP_LENGTH_RANGE.long.min} to ${CLIP_LENGTH_RANGE.long.max}s`,
 };
 
-export const LANGUAGE_LABEL: Record<Language, string> = { en: "English", other: "Another language" };
-export const LANGUAGE_HELP: Record<Language, string> = {
-  en: "Transcribed on this device, with word-accurate caption timing.",
-  other: "Transcribed by Gemini (needs GEMINI_API_KEY). Caption timing is approximate.",
-};
 
 export const JOB_LABEL: Record<JobStatus, string> = {
   queued: "Waiting to start",
   uploading: "Uploading",
   downloading: "Downloading",
+  recording: "Recording live",
   preparing: "Preparing",
   transcribing: "Transcribing",
   syncing: "Syncing captions", // older projects only

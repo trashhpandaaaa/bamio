@@ -176,12 +176,18 @@ describe("clip defaults", () => {
   it("reads saved values field by field", () => {
     expect(readClipDefaults(undefined)).toMatchObject({ aspect: "9:16", findClips: true });
     expect(readClipDefaults({ bamioClipDefaults: { aspect: "1:1", clipLength: "huge", captions: false } })).toEqual({
-      language: "en",
+      language: "auto",
       findClips: true,
       clipLength: "medium",
       aspect: "1:1",
       captions: false,
       captionStyle: "pop",
     });
+  });
+
+  it("keeps a chosen language, and reads the old 'another language' as detect automatically", () => {
+    expect(readClipDefaults({ bamioClipDefaults: { language: "hi" } }).language).toBe("hi");
+    expect(readClipDefaults({ bamioClipDefaults: { language: "other" } }).language).toBe("auto");
+    expect(readClipDefaults({ bamioClipDefaults: { language: "not a language" } }).language).toBe("auto");
   });
 });

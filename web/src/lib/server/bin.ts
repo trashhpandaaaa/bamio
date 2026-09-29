@@ -63,6 +63,11 @@ export type RunOptions = {
   onStderrLine?: (line: string) => void;
   /** Collect stdout (up to this many bytes). Off by default. */
   collectStdout?: number;
+  /**
+   * Ask the tool to finish early but cleanly (ffmpeg: "q" on stdin), unlike `signal`, which
+   * kills it. The run then resolves normally if the tool exits cleanly.
+   */
+  stopSignal?: AbortSignal;
 };
 
 const TAIL = 6000;
@@ -83,7 +88,7 @@ function runProcess(bin: string, args: string[], opts: RunOptions, name: string)
   if (opts.signal?.aborted) return Promise.reject(abortError());
 
   return new Promise((resolve, reject) => {
-    const child = spawn(bin, args, { cwd: opts.cwd, windowsHide: true, shell: false, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(bin, args, { cwd: opts.cwd, windowsHide: true, shell: false, stdio: [opts.stopSignal ? "pipe" : "ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderrTail = "";
     let settled = false;
@@ -102,11 +107,11 @@ function runProcess(bin: string, args: string[], opts: RunOptions, name: string)
     const stdoutLines = lines(opts.onStdoutLine);
     const stderrLines = lines(opts.onStderrLine);
 
-    child.stdout.on("data", (chunk: Buffer) => {
+    child.stdout?.on("data", (chunk: Buffer) => {
       if (opts.collectStdout && stdout.length < opts.collectStdout) stdout += chunk.toString("utf8");
       stdoutLines(chunk);
     });
-    child.stderr.on("data", (chunk: Buffer) => {
+    child.stderr?.on("data", (chunk: Buffer) => {
       stderrTail = (stderrTail + chunk.toString("utf8")).slice(-TAIL);
       stderrLines(chunk);
     });
@@ -124,6 +129,20 @@ function runProcess(bin: string, args: string[], opts: RunOptions, name: string)
       finish(abortError());
     };
     opts.signal?.addEventListener("abort", onAbort, { once: true });
+    let stopTimer: ReturnType<typeof setTimeout> | undefined;
+    const onStop = () => {
+      child.stdin?.write("q\n");
+      child.stdin?.end();
+      // Give it a moment to finish its file, then make sure it's gone.
+      stopTimer = setTimeout(() => killTree(child.pid), 15_000);
+    };
+    if (opts.stopSignal?.aborted) onStop();
+    else opts.stopSignal?.addEventListener("abort", onStop, { once: true });
+    child.on("close", () => {
+      if (stopTimer) clearTimeout(stopTimer);
+      opts.stopSignal?.removeEventListener("abort", onStop);
+    });
+    child.stdin?.on("error", () => undefined);
     if (opts.timeoutMs) {
       timer = setTimeout(() => {
         killTree(child.pid);
