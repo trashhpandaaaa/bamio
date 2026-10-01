@@ -47,3 +47,18 @@ test.describe("landing page", () => {
     await expect(page.getByRole("button", { name: "Upload a file" })).toHaveAttribute("aria-pressed", "true");
   });
 });
+
+test("the demos play stock footage, and show stills to visitors who want less motion", async ({ page }) => {
+  await page.goto("/");
+  const hero = page.locator("#main figure").first();
+  const playing = () => hero.locator("video").evaluateAll((videos) => videos.some((v) => !(v as HTMLVideoElement).paused && (v as HTMLVideoElement).currentTime > 0.2));
+  await expect.poll(playing, { timeout: 20_000 }).toBe(true);
+  // Footage off screen isn't playing (or even loaded).
+  await expect(page.locator("#languages video")).toHaveCount(0);
+
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.reload();
+  await expect(hero.locator("img").first()).toBeVisible();
+  await page.waitForTimeout(1500);
+  await expect(page.locator("video")).toHaveCount(0);
+});

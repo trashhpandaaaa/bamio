@@ -1,0 +1,19 @@
+/* Stock footage in the demos: a still, with the loop fading in over it once it plays. */
+.footage { position: absolute; inset: 0; overflow: hidden; background: var(--surface-sunken); }
+.media { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+video.media { opacity: 0; transition: opacity var(--dur-base) var(--ease-out); }
+video.media[data-on] { opacity: 1; }
+
+/* A 9:16 window onto the 16:9 shot, centred on --focus. */
+.crop { position: absolute; inset: 0; overflow: hidden; }
+.cropInner {
+  position: absolute; top: 0; bottom: 0; left: 50%; aspect-ratio: 16 / 9;
+  transform: translateX(calc(var(--focus) * -100%));
+}
+
+/* One frame of the 10-frame filmstrip sprite: a 16:9 frame as tall as the slot, centred (the slot cuts off its sides). */
+.strip {
+  position: absolute; top: 0; bottom: 0; left: 50%; aspect-ratio: 16 / 9; transform: translateX(-50%);
+  background: url("/landing/podcast-strip.webp") no-repeat; background-size: 1000% 100%;
+  background-position: calc(var(--frame) / 9 * 100%) 0;
+}

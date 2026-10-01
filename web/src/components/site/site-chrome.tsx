@@ -56,8 +56,11 @@ export function SiteHeader({ links, menu = links, current }: { links: SiteLink[]
   );
 }
 
-/** The marketing pages' footer. `roomForBar`: leaves space on phones for the landing page's sticky link bar. */
-export function SiteFooter({ links, roomForBar = false }: { links: SiteLink[]; roomForBar?: boolean }) {
+/**
+ * The marketing pages' footer. `roomForBar`: leaves space on phones for the landing page's
+ * sticky link bar. `credit`: a line for what the page shows (the landing page's stock footage).
+ */
+export function SiteFooter({ links, roomForBar = false, credit }: { links: SiteLink[]; roomForBar?: boolean; credit?: string }) {
   return (
     <footer className={`container ${styles.footer}`} data-bar={roomForBar ? "" : undefined}>
       <div className={styles.footerPanel}>
@@ -107,7 +110,9 @@ export function SiteFooter({ links, roomForBar = false }: { links: SiteLink[]; r
           </div>
         </nav>
         <div className={styles.footerBottom}>
-          <p>Only clip videos you own or have permission to use. Bamio transcribes videos itself; Google Gemini picks the clips.</p>
+          <p>
+            Only clip videos you own or have permission to use. Bamio transcribes videos itself; Google Gemini picks the clips.{credit ? ` ${credit}` : null}
+          </p>
           <ThemeToggle />
         </div>
       </div>

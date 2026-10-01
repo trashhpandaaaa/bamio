@@ -219,6 +219,15 @@ describe("plan limits", () => {
     await recordUsage(user, "p1", 600);
     expect(await hasUsage(user, "p1")).toBe(false);
     expect(await billingState(user)).toMatchObject({ enabled: false, active: false, projects: { count: 0, limit: 100 } });
+    // A key with BAMIO_BILLING=off (the e2e test server) is off too.
+    process.env.STRIPE_SECRET_KEY = "sk_test_unit";
+    process.env.BAMIO_BILLING = "off";
+    try {
+      await expect(assertCanProcess("user_noplan")).resolves.toBeUndefined();
+      expect((await billingState("user_noplan")).enabled).toBe(false);
+    } finally {
+      delete process.env.BAMIO_BILLING;
+    }
   });
 
   it("need a plan once billing is on", async () => {

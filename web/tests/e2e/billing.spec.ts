@@ -7,9 +7,11 @@ import { SAMPLE_VIDEO, signIn } from "./auth";
  * Plans switched on: importing needs a plan, and uses its AI minutes. Gives the e2e user a
  * plan by writing its billing files the way checkout and webhooks would (read from Stripe
  * just now, so the server doesn't ask Stripe again), and removes them afterwards. Opt-in, with
- * the test server started with any Stripe key (no payment is made; Stripe calls fail on a fake key):
- *   STRIPE_SECRET_KEY=sk_test_fake BAMIO_AI_MOCK=1 npx next start -p 3100
+ * the test server started with a fake Stripe key (it overrides a real one in web/.env, so no
+ * request reaches a real Stripe account; Stripe refuses the fake key, and the test expects that):
+ *   STRIPE_SECRET_KEY=sk_test_e2e_fake BAMIO_AI_MOCK=1 npx next start -p 3100
  *   E2E_BILLING=1 npx playwright test billing
+ * (A test server Playwright starts itself gets the fake key automatically.)
  */
 test.skip(!process.env.E2E_BILLING, "Set E2E_BILLING=1, with the test server started with STRIPE_SECRET_KEY set.");
 

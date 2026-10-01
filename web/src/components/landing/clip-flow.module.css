@@ -20,11 +20,10 @@
 
 .timeline { display: grid; gap: 8px; }
 .ruler { display: flex; justify-content: space-between; font: 500 10.5px/1 var(--font-mono); color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
-/* A filmstrip of the stream. */
-.track {
-  position: relative; height: 44px; border-radius: var(--r-xs);
-  background: repeating-linear-gradient(90deg, color-mix(in srgb, var(--text) 13%, var(--surface-sunken)) 0 calc(10% - 2px), var(--surface-sunken) calc(10% - 2px) 10%);
-}
+/* A filmstrip of the episode, dimmed so the picked moments stand out. */
+.track { position: relative; height: 44px; border-radius: var(--r-xs); background: var(--surface-sunken); }
+.filmstrip { position: absolute; inset: 0; display: flex; gap: 2px; overflow: hidden; border-radius: inherit; opacity: .55; }
+.frame { position: relative; flex: 1; min-width: 0; overflow: hidden; }
 .range {
   position: absolute; top: -4px; bottom: -4px; border: 3px solid var(--volt); border-radius: 6px;
   background: color-mix(in srgb, var(--volt) 22%, transparent);

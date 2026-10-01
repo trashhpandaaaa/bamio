@@ -25,6 +25,7 @@ export default defineConfig({
     // Next allows one dev server per project; reuse it if it is already running (in mock mode).
     reuseExistingServer: true,
     timeout: 120_000,
-    env: { BAMIO_AI_MOCK: "1" },
+    // Plans off, whatever web/.env says; E2E_BILLING turns them on with a fake key, so no request reaches a real Stripe account.
+    env: { BAMIO_AI_MOCK: "1", ...(process.env.E2E_BILLING ? { STRIPE_SECRET_KEY: "sk_test_e2e_fake" } : { BAMIO_BILLING: "off" }) },
   },
 });

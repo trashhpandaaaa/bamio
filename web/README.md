@@ -42,6 +42,7 @@ BAMIO_AI_MOCK=1 npm run dev
 | `STRIPE_SECRET_KEY` | none | Turns plans and payments on (see below). Without it nothing is limited. Stays on the server. |
 | `STRIPE_WEBHOOK_SECRET` | none | Signing secret of the Stripe webhook (`whsec_...`). |
 | `BAMIO_APP_URL` | the request's address | Where Stripe sends people back to, e.g. `https://bamio.example.com` behind a proxy. |
+| `BAMIO_BILLING` | on with a key | `off` turns plans off even with a Stripe key: for local work, and the end-to-end test server (Playwright sets it). |
 
 ## Plans and payments (Stripe)
 
@@ -104,14 +105,17 @@ workers/transcribe-core.mjs          its pure logic (tokens to timed words in an
                                      video's language), unit tested
 workers/speech-models.mjs            downloads and checks the speech models
   components/landing/                the landing page's link form, the bar that follows the page, and its demos
-                                     (drawn stand-in footage; captions use the export's spec from lib/clips/ass.ts)
+                                     (stock footage from public/landing/, footage.tsx; captions use the export's
+                                     spec from lib/clips/ass.ts)
   components/site/                   the marketing pages' top bar, footer and FAQ list (landing, pricing)
   components/brand.tsx               the wordmark (its i-dot is a pair of scissors) and the AI mark
   hooks/use-project.ts               polling while the server is busy (or a stream is followed)
   hooks/use-source-video.ts          plays source.mp4, or a followed stream's growing HLS with hls.js
 assets/fonts/                        Bricolage Grotesque ExtraBold, burned into captions (OFL); Noto fonts for
                                      other scripts are downloaded into web/.models/fonts
-scripts/                             setup-media.mjs (yt-dlp, models, fonts), check-ai.mjs, setup-stripe.mjs
+scripts/                             setup-media.mjs (yt-dlp, models, fonts), check-ai.mjs, setup-stripe.mjs,
+                                     landing-footage.mjs (the landing page's demo footage)
+public/landing/                      the demo footage: podcast and stream loops (WebM, MP4), stills, a filmstrip
 ```
 
 Key decisions:
@@ -146,11 +150,12 @@ Key decisions:
 | `npm run test:e2e` | End-to-end tests (Playwright on installed Microsoft Edge, mock AI). Reuses a server on port 3100 or starts `next dev` there. Makes a test video with ffmpeg and a committed speech track, uploads it, transcribes it on the device, finds clips (mock AI), edits, exports and checks the MP4 with ffprobe. |
 | `npm run setup:media` | Downloads or updates yt-dlp (re-run when a site stops working), and the speech models and caption fonts for every language (`BAMIO_PREFETCH=english` for English only; anything skipped downloads on first use) |
 | `npm run ai:check` | Checks the Gemini key, JSON output and audio input on the main and fallback models |
+| `node scripts/landing-footage.mjs` | Remakes the landing page's demo footage in `public/landing/` from two Mixkit stock videos (downloads the originals into `qa/footage-src/`) |
 | `npm run stripe:setup` | Creates or updates the plans in Stripe (products, prices by lookup key, billing-portal settings); `-- --webhook https://your.domain` also adds the webhook endpoint. Needs Node 22.18+ (it reads `plans.ts` directly) |
 
-Opt-in tests (`E2E_PERF=1` times an import of 20 minutes of a podcast step by step, the pages and an export; the live-stream ones also follow each stream, clip and edit while it grows, then stop; a test server started with `BAMIO_FOLLOW_MAX_BACK_SEC=300` keeps them short): `E2E_LIVE=1` imports part of a real YouTube video; `E2E_LANGUAGES=1` (or `hi,ja,ar,es`) imports real Hindi, Japanese, Arabic and Spanish videos, checks the detected language, the script and the caption fonts, and exports (preview and export frames go to `qa/languages/`); `E2E_LIVE_TWITCH` / `E2E_LIVE_YOUTUBE` / `E2E_LIVE_KICK` capture from live channels; `E2E_LIVE_AI=1 E2E_PORT=<port>` runs real Gemini transcription against a server started without mock AI; `E2E_SCREENSHOTS=1` saves screenshots to `qa/screens/`; `E2E_RESPONSIVE=1` checks every screen (landing, pricing, import, projects, plan & billing, clip defaults, then a project and the clip editor from the uploaded sample video) at 320, 390, 768, 1024 and 1440 wide for sideways scroll, anything past the screen edge and tap targets under 24px (screenshots and `report-*.json` in `qa/responsive/`); `E2E_BILLING=1`, against a test server started with any `STRIPE_SECRET_KEY` (a fake one is fine: no payment is made), gives the test user a plan by writing its billing files and checks the gates: no plan, minutes counted, out of minutes, a subscriber's buttons on `/pricing` (screenshots in `qa/billing/`).
+Opt-in tests (`E2E_PERF=1` times an import of 20 minutes of a podcast step by step, the pages and an export; the live-stream ones also follow each stream, clip and edit while it grows, then stop; a test server started with `BAMIO_FOLLOW_MAX_BACK_SEC=300` keeps them short): `E2E_LIVE=1` imports part of a real YouTube video; `E2E_LANGUAGES=1` (or `hi,ja,ar,es`) imports real Hindi, Japanese, Arabic and Spanish videos, checks the detected language, the script and the caption fonts, and exports (preview and export frames go to `qa/languages/`); `E2E_LIVE_TWITCH` / `E2E_LIVE_YOUTUBE` / `E2E_LIVE_KICK` capture from live channels; `E2E_LIVE_AI=1 E2E_PORT=<port>` runs real Gemini transcription against a server started without mock AI; `E2E_SCREENSHOTS=1` saves screenshots to `qa/screens/`; `E2E_RESPONSIVE=1` checks every screen (landing, pricing, import, projects, plan & billing, clip defaults, then a project and the clip editor from the uploaded sample video) at 320, 390, 768, 1024 and 1440 wide for sideways scroll, anything past the screen edge and tap targets under 24px (screenshots and `report-*.json` in `qa/responsive/`); `E2E_BILLING=1`, against a test server with a fake Stripe key (`STRIPE_SECRET_KEY=sk_test_e2e_fake`, which overrides a real one in `web/.env`, so nothing reaches your Stripe account; Playwright sets it on a server it starts), gives the test user a plan by writing its billing files and checks the gates: no plan, minutes counted, out of minutes, a subscriber's buttons on `/pricing` (screenshots in `qa/billing/`).
 
-Tip: Next.js allows one `next dev` per project. If one is already running on port 3000, run the tests against a production build instead: `npm run build`, then `BAMIO_AI_MOCK=1 npx next start -p 3100`, then `npm run test:e2e`.
+Tip: Next.js allows one `next dev` per project. If one is already running on port 3000, run the tests against a production build instead: `npm run build`, then `BAMIO_AI_MOCK=1 BAMIO_BILLING=off npx next start -p 3100` (plans off, even with a Stripe key in `web/.env`: the tests import without a plan), then `npm run test:e2e`.
 
 ## Limitations
 
@@ -160,6 +165,6 @@ Tip: Next.js allows one `next dev` per project. If one is already running on por
 - **Plans:** most Pro and Team extras (4K, B-roll, face tracking, brands, teams, scheduling, API...) aren't built yet and are listed as coming soon. Minutes are counted per server (`usage.json`), so run one server per data folder. Prices are in US dollars; Stripe Tax isn't switched on.
 - **Transcription needs CPU:** per 10 minutes of video on a 6-core laptop, about 40 seconds for English and European languages and about 3 minutes for other languages (`BAMIO_SPEECH_MODEL=fast`: about half). For everyday use, run the production server (`npm run build`, then `npm start`): pages open much faster than with `npm run dev`, which compiles each page on first visit. The models (about 1.9 GB for every language) download with `npm run setup:media`, or the first time a language needs them.
 - **Captions in languages other than English and the European ones are lowercase, without punctuation** (that's how Omnilingual writes), and accuracy varies by language: excellent for widely spoken languages, rougher for some (Nepali and Bengali agreed with YouTube's own captions only 70 to 80% of the time). Captions can be fixed word by word in the editor.
-- **Credits:** NVIDIA Parakeet (CC-BY-4.0: credit NVIDIA if you ship the app), Meta Omnilingual ASR (Apache-2.0), OpenAI Whisper (MIT), Silero VAD (MIT), Noto and Bricolage Grotesque fonts (OFL).
+- **Credits:** NVIDIA Parakeet (CC-BY-4.0: credit NVIDIA if you ship the app), Meta Omnilingual ASR (Apache-2.0), OpenAI Whisper (MIT), Silero VAD (MIT), Noto and Bricolage Grotesque fonts (OFL). The landing page's demo footage is Mixkit stock video under the Mixkit Stock Video Free License (commercial use allowed, no credit required; the footer credits it anyway): #2948 "People recording a podcast in a studio" and #43526 "Man playing an online video game on his computer". Don't put clips of real creators there without their permission.
 - **Windows Smart App Control** can refuse the speech engine's unsigned DLLs for a while (it happened twice here, then allowed them again). Transcription then fails with a message saying so; try again later.
 - **One server process.** The queue and rate limits live in memory, so run one instance (or add a shared queue before scaling out).

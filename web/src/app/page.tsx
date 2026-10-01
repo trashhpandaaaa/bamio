@@ -221,7 +221,7 @@ export default function Home() {
         </section>
       </main>
 
-      <SiteFooter links={LINKS} roomForBar />
+      <SiteFooter links={LINKS} roomForBar credit="Demo footage: Mixkit stock video." />
 
       <StickyLinkBar after="hero-link" until="get-started" />
     </>

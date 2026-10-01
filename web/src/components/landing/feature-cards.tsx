@@ -6,7 +6,7 @@ import { AiMark } from "@/components/brand";
 import { languageName } from "@/lib/clips/languages";
 import { useInView, useReducedMotion } from "@/hooks/use-motion";
 import { DemoCaption } from "./demo-caption";
-import { Scene, SceneCrop } from "./scene";
+import { FOCUS, Footage, FootageCrop } from "./footage";
 import styles from "./feature-cards.module.css";
 
 /* The two cards under "every language": captions in many scripts, and following a live stream. */
@@ -78,7 +78,8 @@ export function LanguageCard() {
               aria-label={center ? `A clip captioned in ${languageName(s.lang)}: ${s.words.join(" ")}` : undefined}
               aria-hidden={center ? undefined : true}
             >
-              <SceneCrop focus={center ? 0.715 : 0.285} />
+              {/* The middle phone plays; the ones beside it are stills of the other host. */}
+              <FootageCrop name="podcast" focus={center ? FOCUS.podcast.right : FOCUS.podcast.left} at={center ? 0 : 3} play={center} />
               {center ? (
                 <span className={styles.detected}>
                   <AiMark size={11} /> {languageName(s.lang)}, detected
@@ -99,7 +100,7 @@ export function LiveCard() {
   return (
     <div ref={root} className={`studio ${styles.media} ${styles.live}`} data-seen={seen ? "" : undefined} role="img" aria-label="A live stream being followed: the part captured so far grows toward the live edge, with two clips marked on it.">
       <div className={styles.stream} aria-hidden="true">
-        <Scene />
+        <Footage name="stream" />
         <span className={`badge is-live ${styles.liveBadge}`}>Live</span>
         <span className={styles.streamChip}>
           <TwitchLogo size={14} weight="fill" /> Friday stream

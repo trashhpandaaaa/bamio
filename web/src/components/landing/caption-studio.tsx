@@ -6,7 +6,7 @@ import { CAPTION_POSITION_LABEL, CAPTION_STYLE_HELP, CAPTION_STYLE_LABEL } from 
 import { CAPTION_POSITIONS, CAPTION_STYLES, type CaptionPosition, type CaptionStyle } from "@/lib/clips/schema";
 import { useInView, useReducedMotion } from "@/hooks/use-motion";
 import { DemoCaption, DemoTitle } from "./demo-caption";
-import { SceneCrop } from "./scene";
+import { FilmstripFrame, FOCUS, FootageCrop } from "./footage";
 import styles from "./caption-studio.module.css";
 
 /*
@@ -23,7 +23,8 @@ const LOOP = WORDS.length + 3;
 const CLIP_SEC = 15;
 /** Where the clip sits in the source, as shares of the trim bar. */
 const TRIM = { start: 0.2, end: 0.76 };
-const FILMSTRIP = [0.285, 0.285, 0.715, 0.285, 0.715, 0.715, 0.285, 0.715, 0.285, 0.715];
+/** The filmstrip: ten frames across the episode. */
+const FILMSTRIP = Array.from({ length: 10 }, (_, i) => i);
 
 const clock = (sec: number) => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, "0")}`;
 
@@ -58,7 +59,7 @@ export function CaptionStudio() {
       <div ref={root} className={`studio ${styles.panel}`}>
         <div className={styles.stage}>
           <div className={styles.preview} role="img" aria-label={`Preview: a vertical clip with ${CAPTION_STYLE_LABEL[captionStyle]} captions${showTitle ? " and a title" : ""}.`}>
-            <SceneCrop focus={0.285} />
+            <FootageCrop name="podcast" focus={FOCUS.podcast.left} at={3} play={playing} />
             {showTitle ? <DemoTitle>nobody tells you this</DemoTitle> : null}
             <DemoCaption words={line} active={at.w} captionStyle={captionStyle} position={position} />
           </div>
@@ -125,9 +126,9 @@ export function CaptionStudio() {
           </span>
           <div className={styles.trim} aria-hidden="true">
             <div className={styles.filmstrip}>
-              {FILMSTRIP.map((focus, i) => (
+              {FILMSTRIP.map((i) => (
                 <span key={i} className={styles.frame}>
-                  <SceneCrop focus={focus} />
+                  <FilmstripFrame frame={i} />
                 </span>
               ))}
             </div>

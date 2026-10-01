@@ -4,7 +4,7 @@ import { Fragment, useRef } from "react";
 import { AiMark } from "@/components/brand";
 import { useInView, useReducedMotion } from "@/hooks/use-motion";
 import { DemoCaption, DemoTitle } from "./demo-caption";
-import { SceneCrop } from "./scene";
+import { FOCUS, FootageCrop } from "./footage";
 import styles from "./moment-finder.module.css";
 
 /*
@@ -71,7 +71,7 @@ export function MomentFinder() {
 
         <div className={styles.result}>
           <div className={styles.phone} aria-hidden="true">
-            <SceneCrop focus={0.285} />
+            <FootageCrop name="stream" focus={FOCUS.stream.face} />
             <DemoTitle>the clutch nobody saw coming</DemoTitle>
             <DemoCaption words={["nobody", "saw", "that", "coming."]} active={-1} captionStyle="pop" />
           </div>

@@ -1,26 +1,38 @@
 "use client";
 
-import { ArrowRight, InstagramLogo, Pause, Play, TiktokLogo, TwitchLogo, YoutubeLogo } from "@phosphor-icons/react";
+import { ArrowRight, InstagramLogo, Pause, Play, TiktokLogo, YoutubeLogo } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import { AiMark } from "@/components/brand";
 import { useInView, useReducedMotion, useTicker } from "@/hooks/use-motion";
 import { DemoCaption } from "./demo-caption";
-import { Scene, SceneCrop } from "./scene";
+import { FilmstripFrame, FOCUS, Footage, FootageCrop } from "./footage";
 import styles from "./clip-flow.module.css";
 
 /*
- * The hero's demo: a long stream in, three vertical clips out. When it first comes into
- * view, a playhead scans the stream and each moment Bamio picks lands as a clip; then the
- * clips play their captions in turn. Reduced motion shows the finished state.
+ * The hero's demo: a long podcast in, three vertical clips out. When it first comes into
+ * view, a playhead scans the episode and each moment Bamio picks lands as a clip; then the
+ * clips play their captions in turn (the playing one plays its footage). Reduced motion shows
+ * the finished state.
  */
 
-type Pick = { at: number; len: number; score: number; title: string; length: string; framing: { focus: number } | "fit"; lines: string[][] };
+/** `from`: where the clip's footage starts in the loop (seconds; one with a still). */
+type Pick = { at: number; len: number; score: number; title: string; length: string; framing: { focus: number } | "fit"; from: number; lines: string[][] };
 
 const PICKS: Pick[] = [
-  { at: 0.17, len: 0.06, score: 94, title: "The clutch nobody saw coming", length: "0:17", framing: { focus: 0.285 }, lines: [["wait", "for", "it"], ["nobody", "saw", "that", "coming"]] },
-  { at: 0.46, len: 0.07, score: 88, title: "Why I quit my job to stream", length: "0:52", framing: { focus: 0.715 }, lines: [["I", "quit", "my", "job"], ["to", "do", "this", "full", "time"]] },
-  { at: 0.75, len: 0.05, score: 81, title: "Chat roasts my setup", length: "0:29", framing: "fit", lines: [["chat", "said", "my", "setup"], ["looks", "like", "a", "cave"]] },
+  {
+    at: 0.17,
+    len: 0.06,
+    score: 94,
+    title: "The advice I’d give my younger self",
+    length: "0:41",
+    framing: { focus: FOCUS.podcast.left },
+    from: 0,
+    lines: [["if", "I", "could", "start", "over"], ["I’d", "post", "every", "day"]],
+  },
+  { at: 0.46, len: 0.07, score: 88, title: "Why we almost quit the show", length: "0:52", framing: { focus: FOCUS.podcast.right }, from: 3, lines: [["we", "almost", "quit"], ["after", "episode", "three"]] },
+  { at: 0.75, len: 0.05, score: 81, title: "The story that broke us both", length: "0:29", framing: "fit", from: 6, lines: [["I", "couldn’t", "stop", "laughing"], ["for", "a", "week"]] },
 ];
+const FRAMES = Array.from({ length: 10 }, (_, i) => i);
 /** Word steps per clip: every word of both lines. */
 const STEPS = PICKS.map((p) => p.lines.flat().length);
 const SCAN_MS = 3600;
@@ -58,12 +70,12 @@ export function ClipFlow() {
 
   return (
     <div className={styles.frame}>
-      <figure ref={root} className={`studio ${styles.panel}`} aria-label="Example: Bamio finds three moments in a 1 hour 48 minute stream and turns each into a captioned vertical clip.">
+      <figure ref={root} className={`studio ${styles.panel}`} aria-label="Example: Bamio finds three moments in a 1 hour 48 minute podcast episode and turns each into a captioned vertical clip.">
         <div className={styles.source}>
           <div className={styles.wide} aria-hidden="true">
-            <Scene />
+            <Footage name="podcast" />
             <span className={styles.chip}>
-              <TwitchLogo size={14} weight="fill" /> Friday stream
+              <YoutubeLogo size={14} weight="fill" /> Podcast, episode 112
             </span>
             <span className={styles.duration}>1:48:22</span>
           </div>
@@ -75,6 +87,13 @@ export function ClipFlow() {
               <span>1:48:22</span>
             </div>
             <div className={styles.track}>
+              <div className={styles.filmstrip}>
+                {FRAMES.map((i) => (
+                  <span key={i} className={styles.frame}>
+                    <FilmstripFrame frame={i} />
+                  </span>
+                ))}
+              </div>
               {PICKS.map((p, i) => (
                 <span key={p.title} className={styles.range} data-on={i < shown ? "" : undefined} style={{ left: `${p.at * 100}%`, width: `${p.len * 100}%` }} />
               ))}
@@ -114,14 +133,14 @@ export function ClipFlow() {
                     {p.framing === "fit" ? (
                       <div className={styles.fit}>
                         <div className={styles.fitBlur}>
-                          <Scene />
+                          <Footage name="podcast" at={p.from} play={false} />
                         </div>
                         <div className={styles.fitShot}>
-                          <Scene />
+                          <Footage name="podcast" at={p.from} play={isPlaying} />
                         </div>
                       </div>
                     ) : (
-                      <SceneCrop focus={p.framing.focus} />
+                      <FootageCrop name="podcast" focus={p.framing.focus} at={p.from} play={isPlaying} />
                     )}
                     <span className={styles.score}>
                       <AiMark size={11} /> {p.score}

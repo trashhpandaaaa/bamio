@@ -30,13 +30,14 @@ import { isUserId, listProjects, MAX_PROJECTS_PER_USER, readAccountFile, updateA
  * `npm run stripe:setup`).
  */
 
-export const billingEnabled = () => Boolean(process.env.STRIPE_SECRET_KEY);
+/** On with a Stripe key, unless BAMIO_BILLING=off (the e2e test server, or local work without plans). */
+export const billingEnabled = () => process.env.BAMIO_BILLING !== "off" && Boolean(process.env.STRIPE_SECRET_KEY);
 
 let client: { key: string; stripe: Stripe } | null = null;
 
 function stripe(): Stripe {
   const key = process.env.STRIPE_SECRET_KEY;
-  if (!key) throw new HttpError(503, "billing_off", "Payments aren’t set up on this server.");
+  if (!key || !billingEnabled()) throw new HttpError(503, "billing_off", "Payments aren’t set up on this server.");
   if (client?.key !== key) client = { key, stripe: new Stripe(key, { maxNetworkRetries: 2, timeout: 20_000, appInfo: { name: "Bamio" } }) };
   return client.stripe;
 }
