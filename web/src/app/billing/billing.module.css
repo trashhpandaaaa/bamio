@@ -1,0 +1,34 @@
+.page { padding-top: 40px; padding-bottom: 96px; display: grid; gap: 28px; }
+.head { display: grid; gap: 8px; }
+.head p { margin: 0; max-width: 60ch; }
+
+/* The plan across the top, then minutes and projects side by side. */
+.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.panel { display: grid; gap: 12px; min-width: 0; padding: 28px; border-radius: var(--r-lg); background: var(--surface); border: 1px solid var(--line); }
+.panel p { margin: 0; }
+.planPanel { grid-column: 1 / -1; }
+.kicker { font: var(--t-label-sm); color: var(--text-tertiary); text-transform: uppercase; letter-spacing: .06em; }
+.planHead { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.price { font: var(--t-body); color: var(--text-secondary); }
+.price b { font: var(--t-heading-md); letter-spacing: -.02em; color: var(--text); }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.small { display: flex; align-items: flex-start; gap: 6px; font: var(--t-caption); color: var(--text-tertiary); }
+.small svg { flex: none; margin-top: 1px; }
+
+.big { font: var(--t-mono-lg); font-variant-numeric: tabular-nums; color: var(--text); }
+.big span { font: var(--t-body-sm); color: var(--text-secondary); }
+.meter { margin: 2px 0; }
+.meter[data-low] > span { background: var(--warning); }
+.out { font: var(--t-label-sm); color: var(--warning); }
+.out a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
+.inlineIcon { vertical-align: -2px; }
+
+.skeletonPlan { grid-column: 1 / -1; height: 228px; border-radius: var(--r-lg); }
+.skeletonCard { height: 168px; border-radius: var(--r-lg); }
+
+@media (max-width: 767px) {
+  .page { padding-top: 24px; }
+  .grid { grid-template-columns: minmax(0, 1fr); }
+  .panel { padding: 22px; }
+  .actions > :global(.btn) { flex: 1 1 auto; }
+}

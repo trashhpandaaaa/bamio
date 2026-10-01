@@ -1,3 +1,4 @@
+import type { BillingState, Interval, PlanId } from "@/lib/billing/plans";
 import type {
   ClipEdit,
   ClipLength,
@@ -55,7 +56,7 @@ export const api = {
   createFromUrl: (input: {
     url: string;
     range?: { start: number; end: number };
-    live?: { rewindSec: number; recordSec: number };
+    live?: { follow?: boolean; rewindSec: number; recordSec: number };
     findClips: boolean;
     clipLength: ClipLength;
     language: Language;
@@ -78,9 +79,20 @@ export const api = {
   updateClip: (id: string, clipId: string, patch: ClipPatch) => request<Project>("PATCH", `${base(id)}/clips/${encodeURIComponent(clipId)}`, patch),
   deleteClip: (id: string, clipId: string) => request<Project>("DELETE", `${base(id)}/clips/${encodeURIComponent(clipId)}`),
   exportClip: (id: string, clipId: string) => request<Project>("POST", `${base(id)}/clips/${encodeURIComponent(clipId)}/export`),
+  /** `fresh`: read the plan from Stripe first (back from Checkout or the billing portal). */
+  billing: (opts: { fresh?: boolean; signal?: AbortSignal } = {}) => request<BillingState>("GET", opts.fresh ? "/api/billing?fresh=1" : "/api/billing", undefined, opts.signal),
+  /** The Stripe Checkout page to send the browser to. */
+  checkout: (plan: PlanId, interval: Interval) => request<{ url: string }>("POST", "/api/billing/checkout", { plan, interval }),
+  /** The Stripe billing portal page to send the browser to; with a plan, it opens on switching to it. */
+  billingPortal: (target?: { plan: PlanId; interval: Interval }) => request<{ url: string }>("POST", "/api/billing/portal", target ?? {}),
 };
 
+/** Errors a plan can fix (no plan yet, minutes used up, as many projects as the plan keeps): worth a link to Pricing. */
+export const isPlanError = (err: unknown) => err instanceof ApiError && (err.status === 402 || err.code === "too_many");
+
 export const sourceUrl = (id: string) => `${base(id)}/source`;
+/** A followed stream's video while it grows (HLS). */
+export const liveUrl = (id: string) => `${base(id)}/live/source.m3u8`;
 export const thumbUrl = (id: string, t?: number) => (t === undefined ? `${base(id)}/thumb` : `${base(id)}/thumb?t=${Math.max(0, Math.round(t * 10) / 10)}`);
 export const exportUrl = (id: string, clipId: string, version: number | undefined, view = false) =>
   `${base(id)}/clips/${encodeURIComponent(clipId)}/export?v=${version ?? 0}${view ? "&view=1" : ""}`;

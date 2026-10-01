@@ -53,6 +53,13 @@
 .options :global(.seg) { flex-wrap: wrap; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
 
+/* Plans (with Stripe on): no plan yet, and the AI minutes an import will use. */
+.planNotice { align-items: center; flex-wrap: wrap; }
+.planNotice p { flex: 1 1 260px; }
+.minutes { display: flex; align-items: flex-start; gap: 8px; margin: 0; font: var(--t-caption); color: var(--text-secondary); }
+.minutes svg { flex: none; margin-top: 1px; }
+.minutes[data-short] { color: var(--warning); }
+
 @media (max-width: 1023px) {
   .layout { grid-template-columns: 1fr; }
   .options { position: static; }

@@ -1,0 +1,103 @@
+/* The demo lays itself out by its own width (container queries), not the screen's. */
+.frame { container-type: inline-size; }
+.panel {
+  position: relative; overflow: hidden; margin: 0; display: grid; grid-template-columns: minmax(0, 1.08fr) auto minmax(0, 1fr); align-items: center; gap: 28px;
+  padding: 40px; border-radius: var(--r-xl); background: var(--surface); color: var(--text);
+  box-shadow: var(--shadow-3), inset 0 0 0 1px var(--line);
+}
+
+/* ---------- The long video ---------- */
+.source { display: grid; gap: 14px; min-width: 0; }
+.wide { position: relative; aspect-ratio: 16 / 9; overflow: hidden; border-radius: var(--r-frame); background: var(--surface-sunken); }
+.chip {
+  position: absolute; left: 12px; top: 12px; display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px;
+  border-radius: var(--r-pill); background: var(--overlay); color: var(--text); font: var(--t-label-sm);
+}
+.duration {
+  position: absolute; right: 12px; bottom: 12px; padding: 3px 8px; border-radius: var(--r-xs);
+  background: var(--overlay); color: var(--text); font: var(--t-mono); font-variant-numeric: tabular-nums;
+}
+
+.timeline { display: grid; gap: 8px; }
+.ruler { display: flex; justify-content: space-between; font: 500 10.5px/1 var(--font-mono); color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+/* A filmstrip of the stream. */
+.track {
+  position: relative; height: 44px; border-radius: var(--r-xs);
+  background: repeating-linear-gradient(90deg, color-mix(in srgb, var(--text) 13%, var(--surface-sunken)) 0 calc(10% - 2px), var(--surface-sunken) calc(10% - 2px) 10%);
+}
+.range {
+  position: absolute; top: -4px; bottom: -4px; border: 3px solid var(--volt); border-radius: 6px;
+  background: color-mix(in srgb, var(--volt) 22%, transparent);
+  opacity: 0; transform: scaleY(.5);
+  transition: opacity var(--dur-base) var(--ease-out), transform var(--dur-slow) var(--ease-pop);
+}
+.range[data-on] { opacity: 1; transform: none; }
+/* The playhead rides a full-width layer that slides across (transform only). */
+.scan { position: absolute; inset: 0; pointer-events: none; }
+.scan[data-scanning] { transform: translateX(100%); transition: transform var(--scan) linear; }
+.scan[data-done] { transform: translateX(100%); }
+.playhead { position: absolute; left: 0; top: -9px; bottom: -9px; width: 2px; margin-left: -1px; border-radius: 2px; background: var(--mark); }
+/* The brand's upright 9:16 frame as the handle, like the editor's playhead. */
+.playhead::before { content: ""; position: absolute; top: -8px; left: 50%; width: 10px; height: 17px; margin-left: -5px; border-radius: 3px; background: var(--mark); }
+
+.status { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 34px; }
+.found { margin: 0; display: inline-flex; align-items: center; gap: 8px; font: var(--t-label); color: var(--text-secondary); }
+.found[data-on] { color: var(--text); }
+
+.arrow {
+  display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%;
+  background: var(--surface-raised); color: var(--text); box-shadow: inset 0 0 0 1px var(--line);
+}
+
+/* ---------- The clips ---------- */
+.out { display: grid; gap: 16px; min-width: 0; }
+.clips { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.clip {
+  display: grid; gap: 6px; align-content: start; opacity: 0; transform: translateY(16px) scale(.96);
+  transition: opacity var(--dur-slow) var(--ease-out), transform var(--dur-scene) var(--ease-pop);
+}
+.clip[data-on] { opacity: 1; transform: none; }
+.vertical {
+  position: relative; aspect-ratio: 9 / 16; overflow: hidden; container-type: inline-size;
+  border-radius: var(--r-frame); background: var(--surface-sunken);
+  box-shadow: 0 0 0 1px var(--line); transition: box-shadow var(--dur-base) var(--ease-out);
+}
+/* The clip that's playing is the live one: volt. */
+.clip[data-playing] .vertical { box-shadow: 0 0 0 2px var(--volt); }
+.fit { position: absolute; inset: 0; }
+.fitBlur { position: absolute; inset: -12%; filter: blur(8px) brightness(.55); }
+.fitShot { position: absolute; left: 0; right: 0; top: 50%; aspect-ratio: 16 / 9; transform: translateY(-58%); }
+.score {
+  position: absolute; top: 5%; right: 7%; display: inline-flex; align-items: center; gap: 4px; padding: 3px 7px;
+  border-radius: var(--r-pill); background: var(--volt); color: var(--on-volt); font: 700 11px/1 var(--font-mono);
+}
+.score :global(.ai-mark) { background: transparent; box-shadow: inset 0 0 0 1.5px var(--ink); }
+.title { margin: 0; font: var(--t-label-sm); color: var(--text); text-wrap: balance; }
+.meta { margin: 0; display: flex; gap: 8px; font: var(--t-caption); color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+.platforms { margin: 0; display: flex; align-items: center; gap: 8px; font: var(--t-caption); color: var(--text-secondary); }
+.platforms svg { color: var(--text); }
+
+/* Too narrow for the stream and the clips side by side: one above the other. */
+@container (max-width: 1000px) {
+  .panel { grid-template-columns: minmax(0, 1fr); justify-items: center; padding: 28px; gap: 20px; }
+  /* Stacked, the stream and the clips keep a readable size instead of filling a wide tablet. */
+  .source, .out { width: min(100%, 680px); }
+  .arrow { transform: rotate(90deg); }
+}
+/* Phones: the clips become a row to swipe, each about half the width, so their captions stay readable. */
+@container (max-width: 560px) {
+  .panel { padding: 14px; gap: 14px; border-radius: var(--r-lg); }
+  .clips {
+    grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 46%; gap: 10px;
+    overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; scrollbar-width: none;
+    margin: 0 -14px; padding: 2px 14px 4px; scroll-padding-inline: 14px;
+  }
+  .clips::-webkit-scrollbar { display: none; }
+  .clip { scroll-snap-align: start; }
+  .chip { left: 8px; top: 8px; }
+  .duration { right: 8px; bottom: 8px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .clip { transform: none; }
+  .range { transform: none; }
+}

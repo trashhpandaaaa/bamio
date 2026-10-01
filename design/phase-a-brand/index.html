@@ -1,0 +1,982 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bamio brand exploration</title>
+<meta name="description" content="Phase A: three brand directions for Bamio, an AI short-form video studio.">
+<meta name="theme-color" content="#0A0A0B">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2316161A'/%3E%3Cg transform='translate(2 3.5)'%3E%3Cpath fill='%23EDEDEE' fill-rule='evenodd' d='M14 20H24V28H36.5A13 13 0 0 1 36.5 54H14Z M24 35.5H36.5A5.5 5.5 0 0 1 36.5 46.5H24Z'/%3E%3Crect fill='%23EC6446' x='14' y='5' width='10' height='12.5' transform='rotate(-16 14 17.5)'/%3E%3C/g%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://picsum.photos">
+<!-- Exploration only. Production must self-host fonts (see DESIGN_TOOLS.md). -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,200..800&family=Geist:wght@100..900&family=Geist+Mono:wght@400..600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root {
+  --page-bg: #0A0A0B;
+  --page-raised: #131316;
+  --page-ink: #EDEDEE;
+  --page-soft: #C6C6CC;
+  --page-muted: #8E8E96;
+  --page-line: #232327;
+
+  /* Shared dark editor surface. Every direction uses it: video is judged on neutral dark. */
+  --ed-bg: #111113;
+  --ed-surface: #1A1A1D;
+  --ed-line: #2A2A2E;
+  --ed-ink: #E8E8EA;
+  --ed-muted: #8D8D94;
+
+  --ease-out: cubic-bezier(.16, 1, .3, 1);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: transparent; }
+@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after { transition-duration: .01ms !important; }
+  .ed-btn:active { transform: none; }
+}
+body {
+  margin: 0;
+  background: var(--page-bg);
+  color: var(--page-ink);
+  font: 400 16px/1.55 system-ui, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+img { display: block; max-width: 100%; }
+h1, h2, h3 { text-wrap: balance; }
+p { text-wrap: pretty; }
+a { color: inherit; }
+:focus-visible { outline: 2px solid #EDEDEE; outline-offset: 3px; border-radius: 4px; }
+[id] { scroll-margin-top: 72px; }
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+.skip {
+  position: absolute; left: 16px; top: -48px; z-index: 30;
+  background: var(--page-ink); color: var(--page-bg);
+  padding: 10px 14px; border-radius: 6px; font-weight: 600; text-decoration: none;
+}
+.skip:focus { top: 12px; }
+
+.wrap { max-width: 1360px; margin: 0 auto; padding: 0 24px; }
+
+/* Top bar */
+.topbar {
+  position: sticky; top: 0; z-index: 20;
+  background: rgb(10 10 11 / .82);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  border-bottom: 1px solid var(--page-line);
+}
+.topbar .wrap { display: flex; align-items: center; justify-content: space-between; gap: 24px; height: 56px; }
+.topbar-title { font-size: 14px; font-weight: 600; white-space: nowrap; }
+.topbar nav { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+.topbar nav::-webkit-scrollbar { display: none; }
+.topbar nav a {
+  font-size: 13px; color: var(--page-muted); text-decoration: none; white-space: nowrap;
+  padding: 6px 10px; border-radius: 6px;
+  transition: color .2s var(--ease-out), background-color .2s var(--ease-out);
+}
+.topbar nav a:hover { color: var(--page-ink); background: var(--page-raised); }
+
+/* Intro */
+.intro { padding: 88px 0 72px; border-bottom: 1px solid var(--page-line); }
+.intro h1 {
+  margin: 0; max-width: 16ch;
+  font-size: clamp(40px, 6vw, 76px); line-height: 1; letter-spacing: -.035em; font-weight: 650;
+}
+.intro-sub { margin: 24px 0 0; max-width: 56ch; font-size: 19px; color: var(--page-soft); }
+.intro-meta { display: flex; flex-wrap: wrap; gap: 8px 28px; margin: 40px 0 0; padding: 0; list-style: none; font-size: 14px; color: var(--page-muted); }
+.intro-meta strong { color: var(--page-ink); font-weight: 600; }
+
+/* Section heads */
+.sec { padding: 96px 0 0; }
+.sec-title { margin: 0; font-size: clamp(28px, 3.4vw, 40px); line-height: 1.1; letter-spacing: -.025em; font-weight: 650; }
+.sec-lede { margin: 16px 0 0; max-width: 64ch; font-size: 17px; color: var(--page-soft); }
+
+/* Foundation */
+.found-grid {
+  display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 12px; margin-top: 40px;
+}
+.found {
+  background: var(--page-raised); border: 1px solid var(--page-line); border-radius: 14px; padding: 28px;
+}
+.found h3 { margin: 0 0 12px; font-size: 14px; font-weight: 600; color: var(--page-muted); }
+.found p { margin: 0; font-size: 17px; line-height: 1.5; }
+.found p + p { margin-top: 12px; }
+.found-what { grid-column: span 7; }
+.found-what p:first-of-type { font-size: clamp(22px, 2.2vw, 28px); line-height: 1.25; letter-spacing: -.015em; }
+.found-who { grid-column: span 5; }
+.found-name { grid-column: span 5; }
+.found-cat { grid-column: span 7; }
+.found-rules { grid-column: 1 / -1; }
+.rules { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 40px; }
+.rules li { font-size: 16px; color: var(--page-soft); padding-left: 0; }
+.rules strong { display: block; color: var(--page-ink); font-weight: 600; margin-bottom: 2px; }
+.who-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 14px; }
+.who-list li { font-size: 16px; color: var(--page-soft); }
+.who-list strong { color: var(--page-ink); font-weight: 600; }
+
+/* Direction head */
+.dir-head { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 24px 56px; align-items: end; margin-bottom: 32px; }
+.dir-kicker { margin: 0 0 10px; font-size: 14px; color: var(--page-muted); }
+.dir-head h2 { margin: 0; font-size: clamp(36px, 4.6vw, 60px); line-height: 1; letter-spacing: -.03em; font-weight: 650; }
+.dir-premise { margin: 18px 0 0; font-size: 18px; color: var(--page-soft); max-width: 58ch; }
+.dir-facts { margin: 0; display: grid; gap: 16px; }
+.dir-facts div { border-top: 1px solid var(--page-line); padding-top: 12px; }
+.dir-facts dt { font-size: 13px; color: var(--page-muted); margin-bottom: 4px; }
+.dir-facts dd { margin: 0; font-size: 15px; line-height: 1.5; color: var(--page-soft); }
+
+/* Board */
+.board {
+  display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 12px;
+  padding: 12px; border-radius: 22px;
+  background: var(--bg); color: var(--ink);
+  font-family: var(--ui);
+}
+.cell {
+  position: relative; min-width: 0;
+  display: flex; flex-direction: column; gap: 20px;
+  padding: 26px; border-radius: var(--r);
+  background: var(--surface);
+}
+.cell-label { margin: 0; font-size: 12px; line-height: 1.2; color: var(--muted); font-family: var(--ui); font-weight: 500; letter-spacing: 0; }
+.cell-note { margin: 0; font-size: 14px; line-height: 1.5; color: var(--muted); max-width: 52ch; }
+.c-cover { grid-column: 1 / 8; grid-row: span 2; min-height: 460px; justify-content: space-between; }
+.c-build { grid-column: 8 / 13; }
+.c-tag { grid-column: 8 / 13; justify-content: space-between; }
+.c-palette { grid-column: 1 / 6; }
+.c-type { grid-column: 6 / 13; }
+.c-image { grid-column: 1 / 7; }
+.c-product { grid-column: 7 / 13; }
+.c-icons { grid-column: 1 / 6; }
+.c-voice { grid-column: 6 / 13; }
+
+.build-svg { width: 100%; max-width: 300px; height: auto; align-self: center; overflow: visible; }
+
+/* Palette */
+.swatches { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px 12px; margin: 0; padding: 0; list-style: none; }
+.swatch-chip { height: 56px; border-radius: calc(var(--r) * .6); background: var(--c); box-shadow: inset 0 0 0 1px rgb(127 127 127 / .22); }
+.swatch-name { margin-top: 8px; font-size: 13px; font-weight: 600; line-height: 1.3; }
+.swatch-hex { font: 500 12px/1.4 "Geist Mono", ui-monospace, monospace; color: var(--muted); }
+.contrast { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; font-size: 13px; color: var(--muted); }
+.contrast b { font: 600 12px/1.4 "Geist Mono", ui-monospace, monospace; color: var(--ink); margin-right: 6px; font-variant-numeric: tabular-nums; }
+.contrast .fail b { color: var(--warn, #F28B82); }
+
+/* Type */
+.specimens { display: grid; gap: 22px; }
+.spec { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 16px; align-items: baseline; border-top: 1px solid var(--line); padding-top: 18px; }
+.spec:first-child { border-top: 0; padding-top: 0; }
+.spec-role { font-size: 12px; color: var(--muted); line-height: 1.4; }
+.spec-role span { display: block; color: var(--ink); font-weight: 600; }
+.spec-body { margin: 0; min-width: 0; }
+
+/* Imagery */
+.frames { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.frame { position: relative; aspect-ratio: 9 / 16; overflow: hidden; border-radius: var(--frame-r); background: #1c1c1f; margin: 0; }
+.frame img { width: 100%; height: 100%; object-fit: cover; filter: var(--grade, none); }
+.frame .cap { position: absolute; margin: 0; pointer-events: none; }
+
+/* Editor touchpoint (shared neutral dark surface) */
+.editor {
+  background: var(--ed-bg); color: var(--ed-ink); border: 1px solid var(--ed-line);
+  border-radius: var(--ed-r, 12px); padding: 16px; display: grid; gap: 16px;
+  font-family: var(--ui);
+}
+.ed-prompt { display: grid; gap: 10px; }
+.ed-prompt label { font-size: 12px; color: var(--ed-muted); }
+.ed-row { display: flex; gap: 8px; align-items: stretch; }
+.ed-input {
+  flex: 1; min-width: 0; resize: none; height: 64px;
+  background: var(--ed-surface); color: var(--ed-ink); border: 1px solid var(--ed-line);
+  border-radius: var(--ed-ctl-r, 8px); padding: 10px 12px; font: 400 14px/1.4 var(--ui);
+}
+.ed-input::placeholder { color: var(--ed-muted); }
+.ed-input:focus-visible { outline: 2px solid var(--ed-accent); outline-offset: 1px; }
+.ed-btn {
+  flex: none; align-self: flex-end;
+  background: var(--ed-accent); color: var(--ed-on-accent); border: 0;
+  border-radius: var(--ed-ctl-r, 8px); padding: 0 16px; height: 40px;
+  font: 600 14px/1 var(--ui); white-space: nowrap; cursor: pointer;
+  touch-action: manipulation;
+  transition: transform .15s var(--ease-out), filter .2s var(--ease-out);
+}
+.ed-btn:hover { filter: brightness(1.08); }
+.ed-btn:active { transform: translateY(1px) scale(.98); }
+.ed-btn:focus-visible { outline: 2px solid var(--ed-ink); outline-offset: 2px; }
+.ed-timeline { display: grid; gap: 8px; }
+.ed-tc { display: flex; justify-content: space-between; font: 500 12px/1 "Geist Mono", ui-monospace, monospace; color: var(--ed-muted); font-variant-numeric: tabular-nums; }
+.ed-tc b { color: var(--ed-accent); font-weight: 600; }
+.ed-strip { position: relative; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 3px; }
+.ed-strip img { width: 100%; aspect-ratio: 9 / 16; object-fit: cover; border-radius: var(--ed-thumb-r, 3px); filter: var(--grade, none); }
+.ed-playhead { position: absolute; top: -6px; bottom: -6px; left: 41%; width: 2px; background: var(--ed-accent); border-radius: 1px; }
+.ed-playhead::before { content: ""; position: absolute; top: 0; left: 50%; width: 10px; height: 10px; transform: translate(-50%, -2px) rotate(45deg); background: var(--ed-accent); border-radius: 2px; }
+
+/* Icons */
+.icon-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 20px; }
+.appicon { display: grid; place-items: center; border-radius: 22.5%; flex: none; overflow: hidden; }
+.appicon svg { width: 72%; height: 72%; }
+.i96 { width: 96px; height: 96px; }
+.i56 { width: 56px; height: 56px; }
+.i32 { width: 32px; height: 32px; }
+.i16 { width: 16px; height: 16px; border-radius: 4px; }
+.avatar { border-radius: 50%; }
+.icon-caption { display: flex; flex-wrap: wrap; gap: 20px; margin: 0; font-size: 12px; color: var(--muted); }
+
+/* Voice */
+.voice-desc { margin: 0; font-size: 17px; line-height: 1.45; max-width: 52ch; }
+.voice-list { margin: 0; display: grid; gap: 0; }
+.voice-list div { display: grid; grid-template-columns: 124px minmax(0, 1fr); gap: 16px; padding: 14px 0; border-top: 1px solid var(--line); }
+.voice-list dt { font-size: 12px; color: var(--muted); padding-top: 3px; }
+.voice-list dd { margin: 0; font-size: 16px; line-height: 1.45; }
+
+/* ============ Direction 1: Take One ============ */
+.d-take {
+  --bg: #0D0D0F; --surface: #16161A; --raised: #1E1E23; --line: #2A2A30;
+  --ink: #EDEDEE; --muted: #9A9AA3; --accent: #EC6446; --on-accent: #0D0D0F;
+  --ui: "Archivo", system-ui, sans-serif;
+  --r: 4px; --frame-r: 3px;
+  --ed-accent: #EC6446; --ed-on-accent: #0D0D0F; --ed-r: 4px; --ed-ctl-r: 3px; --ed-thumb-r: 1px;
+  --grade: contrast(1.08) saturate(.78) sepia(.14) brightness(.94);
+  --mark-accent: #EC6446;
+}
+.d-take .c-cover { background: var(--bg); box-shadow: inset 0 0 0 1px var(--line); }
+.lock-take { display: flex; align-items: center; gap: clamp(14px, 2vw, 26px); }
+.lock-take svg { width: clamp(84px, 10vw, 136px); height: auto; color: var(--ink); flex: none; }
+.wm-take {
+  font-family: "Archivo", sans-serif; font-stretch: 62%; font-weight: 800;
+  font-size: clamp(76px, 10vw, 150px); line-height: .82; letter-spacing: .005em; text-transform: uppercase;
+}
+.tag-take {
+  margin: 0; font-family: "Archivo", sans-serif; font-stretch: 62%; font-weight: 800; text-transform: uppercase;
+  font-size: clamp(44px, 4.6vw, 68px); line-height: .9; letter-spacing: .005em;
+}
+.tag-take em { font-style: normal; color: var(--accent); }
+.d-take .spec-display { font-family: "Archivo"; font-stretch: 62%; font-weight: 800; font-size: 46px; line-height: .92; text-transform: uppercase; letter-spacing: .005em; }
+.d-take .spec-ui { font-family: "Archivo"; font-size: 17px; line-height: 1.45; font-weight: 400; }
+.d-take .spec-num { font-family: "JetBrains Mono", monospace; font-size: 26px; font-weight: 600; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+.d-take .frame::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .22; mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+.d-take .cap {
+  left: 8%; right: 8%; bottom: 16%; text-align: center; color: #F4F4F5;
+  font-family: "Archivo"; font-stretch: 62%; font-weight: 800; text-transform: uppercase;
+  font-size: clamp(13px, 1.25vw, 17px); line-height: 1; letter-spacing: .01em;
+  text-shadow: 0 1px 2px rgb(0 0 0 / .7), 0 0 12px rgb(0 0 0 / .35);
+}
+.d-take .appicon { background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); color: var(--ink); }
+.d-take .avatar.alt { background: var(--accent); color: var(--bg); --mark-accent: var(--bg); box-shadow: none; }
+
+/* ============ Direction 2: Hook ============ */
+.d-hook {
+  --bg: #F2F2EE; --surface: #FBFBF9; --line: #DADAD4;
+  --ink: #121212; --muted: #5E5E5A; --accent: #CDEA55; --on-accent: #121212;
+  --ui: "Bricolage Grotesque", system-ui, sans-serif;
+  --r: 22px; --frame-r: 18px;
+  --ed-accent: #CDEA55; --ed-on-accent: #121212; --ed-r: 18px; --ed-ctl-r: 999px; --ed-thumb-r: 6px;
+  --grade: saturate(1.14) contrast(1.04);
+  --warn: #B3261E;
+}
+.d-hook .c-cover { background: var(--accent); color: var(--ink); }
+.d-hook .c-cover .cell-label { color: #3B4214; }
+.d-hook .c-tag { background: var(--ink); color: var(--bg); }
+.d-hook .c-tag .cell-label { color: #A3A39C; }
+.wm-hook {
+  font-family: "Bricolage Grotesque", sans-serif; font-weight: 800;
+  font-size: clamp(96px, 13vw, 196px); line-height: .9; letter-spacing: -.05em;
+  padding-bottom: .05em;
+}
+.wm-hook .i { position: relative; display: inline-block; }
+.wm-hook .tittle {
+  position: absolute; left: 50%; top: var(--tittle-top, -.07em);
+  width: .145em; height: .258em; border-radius: .05em;
+  background: currentColor; transform: translateX(-50%) rotate(12deg);
+}
+.tag-hook {
+  margin: 0; font-family: "Bricolage Grotesque", sans-serif; font-weight: 800;
+  font-size: clamp(40px, 4.2vw, 62px); line-height: .98; letter-spacing: -.04em;
+}
+.mark-hl { background: linear-gradient(transparent 12%, var(--accent) 12%, var(--accent) 92%, transparent 92%); color: var(--ink); padding: 0 .08em; border-radius: .08em; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.d-hook .spec-display { font-family: "Bricolage Grotesque"; font-weight: 800; font-size: 48px; line-height: .95; letter-spacing: -.045em; }
+.d-hook .spec-ui { font-family: "Bricolage Grotesque"; font-size: 17px; line-height: 1.45; }
+.d-hook .spec-num { font-family: "Geist Mono", monospace; font-size: 26px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.d-hook .cap {
+  left: 8%; right: 8%; bottom: 20%; text-align: center; color: #fff;
+  font-family: "Bricolage Grotesque"; font-weight: 800; font-size: clamp(15px, 1.4vw, 19px); line-height: 1.12; letter-spacing: -.02em;
+  text-shadow: 0 1px 3px rgb(0 0 0 / .55);
+}
+.d-hook .cap mark { background: var(--accent); color: var(--ink); text-shadow: none; padding: 0 .16em; border-radius: .22em; }
+.d-hook .appicon.volt { background: var(--accent); color: var(--ink); }
+.d-hook .appicon.ink { background: var(--ink); color: var(--accent); }
+.d-hook .appicon svg { width: 84%; height: 84%; }
+
+/* ============ Direction 3: Director's Cut ============ */
+.d-dir {
+  --bg: #EDEEF0; --surface: #F7F8F9; --line: #D5D8DE;
+  --ink: #16181D; --muted: #5B6070; --accent: #2A3BD1; --on-accent: #FFFFFF;
+  --ui: "Geist", system-ui, sans-serif;
+  --r: 8px; --frame-r: 6px;
+  --ed-accent: #8C97FF; --ed-on-accent: #111113; --ed-r: 10px; --ed-ctl-r: 6px; --ed-thumb-r: 3px;
+  --grade: saturate(.62) contrast(1.02) brightness(1.02);
+  --mark-accent: #2A3BD1;
+  --warn: #B3261E;
+}
+.d-dir .c-cover { background: var(--accent); color: #F7F8F9; --mark-accent: #F7F8F9; }
+.d-dir .c-cover .cell-label { color: #C9CEFA; }
+.lock-dir { display: flex; align-items: center; gap: clamp(8px, 1.4vw, 18px); }
+.lock-dir svg { width: clamp(76px, 9vw, 124px); height: auto; flex: none; }
+.wm-dir { font-family: "Geist", sans-serif; font-weight: 500; font-size: clamp(68px, 8.6vw, 128px); line-height: .9; letter-spacing: -.055em; }
+.tag-dir { margin: 0; font-family: "Geist", sans-serif; font-weight: 500; font-size: clamp(32px, 3.2vw, 46px); line-height: 1.06; letter-spacing: -.035em; }
+.tag-dir span { color: var(--accent); }
+.d-dir .spec-display { font-family: "Geist"; font-weight: 500; font-size: 44px; line-height: 1; letter-spacing: -.045em; }
+.d-dir .spec-ui { font-family: "Geist"; font-size: 17px; line-height: 1.5; }
+.d-dir .spec-num { font-family: "Geist Mono", monospace; font-size: 26px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.d-dir .cap {
+  left: 8%; right: 8%; bottom: 7%; text-align: left; color: #fff;
+  font-family: "Geist"; font-weight: 500; font-size: clamp(12px, 1.05vw, 14px); line-height: 1.3; letter-spacing: -.01em;
+  text-shadow: 0 1px 2px rgb(0 0 0 / .5);
+}
+.d-dir .appicon.ultra { background: var(--accent); color: #F7F8F9; --mark-accent: #F7F8F9; }
+.d-dir .appicon.paper { background: var(--surface); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line); }
+
+/* Compare */
+.compare-wrap { margin-top: 40px; overflow-x: auto; border: 1px solid var(--page-line); border-radius: 14px; }
+.compare { width: 100%; min-width: 820px; border-collapse: collapse; font-size: 15px; }
+.compare th, .compare td { text-align: left; vertical-align: top; padding: 16px 20px; }
+.compare thead th { font-size: 15px; font-weight: 600; background: var(--page-raised); border-bottom: 1px solid var(--page-line); }
+.compare tbody th { width: 160px; font-size: 13px; font-weight: 500; color: var(--page-muted); }
+.compare tbody tr + tr > * { border-top: 1px solid var(--page-line); }
+.compare td { color: var(--page-soft); line-height: 1.5; }
+.compare .dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 8px; vertical-align: 0; box-shadow: inset 0 0 0 1px rgb(255 255 255 / .2); }
+
+/* Recommendation */
+.rec { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 12px; margin-top: 40px; }
+.rec-main { background: var(--page-raised); border: 1px solid var(--page-line); border-radius: 14px; padding: 32px; }
+.rec-main h3 { margin: 0; font-size: clamp(26px, 2.8vw, 34px); line-height: 1.1; letter-spacing: -.02em; font-weight: 650; }
+.rec-main > p { margin: 14px 0 0; font-size: 17px; color: var(--page-soft); max-width: 60ch; }
+.rec-points { margin: 28px 0 0; padding: 0; list-style: none; display: grid; gap: 18px; }
+.rec-points li { font-size: 16px; color: var(--page-soft); }
+.rec-points strong { color: var(--page-ink); font-weight: 600; }
+.rec-watch { margin-top: 28px; padding-top: 22px; border-top: 1px solid var(--page-line); }
+.rec-watch h4, .ask h3 { margin: 0 0 12px; font-size: 14px; font-weight: 600; color: var(--page-muted); }
+.rec-watch ul { margin: 0; padding-left: 18px; display: grid; gap: 8px; color: var(--page-soft); font-size: 15px; }
+.ask { background: var(--page-ink); color: var(--page-bg); border-radius: 14px; padding: 32px; }
+.ask h3 { color: #55555C; }
+.ask ol { margin: 0; padding-left: 20px; display: grid; gap: 18px; }
+.ask li { font-size: 16px; line-height: 1.5; }
+.ask li strong { display: block; font-weight: 650; }
+
+.foot { margin-top: 96px; padding: 32px 0 48px; border-top: 1px solid var(--page-line); font-size: 13px; color: var(--page-muted); }
+.foot p { margin: 0; max-width: 90ch; }
+.foot p + p { margin-top: 6px; }
+
+/* Responsive */
+@media (max-width: 1023px) {
+  .c-cover, .c-palette, .c-type, .c-image, .c-product, .c-icons, .c-voice { grid-column: 1 / -1; }
+  .c-cover { grid-row: auto; min-height: 380px; }
+  .c-build { grid-column: 1 / 7; }
+  .c-tag { grid-column: 7 / 13; }
+  .found-what, .found-who, .found-name, .found-cat { grid-column: 1 / -1; }
+  .dir-head { grid-template-columns: 1fr; }
+  .rec { grid-template-columns: 1fr; }
+}
+@media (max-width: 767px) {
+  .wrap { padding: 0 16px; }
+  .intro { padding: 56px 0 48px; }
+  .sec { padding-top: 72px; }
+  .board { padding: 8px; gap: 8px; border-radius: 18px; }
+  .cell { padding: 20px; }
+  .c-build, .c-tag { grid-column: 1 / -1; }
+  .c-cover { min-height: 300px; }
+  .rules { grid-template-columns: 1fr; }
+  .swatches { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .spec { grid-template-columns: 1fr; gap: 6px; }
+  .voice-list div { grid-template-columns: 1fr; gap: 4px; }
+  .ed-row { flex-direction: column; }
+  .ed-btn { align-self: stretch; }
+  .d-take .spec-display, .d-hook .spec-display, .d-dir .spec-display { font-size: 36px; }
+  .topbar-title { display: none; }
+  .found, .rec-main, .ask { padding: 24px; }
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<!-- Mark symbols (concept drawings, reused across the boards) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <style>.m-acc { fill: var(--mark-accent, currentColor); }</style>
+    <!-- Take One: lowercase b, ascender hinged open 16deg like a clapper stick -->
+    <symbol id="m-take" viewBox="0 0 64 64">
+      <g transform="translate(2 3.5)" fill="currentColor">
+        <path fill-rule="evenodd" d="M14 20H24V28H36.5A13 13 0 0 1 36.5 54H14Z M24 35.5H36.5A5.5 5.5 0 0 1 36.5 46.5H24Z"/>
+        <rect class="m-acc" x="14" y="5" width="10" height="12.5" transform="rotate(-16 14 17.5)"/>
+      </g>
+    </symbol>
+    <!-- Hook: the 9:16 frame from the wordmark, tilted 12deg mid-swipe -->
+    <symbol id="m-hook" viewBox="0 0 64 64">
+      <rect x="22" y="14.2" width="20" height="35.6" rx="6" fill="currentColor" transform="rotate(12 32 32)"/>
+    </symbol>
+    <!-- Director's Cut: 9:16 viewfinder crop marks, subject on a rule-of-thirds point -->
+    <symbol id="m-dir" viewBox="0 0 64 64">
+      <path d="M18.5 17V8H27.5M36.5 8H45.5V17M18.5 47V56H27.5M36.5 56H45.5V47" fill="none" stroke="currentColor" stroke-width="4"/>
+      <circle class="m-acc" cx="36.5" cy="24" r="4.25"/>
+    </symbol>
+  </defs>
+</svg>
+
+<header class="topbar">
+  <div class="wrap">
+    <span class="topbar-title">Bamio brand exploration</span>
+    <nav aria-label="Sections">
+      <a href="#foundation">Foundation</a>
+      <a href="#take-one">Take One</a>
+      <a href="#hook">Hook</a>
+      <a href="#directors-cut">Director’s Cut</a>
+      <a href="#compare">Compare</a>
+      <a href="#recommendation">Recommendation</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <section class="intro">
+    <div class="wrap">
+      <h1>Three directions for Bamio</h1>
+      <p class="intro-sub">Phase A, brand exploration. Each direction is a different bet on what “premium” means for a short-form video tool. Pick one to carry into the design system, or tell me what to combine.</p>
+      <ul class="intro-meta">
+        <li><strong>Phase</strong> A of M</li>
+        <li><strong>Date</strong> 25 Sep 2026</li>
+        <li><strong>Status</strong> Waiting for your review</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- Foundation -->
+  <section class="sec" id="foundation" aria-labelledby="foundation-title">
+    <div class="wrap">
+      <h2 class="sec-title" id="foundation-title">What every direction shares</h2>
+      <p class="sec-lede">The directions differ in mood, color, type and mark. The strategy underneath them is the same.</p>
+      <div class="found-grid">
+        <article class="found found-what">
+          <h3>What Bamio is</h3>
+          <p>An AI video studio for vertical, short-form video. You bring an idea; Bamio writes the story, plans the shots, cuts the edit and renders it, and you direct every step.</p>
+          <p>The product runs idea to export in one place: story builder, storyboard, editor, an AI director that gives notes, templates, and rendering.</p>
+        </article>
+        <article class="found found-who">
+          <h3>Who it is for</h3>
+          <ul class="who-list">
+            <li><strong>Solo creators</strong> posting daily who need volume without losing quality.</li>
+            <li><strong>Brand and social teams</strong> who need on-brand shorts every week.</li>
+            <li><strong>Small agencies</strong> producing short-form for several clients.</li>
+          </ul>
+        </article>
+        <article class="found found-name">
+          <h3>What the name gives us</h3>
+          <p><strong>Bam</strong> is impact: the clap of a slate, the first second that stops a thumb. The <strong>-io</strong> ending echoes studio, audio and radio, so the name sounds like a place where media gets made.</p>
+          <p>So the brand holds a tension on purpose: a hard start and an open finish, premium but lively. The ending can also read as tech (“.io”), so the brand leans on the studio meaning, not the developer one.</p>
+        </article>
+        <article class="found found-cat">
+          <h3>What the category looks like</h3>
+          <p>Studied in the reference library: Runway, Framer and Linear all sit on near-black canvases with one restrained accent and a quiet interface. AI video tools add purple and blue glow on top.</p>
+          <p>Dark alone will not make Bamio recognisable. Ownership has to come from the accent, the type, the mark and the way Bamio talks.</p>
+        </article>
+        <article class="found found-rules">
+          <h3>Non-negotiables in every direction</h3>
+          <ul class="rules">
+            <li><strong>Video sits on neutral dark</strong>The editor, storyboard and preview use untinted dark greys so footage is judged accurately. The brand shows up in the accent, type and marketing, never as a tint around video.</li>
+            <li><strong>9:16 is the native canvas</strong>The vertical frame is the unit of the product and a recurring brand motif.</li>
+            <li><strong>One accent, locked</strong>A single brand color with a fixed job. Success, warning and error get their own colors.</li>
+            <li><strong>No AI clichés</strong>No purple glow, no sparkle icon for “AI”, no floating gradient blobs. AI is shown through what it does.</li>
+            <li><strong>Plain, specific copy</strong>Sentence case, concrete verbs, no em dashes, no “elevate” or “unleash”.</li>
+            <li><strong>Accessible by default</strong>Text and controls meet WCAG AA in the editor and on marketing pages.</li>
+          </ul>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- Direction 1 -->
+  <section class="sec" id="take-one" aria-labelledby="take-title">
+    <div class="wrap">
+      <div class="dir-head">
+        <div>
+          <p class="dir-kicker">Direction 1</p>
+          <h2 id="take-title">Take One</h2>
+          <p class="dir-premise">Bamio is a film crew in your pocket. Premium means cinematic craft: every video should look like it was shot and cut on purpose.</p>
+        </div>
+        <dl class="dir-facts">
+          <div><dt>Core metaphor</dt><dd>The slate. “Bam” is the clap that starts every take.</dd></div>
+          <div><dt>Strongest with</dt><dd>Brand teams, agencies and creators who care about production value.</dd></div>
+          <div><dt>Risk</dt><dd>Dark with one accent is the category default. Vermilion also sits near error red, so errors need their own color and an icon.</dd></div>
+        </dl>
+      </div>
+
+      <div class="board d-take">
+        <div class="cell c-cover">
+          <p class="cell-label">Primary lockup</p>
+          <div class="lock-take" role="img" aria-label="Bamio logo: a lowercase b whose ascender is hinged open like a clapper stick, beside the wordmark BAMIO">
+            <svg viewBox="0 0 64 64" aria-hidden="true"><use href="#m-take"/></svg>
+            <span class="wm-take" aria-hidden="true" translate="no">Bamio</span>
+          </div>
+          <p class="cell-note">Condensed film-title caps. The hinged ascender carries the only color in the logo.</p>
+        </div>
+
+        <div class="cell c-build">
+          <p class="cell-label">Construction</p>
+          <svg class="build-svg" viewBox="0 0 64 64" role="img" aria-label="Construction of the Take One mark on an 8-unit grid, showing the ascender rotated 16 degrees around its hinge">
+            <g stroke="var(--line)" stroke-width=".25">
+              <path d="M0 8H64M0 16H64M0 24H64M0 32H64M0 40H64M0 48H64M0 56H64M8 0V64M16 0V64M24 0V64M32 0V64M40 0V64M48 0V64M56 0V64"/>
+            </g>
+            <g transform="translate(2 3.5)">
+              <rect x="14" y="5" width="10" height="12.5" fill="none" stroke="var(--muted)" stroke-width=".35" stroke-dasharray="1 1"/>
+              <path fill-rule="evenodd" d="M14 20H24V28H36.5A13 13 0 0 1 36.5 54H14Z M24 35.5H36.5A5.5 5.5 0 0 1 36.5 46.5H24Z" fill="var(--ink)" fill-opacity=".1" stroke="var(--ink)" stroke-width=".4"/>
+              <rect x="14" y="5" width="10" height="12.5" transform="rotate(-16 14 17.5)" fill="var(--accent)" fill-opacity=".25" stroke="var(--accent)" stroke-width=".45"/>
+              <path d="M14 5.5A12 12 0 0 0 10.69 5.97" fill="none" stroke="var(--accent)" stroke-width=".4"/>
+              <circle cx="14" cy="17.5" r="1.1" fill="var(--accent)"/>
+              <text x="3" y="5" font-size="3.2" fill="var(--accent)" font-family="JetBrains Mono, monospace">16°</text>
+              <text x="26" y="19" font-size="2.8" fill="var(--muted)" font-family="JetBrains Mono, monospace">hinge</text>
+            </g>
+          </svg>
+          <p class="cell-note">A geometric lowercase b. The ascender swings open 16° on its hinge: the snap before the take.</p>
+        </div>
+
+        <div class="cell c-tag">
+          <p class="cell-label">Tagline</p>
+          <p class="tag-take">Cut to the <em>good part.</em></p>
+        </div>
+
+        <div class="cell c-palette">
+          <p class="cell-label">Color</p>
+          <ul class="swatches">
+            <li><div class="swatch-chip" style="--c:#0D0D0F"></div><div class="swatch-name">Canvas</div><div class="swatch-hex">#0D0D0F</div></li>
+            <li><div class="swatch-chip" style="--c:#16161A"></div><div class="swatch-name">Surface</div><div class="swatch-hex">#16161A</div></li>
+            <li><div class="swatch-chip" style="--c:#2A2A30"></div><div class="swatch-name">Line</div><div class="swatch-hex">#2A2A30</div></li>
+            <li><div class="swatch-chip" style="--c:#EDEDEE"></div><div class="swatch-name">Text</div><div class="swatch-hex">#EDEDEE</div></li>
+            <li><div class="swatch-chip" style="--c:#9A9AA3"></div><div class="swatch-name">Muted</div><div class="swatch-hex">#9A9AA3</div></li>
+            <li><div class="swatch-chip" style="--c:#EC6446"></div><div class="swatch-name">Tally</div><div class="swatch-hex">#EC6446</div></li>
+          </ul>
+          <ul class="contrast">
+            <li><b>6.0:1</b>Tally on canvas, usable for text and the playhead</li>
+            <li><b>6.0:1</b>Canvas-colored text on tally buttons</li>
+            <li class="fail"><b>3.2:1</b>White on tally fails for body text, so never use it</li>
+          </ul>
+        </div>
+
+        <div class="cell c-type">
+          <p class="cell-label">Typography</p>
+          <div class="specimens">
+            <div class="spec"><div class="spec-role"><span>Display</span>Archivo, condensed 62%, 800</div><p class="spec-body spec-display">Every take counts</p></div>
+            <div class="spec"><div class="spec-role"><span>Interface</span>Archivo, normal width, 400 to 600</div><p class="spec-body spec-ui">Describe the scene you want. Bamio blocks out the shots, the pacing and the captions, then hands you the cut.</p></div>
+            <div class="spec"><div class="spec-role"><span>Timecode</span>JetBrains Mono, 600</div><p class="spec-body spec-num">00:00:14:08</p></div>
+          </div>
+          <p class="cell-note">One family at two widths, like a film credit roll. Mono only where numbers must line up.</p>
+        </div>
+
+        <div class="cell c-image">
+          <p class="cell-label">Image direction and caption style</p>
+          <div class="frames">
+            <figure class="frame"><img src="https://picsum.photos/id/453/360/640" width="360" height="640" alt="Placeholder: a performer singing under a single spotlight" loading="lazy"><p class="cap">Nobody tells you this about touring</p></figure>
+            <figure class="frame"><img src="https://picsum.photos/id/91/360/640" width="360" height="640" alt="Placeholder: a person holding a vintage twin-lens camera" loading="lazy"><p class="cap">Shot on a camera from 1954</p></figure>
+            <figure class="frame"><img src="https://picsum.photos/id/402/360/640" width="360" height="640" alt="Placeholder: a city street lit by a low golden sun" loading="lazy"><p class="cap">Golden hour, 6:42 pm</p></figure>
+          </div>
+          <p class="cell-note">Film-graded, low-key light, visible grain. People and places, never stock smiles. Captions set like subtitles on a feature.</p>
+        </div>
+
+        <div class="cell c-product">
+          <p class="cell-label">In the product</p>
+          <div class="editor">
+            <div class="ed-prompt">
+              <label for="p-take">Describe your video</label>
+              <div class="ed-row">
+                <textarea class="ed-input" id="p-take" name="prompt-take" autocomplete="off" placeholder="A 30-second reel for a coffee roaster’s new single origin…"></textarea>
+                <button class="ed-btn" type="button">Block out scenes</button>
+              </div>
+            </div>
+            <div class="ed-timeline">
+              <div class="ed-tc"><b>00:00:14:08</b><span>00:00:30:00</span></div>
+              <div class="ed-strip">
+                <img src="https://picsum.photos/id/453/72/128" width="72" height="128" alt="" loading="lazy">
+                <img src="https://picsum.photos/id/91/72/128" width="72" height="128" alt="" loading="lazy">
+                <img src="https://picsum.photos/id/402/72/128" width="72" height="128" alt="" loading="lazy">
+                <img src="https://picsum.photos/id/351/72/128" width="72" height="128" alt="" loading="lazy">
+                <img src="https://picsum.photos/id/660/72/128" width="72" height="128" alt="" loading="lazy">
+                <img src="https://picsum.photos/id/195/72/128" width="72" height="128" alt="" loading="lazy">
+                <span class="ed-playhead" aria-hidden="true"></span>
+              </div>
+            </div>
+          </div>
+          <p class="cell-note">Tally marks what is live: the playhead, recording and rendering state, and the one primary action.</p>
+        </div>
+
+        <div class="cell c-icons">
+          <p class="cell-label">App icon and avatar</p>
+          <div class="icon-row">
+            <span class="appicon i96" role="img" aria-label="App icon, 96 pixels"><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#m-take"/></svg></span>
+            <span class="appicon i56" role="img" aria-label="App icon, 56 pixels"><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#m-take"/></svg></span>
+            <span class="appicon i32" role="img" aria-label="App icon, 32 pixels"><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#m-take"/></svg></span>
+            <span class="appicon i16" role="img" aria-label="Favicon, 16 pixels"><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#m-take"/></svg></span>
+            <span class="appicon avatar alt i56" role="img" aria-label="One-color avatar"><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#m-take"/></svg></span>
+          </div>
+          <p class="cell-note">At 16px the tilted ascender survives as a notch. One-color version for avatars and watermarks.</p>
+        </div>
+
+        <div class="cell c-voice">
+          <p class="cell-label">Voice</p>
+          <p class="voice-desc">Director’s shorthand. Short and confident, with film words only where they are clear to everyone.</p>
+          <dl class="voice-list">
+            <div><dt>Primary button</dt><dd>Start a video</dd></div>
+            <div><dt>Empty state</dt><dd>No takes yet. Describe a scene and Bamio will block out a first cut.</dd></div>
+            <div><dt>Render finished</dt><dd>Final cut is ready. 0:42, 1080&nbsp;×&nbsp;1920.</dd></div>
+          </dl>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Direction 2 -->
+  <section class="sec" id="hook" aria-labelledby="hook-title">
+    <div class="wrap">
+      <div class="dir-head">
+        <div>
+          <p class="dir-kicker">Direction 2</p>
+          <h2 id="hook-title">Hook</h2>
+          <p class="dir-premise">Short-form is won in the first second. Bamio is built for the hook: fast, loud, and fluent in how people actually scroll.</p>
+        </div>
+        <dl class="dir-facts">
+          <div><dt>Core metaphor</dt><dd>The swipe. A vertical frame caught mid-flick.</dd></div>
+          <div><dt>Strongest with</dt><dd>Solo creators and social teams posting every day.</dd></div>
+          <div><dt>Risk</dt><dd>Can read as a consumer template app and undercut “premium”. Lime can never be text on light backgrounds.</dd></div>
+        </dl>
+      </div>
+
+      <div class="board d-hook">
+        <div class="cell c-cover">
+          <p class="cell-label">Primary wordmark</p>
+          <span class="wm-hook" role="img" aria-label="Bamio wordmark: lowercase bamio, the dot of the i drawn as a tilted vertical frame"><span aria-hidden="true" translate="no">bam<span class="i">ı<span class="tittle"></span></span>o</span></span>
+          <p class="cell-note" style="color:#3B4214">Heavy lowercase with tight spacing. The dot of the i is a 9:16 frame, mid-swipe.</p>
+        </div>
+
+        <div class="cell c-build">
+          <p class="cell-label">Construction</p>
+          <svg class="build-svg" viewBox="0 0 200 200" role="img" aria-label="Construction of the Hook tittle: a 9 by 16 frame tilted 12 degrees above the i stem">
+            <g stroke="var(--line)" stroke-width="1">
+              <path d="M0 96H200M0 184H200"/>
+            </g>
+            <text x="4" y="92" font-size="9" fill="var(--muted)" font-family="Geist Mono, monospace">x-height</text>
+            <text x="4" y="180" font-size="9" fill="var(--muted)" font-family="Geist Mono, monospace">baseline</text>
+            <rect x="86" y="96" width="28" height="88" rx="3" fill="var(--ink)"/>
+            <path d="M100 6V92" stroke="var(--muted)" stroke-width="1" stroke-dasharray="3 3"/>
+            <g transform="rotate(12 100 48)">
+              <path d="M100 4V92" stroke="var(--ink)" stroke-width="1" stroke-dasharray="3 3" opacity=".6"/>
+              <rect x="84" y="20" width="32" height="56" rx="10" fill="var(--accent)" stroke="var(--ink)" stroke-width="2"/>
+            </g>
+            <path d="M100 18A30 30 0 0 1 106.2 18.6" fill="none" stroke="var(--ink)" stroke-width="1.5"/>
+            <text x="128" y="50" font-size="11" fill="var(--ink)" font-family="Geist Mono, monospace">9:16</text>
+            <text x="116" y="20" font-size="11" fill="var(--ink)" font-family="Geist Mono, monospace">12°</text>
+          </svg>
+          <p class="cell-note">The frame keeps the true 9:16 ratio and leans 12° in the direction of a swipe.</p>
+        </div>
+
+        <div class="cell c-tag">
+          <p class="cell-label">Tagline</p>
+          <p class="tag-hook">Make the <span class="mark-hl">first second</span> count.</p>
+        </div>
+
+        <div class="cell c-palette">
+          <p class="cell-label">Color</p>
+          <ul class="swatches">
+            <li><div class="swatch-chip" style="--c:#F2F2EE"></div><div class="swatch-name">Paper</div><div class="swatch-hex">#F2F2EE</div></li>
+            <li><div class="swatch-chip" style="--c:#121212"></div><div class="swatch-name">Ink</div><div class="swatch-hex">#121212</div></li>
+            <li><div class="swatch-chip" style="--c:#5E5E5A"></div><div class="swatch-name">Muted</div><div class="swatch-hex">#5E5E5A</div></li>
+            <li><div class="swatch-chip" style="--c:#DADAD4"></div><div class="swatch-name">Line</div><div class="swatch-hex">#DADAD4</div></li>
+            <li><div class="swatch-chip" style="--c:#CDEA55"></div><div class="swatch-name">Volt</div><div class="swatch-hex">#CDEA55</div></li>
+            <li><div class="swatch-chip" style="--c:#111113"></div><div class="swatch-name">Editor</div><div class="swatch-hex">#111113</div></li>
+          </ul>
+          <ul class="contrast">
+            <li><b>13.8:1</b>Ink on volt, for buttons and highlights</li>
+            <li><b>13.9:1</b>Volt on the dark editor, very strong</li>
+            <li class="fail"><b>1.2:1</b>Volt on paper is invisible, so volt is a fill or highlighter only</li>
+          </ul>
+        </div>
+
+        <div class="cell c-type">
+          <p class="cell-label">Typography</p>
+          <div class="specimens">
+            <div class="spec"><div class="spec-role"><span>Display</span>Bricolage Grotesque, 800</div><p class="spec-body spec-display">hook, story, payoff.</p></div>
+            <div class="spec"><div class="spec-role"><span>Interface</span>Bricolage Grotesque, 400 to 600</div><p class="spec-body spec-ui">Drop in an idea, a link or a rough clip. Bamio writes three hooks and you pick the one that stops the scroll.</p></div>
+            <div class="spec"><div class="spec-role"><span>Timecode</span>Geist Mono, 500</div><p class="spec-body spec-num">0:14.08</p></div>
+          </div>
+          <p class="cell-note">Expressive at display sizes, friendly at small sizes. Lowercase headlines carry the energy.</p>
+        </div>
+
+        <div class="cell c-image">
+          <p class="cell-label">Image direction and caption style</p>
+          <div class="frames">
+            <figure class="frame"><img src="https://picsum.photos/id/373/360/640" width="360" height="640" alt="Placeholder: a hand filming a breaking wave on a phone" loading="lazy"><p class="cap">wait for <mark>the wave</mark></p></figure>
+            <figure class="frame"><img src="https://picsum.photos/id/281/360/640" width="360" height="640" alt="Placeholder: a skateboarder mid-trick under palm trees" loading="lazy"><p class="cap"><mark>3 tricks</mark> in 10 seconds</p></figure>
+            <figure class="frame"><img src="https://picsum.photos/id/390/360/640" width="360" height="640" alt="Placeholder: friends jumping on a wet reflective shoreline" loading="lazy"><p class="cap">we <mark>actually</mark> made it</p></figure>
+          </div>
+          <p class="cell-note">Bright, saturated, people in motion. Shot-on-phone honesty. Captions pop word by word with the spoken word highlighted.</p>
+        </div>
+
+        <div class="cell c-product">
+          <p class="cell-label">In the product</p>
+          <div class="editor">
+            <div class="ed-prompt">
+              <label for="p-hook">What’s the video about?</label>
+              <div class="ed-row">
+                <textarea class="ed-input" id="p-hook" name="prompt-hook" autocomplete="off" placeholder="Our new cold brew, for people who hate mornings…"></textarea>
+                <button class="ed-btn" type="button">Find the hook</button>
+              </div>
+            </div>
+            <div class="ed-timeline">
+              <div class="ed-tc"><b>0:14.08</b><span>0:30.00</span></div>
+              <div class="ed-strip">
+                <img src="https://picsum.photos/id/373/72/128" width="72" height="128" alt="" loading="lazy">
+                <img src="https://picsum.photos/id/281/72/128" width="72" height="128" alt="" loading="lazy">
+                <img src="https://picsum.photos/id/390/72/128" width="72" height="128" alt="" loading="lazy">
+                <img src="https://picsum.photos/id/64/72/128" width="72" height="128" alt="" loading="lazy">
+                <img src="https://picsum.photos/id/669/72/128" width="72" height="128" alt="" loading="lazy">
+                <img src="https://picsum.photos/id/770/72/128" width="72" height="128" alt="" loading="lazy">
+                <span class="ed-playhead" aria-hidden="true"></span>
+              </div>
+            </div>
+          </div>
+          <p class="cell-note">Marketing is light, the editor is dark. Volt is the bridge between them and is strongest in the editor.</p>
+        </div>
+
+        <div class="cell c-icons">
+          <p class="cell-label">App icon and avatar</p>
+          <div class="icon-row">
+            <span class="appicon volt i96" role="img" aria-label="App icon, 96 pixels"><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#m-hook"/></svg></span>
+            <span class="appicon volt i56" role="img" aria-label="App icon, 56 pixels"><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#m-hook"/></svg></span>
+            <span class="appicon volt i32" role="img" aria-label="App icon, 32 pixels"><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#m-hook"/></svg></span>
+            <span class="appicon volt i16" role="img" aria-label="Favicon, 16 pixels"><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#m-hook"/></svg></span>
+            <span class="appicon ink avatar i56" role="img" aria-label="Inverted avatar"><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#m-hook"/></svg></span>
+          </div>
+          <p class="cell-note">The icon is the tilted frame on its own. Bold at every size, but alone it can read as a generic phone shape.</p>
+        </div>
+
+        <div class="cell c-voice">
+          <p class="cell-label">Voice</p>
+          <p class="voice-desc">Casual and quick. Second person, contractions, energy from verbs rather than exclamation marks.</p>
+          <dl class="voice-list">
+            <div><dt>Primary button</dt><dd>Make a video</dd></div>
+            <div><dt>Empty state</dt><dd>Nothing here yet. Drop in an idea, a link or a rough clip and we’ll find the hook.</dd></div>
+            <div><dt>Render finished</dt><dd>Done. Your video’s ready to post.</dd></div>
+          </dl>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Direction 3 -->
+  <section class="sec" id="directors-cut" aria-labelledby="dir-title">
+    <div class="wrap">
+      <div class="dir-head">
+        <div>
+          <p class="dir-kicker">Direction 3</p>
+          <h2 id="dir-title">Director’s Cut</h2>
+          <p class="dir-premise">Bamio is a creative director that thinks in stories, not templates. Premium means judgment: calm tools, strong opinions, clear choices.</p>
+        </div>
+        <dl class="dir-facts">
+          <div><dt>Core metaphor</dt><dd>The viewfinder. Framing the shot is the director’s job.</dd></div>
+          <div><dt>Strongest with</dt><dd>Founders, educators and brands that sell with stories.</dd></div>
+          <div><dt>Risk</dt><dd>The least native to short-form culture. Ultramarine fades in the dark editor, and its fix drifts toward generic AI lavender.</dd></div>
+        </dl>
+      </div>
+
+      <div class="board d-dir">
+        <div class="cell c-cover">
+          <p class="cell-label">Primary lockup</p>
+          <div class="lock-dir" role="img" aria-label="Bamio logo: 9 by 16 viewfinder crop marks with a dot on a rule-of-thirds point, beside the wordmark Bamio">
+            <svg viewBox="0 0 64 64" aria-hidden="true"><use href="#m-dir"/></svg>
+            <span class="wm-dir" aria-hidden="true" translate="no">Bamio</span>
+          </div>
+          <p class="cell-note" style="color:#C9CEFA">A calm grotesk in sentence case. Ultramarine used as a full field, the way a publisher would.</p>
+        </div>
+
+        <div class="cell c-build">
+          <p class="cell-label">Construction</p>
+          <svg class="build-svg" viewBox="0 0 64 64" role="img" aria-label="Construction of the Director's Cut mark: crop marks on a 9 by 16 frame with rule-of-thirds guides and the subject dot on the upper right intersection">
+            <rect x="18.5" y="8" width="27" height="48" fill="none" stroke="var(--muted)" stroke-width=".3" stroke-dasharray="1 1"/>
+            <path d="M27.5 8V56M36.5 8V56M18.5 24H45.5M18.5 40H45.5" stroke="var(--muted)" stroke-width=".25" stroke-dasharray=".8 .8"/>
+            <path d="M18.5 17V8H27.5M36.5 8H45.5V17M18.5 47V56H27.5M36.5 56H45.5V47" fill="none" stroke="var(--ink)" stroke-width="4"/>
+            <circle cx="36.5" cy="24" r="4.25" fill="var(--accent)"/>
+            <text x="47.5" y="25" font-size="2.8" fill="var(--muted)" font-family="Geist Mono, monospace">thirds</text>
+            <text x="27" y="62" font-size="2.8" fill="var(--muted)" font-family="Geist Mono, monospace">9 : 16</text>
+          </svg>
+          <p class="cell-note">Crop marks in 9:16. The subject sits on a rule-of-thirds point: the AI director composes the shot.</p>
+        </div>
+
+        <div class="cell c-tag">
+          <p class="cell-label">Tagline</p>
+          <p class="tag-dir">Bring the story. <span>Bamio finds the shots.</span></p>
+        </div>
+
+        <div class="cell c-palette">
+          <p class="cell-label">Color</p>
+          <ul class="swatches">
+            <li><div class="swatch-chip" style="--c:#EDEEF0"></div><div class="swatch-name">Paper</div><div class="swatch-hex">#EDEEF0</div></li>
+            <li><div class="swatch-chip" style="--c:#16181D"></div><div class="swatch-name">Ink</div><div class="swatch-hex">#16181D</div></li>
+            <li><div class="swatch-chip" style="--c:#5B6070"></div><div class="swatch-name">Muted</div><div class="swatch-hex">#5B6070</div></li>
+            <li><div class="swatch-chip" style="--c:#D5D8DE"></div><div class="swatch-name">Line</div><div class="swatch-hex">#D5D8DE</div></li>
+            <li><div class="swatch-chip" style="--c:#2A3BD1"></div><div class="swatch-name">Ultramarine</div><div class="swatch-hex">#2A3BD1</div></li>
+            <li><div class="swatch-chip" style="--c:#8C97FF"></div><div class="swatch-name">Editor tint</div><div class="swatch-hex">#8C97FF</div></li>
+          </ul>
+          <ul class="contrast">
+            <li><b>7.9:1</b>White on ultramarine, for fields and buttons</li>
+            <li><b>6.8:1</b>Ultramarine on paper, for links and text</li>
+            <li class="fail"><b>2.4:1</b>Ultramarine on the dark editor fails, so the editor needs the lavender tint</li>
+          </ul>
+        </div>
+
+        <div class="cell c-type">
+          <p class="cell-label">Typography</p>
+          <div class="specimens">
+            <div class="spec"><div class="spec-role"><span>Display</span>Geist, 500</div><p class="spec-body spec-display">Every scene has a job.</p></div>
+            <div class="spec"><div class="spec-role"><span>Interface</span>Geist, 400 to 600</div><p class="spec-body spec-ui">Tell Bamio what you want people to feel. It suggests a structure, the shots to match, and notes on pacing.</p></div>
+            <div class="spec"><div class="spec-role"><span>Timecode</span>Geist Mono, 500</div><p class="spec-body spec-num">00:14:08</p></div>
+          </div>
+          <p class="cell-note">Swiss and even-tempered. Hierarchy comes from size and weight, never from decoration.</p>
+        </div>
+
+        <div class="cell c-image">
+          <p class="cell-label">Image direction and caption style</p>
+          <div class="frames">
+            <figure class="frame"><img src="https://picsum.photos/id/447/360/640" width="360" height="640" alt="Placeholder: a person standing on a shoreline facing mountains across a lake" loading="lazy"><p class="cap">The first thing I noticed was the silence.</p></figure>
+            <figure class="frame"><img src="https://picsum.photos/id/656/360/640" width="360" height="640" alt="Placeholder: a woman in a white dress walking across red sand" loading="lazy"><p class="cap">Day three. The dunes.</p></figure>
+            <figure class="frame"><img src="https://picsum.photos/id/786/360/640" width="360" height="640" alt="Placeholder: a child in a blue coat standing in a pine forest" loading="lazy"><p class="cap">Her first walk on her own.</p></figure>
+          </div>
+          <p class="cell-note">Quiet compositions, negative space, one subject. Muted color and cool shadows. Captions sit low-left, like a documentary.</p>
+        </div>
+
+        <div class="cell c-product">
+          <p class="cell-label">In the product</p>
+          <div class="editor">
+            <div class="ed-prompt">
+              <label for="p-dir">What should people feel?</label>
+              <div class="ed-row">
+                <textarea class="ed-input" id="p-dir" name="prompt-dir" autocomplete="off" placeholder="Why we moved our bakery to a village of 400 people…"></textarea>
+                <button class="ed-btn" type="button">Suggest a structure</button>
+              </div>
+            </div>
+            <div class="ed-timeline">
+              <div class="ed-tc"><b>00:14:08</b><span>00:30:00</span></div>
+              <div class="ed-strip">
+                <img src="https://picsum.photos/id/447/72/128" width="72" height="128" alt="" loading="lazy">
+                <img src="https://picsum.photos/id/656/72/128" width="72" height="128" alt="" loading="lazy">
+                <img src="https://picsum.photos/id/786/72/128" width="72" height="128" alt="" loading="lazy">
+                <img src="https://picsum.photos/id/473/72/128" width="72" height="128" alt="" loading="lazy">
+                <img src="https://picsum.photos/id/494/72/128" width="72" height="128" alt="" loading="lazy">
+                <img src="https://picsum.photos/id/661/72/128" width="72" height="128" alt="" loading="lazy">
+                <span class="ed-playhead" aria-hidden="true"></span>
+              </div>
+            </div>
+          </div>
+          <p class="cell-note">The weak spot: in the dark editor the brand color has to become lavender to stay visible.</p>
+        </div>
+
+        <div class="cell c-icons">
+          <p class="cell-label">App icon and avatar</p>
+          <div class="icon-row">
+            <span class="appicon ultra i96" role="img" aria-label="App icon, 96 pixels"><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#m-dir"/></svg></span>
+            <span class="appicon ultra i56" role="img" aria-label="App icon, 56 pixels"><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#m-dir"/></svg></span>
+            <span class="appicon ultra i32" role="img" aria-label="App icon, 32 pixels"><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#m-dir"/></svg></span>
+            <span class="appicon ultra i16" role="img" aria-label="Favicon, 16 pixels"><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#m-dir"/></svg></span>
+            <span class="appicon paper avatar i56" role="img" aria-label="Light avatar"><svg viewBox="0 0 64 64" aria-hidden="true"><use href="#m-dir"/></svg></span>
+          </div>
+          <p class="cell-note">Scales cleanly and reads as a viewfinder, but at 16px the corners thin out to one pixel.</p>
+        </div>
+
+        <div class="cell c-voice">
+          <p class="cell-label">Voice</p>
+          <p class="voice-desc">Calm, full sentences, collaborative. Bamio suggests; you decide.</p>
+          <dl class="voice-list">
+            <div><dt>Primary button</dt><dd>New story</dd></div>
+            <div><dt>Empty state</dt><dd>Start with what you want people to feel. Bamio will suggest a structure and the shots to match.</dd></div>
+            <div><dt>Render finished</dt><dd>Your video is ready. Review the cut, or export when you’re happy with it.</dd></div>
+          </dl>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Compare -->
+  <section class="sec" id="compare" aria-labelledby="compare-title">
+    <div class="wrap">
+      <h2 class="sec-title" id="compare-title">Side by side</h2>
+      <div class="compare-wrap" tabindex="0" role="region" aria-labelledby="compare-title">
+        <table class="compare">
+          <thead>
+            <tr><th scope="col"><span class="sr-only">Attribute</span></th><th scope="col">Take One</th><th scope="col">Hook</th><th scope="col">Director’s Cut</th></tr>
+          </thead>
+          <tbody>
+            <tr><th scope="row">Feels like</th><td>A film set. Precise, cinematic, serious about craft.</td><td>A creator’s camera roll. Quick, bright, social-native.</td><td>A publisher. Calm, thoughtful, story-led.</td></tr>
+            <tr><th scope="row">Marketing mode</th><td>Dark, same world as the editor</td><td>Light paper with volt blocks</td><td>Light paper with ultramarine fields</td></tr>
+            <tr><th scope="row">Accent</th><td><span class="dot" style="background:#EC6446"></span>Tally vermilion, the “live” light</td><td><span class="dot" style="background:#CDEA55"></span>Volt, a highlighter</td><td><span class="dot" style="background:#2A3BD1"></span>Ultramarine, a color field</td></tr>
+            <tr><th scope="row">Type</th><td>Archivo condensed and normal, JetBrains Mono</td><td>Bricolage Grotesque, Geist Mono</td><td>Geist, Geist Mono</td></tr>
+            <tr><th scope="row">Mark</th><td>Hinged b, a clapper</td><td>Wordmark with a tilted-frame dot</td><td>Viewfinder crop marks</td></tr>
+            <tr><th scope="row">Fit with the dark editor</th><td>Strong. Accent at 6.0:1, one continuous world.</td><td>Strong. Volt at 13.9:1, but the brand switches from light to dark.</td><td>Weak. Accent at 2.4:1 needs a lavender tint.</td></tr>
+            <tr><th scope="row">Fit with the name</th><td>Strong. “Bam” is the clap of the slate, and “-io” echoes studio.</td><td>Strong. Short, punchy and fun to say out loud.</td><td>Fair. The calm tone plays against a punchy “Bam”.</td></tr>
+            <tr><th scope="row">Main risk</th><td>Looks like the category if the type and mark are weak</td><td>Reads cheap or templated if it is not disciplined</td><td>Too quiet for short-form and a weak editor accent</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- Recommendation -->
+  <section class="sec" id="recommendation" aria-labelledby="rec-title">
+    <div class="wrap">
+      <h2 class="sec-title" id="rec-title">Recommendation</h2>
+      <div class="rec">
+        <div class="rec-main">
+          <h3>Take One, with Hook’s warmth in the voice</h3>
+          <p>Take One gives Bamio the most premium and most coherent system. Its voice can drift cold, so borrow Hook’s plain, friendly microcopy to keep the brand lively.</p>
+          <ul class="rec-points">
+            <li><strong>One world from homepage to editor.</strong> The brand and the editing surface are both dark, so the product feels like the brand. Hook and Director’s Cut switch from light marketing to a dark editor.</li>
+            <li><strong>The accent has a real job.</strong> Tally means “live”, which the product needs for the playhead, rendering and the primary action. It passes on dark at 6.0:1. Director’s Cut’s accent fails in the editor.</li>
+            <li><strong>The mark says the name.</strong> The hinged b is the clap of the slate, it survives at 16px, and nobody else in the category owns it.</li>
+          </ul>
+          <div class="rec-watch">
+            <h4>Watch-outs if we go this way</h4>
+            <ul>
+              <li>Differentiate through the condensed type, the tally color and film grammar, not through darkness.</li>
+              <li>Keep errors visually separate from tally: a crimson plus an icon, never color alone.</li>
+              <li>Test the mark with real users at 16px and 32px before Phase B locks it.</li>
+            </ul>
+          </div>
+        </div>
+        <aside class="ask" aria-labelledby="ask-title">
+          <h3 id="ask-title">What I need from you</h3>
+          <ol>
+            <li><strong>Which direction?</strong>Take One, Hook, Director’s Cut, or a named mix, for example Take One’s identity with Hook’s voice.</li>
+            <li><strong>Who do we design for first?</strong>Solo creators or brand and agency teams. It changes density, tone and which templates lead.</li>
+            <li><strong>Anything already fixed?</strong>An existing logo, colors, domain or social handles for Bamio that the brand must respect.</li>
+            <li><strong>Anything you dislike on sight?</strong>First reactions are useful even if you cannot say why.</li>
+          </ol>
+        </aside>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <p>Photography is placeholder from Picsum (Unsplash License), used only to show image direction. Fonts load from Google Fonts for this exploration and will be self-hosted in production.</p>
+    <p>Marks are concept drawings for review, not final artwork. Contrast ratios are WCAG 2 values computed from the listed hex colors.</p>
+  </div>
+</footer>
+</body>
+</html>

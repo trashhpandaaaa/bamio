@@ -1,0 +1,19 @@
+.bar {
+  position: fixed; left: 50%; bottom: max(16px, env(safe-area-inset-bottom)); z-index: var(--z-sticky);
+  width: min(580px, calc(100% - 2 * var(--gutter-mobile)));
+  padding: 6px; border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  box-shadow: var(--shadow-3);
+  opacity: 0; visibility: hidden; transform: translate(-50%, 24px);
+  transition: opacity var(--dur-slow) var(--ease-out), transform var(--dur-slow) var(--ease-out), visibility 0s linear var(--dur-slow);
+}
+.bar[data-show] {
+  opacity: 1; visibility: visible; transform: translate(-50%, 0);
+  transition: opacity var(--dur-slow) var(--ease-out), transform var(--dur-slow) var(--ease-out), visibility 0s;
+}
+.bar :global(.field-error) { padding: 4px 12px 2px; }
+
+@media (prefers-reduced-transparency: reduce) {
+  .bar { background: var(--bg); backdrop-filter: none; -webkit-backdrop-filter: none; }
+}

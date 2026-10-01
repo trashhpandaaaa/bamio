@@ -1,0 +1,69 @@
+.media {
+  container-type: inline-size; display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-content: start; padding: 24px; min-height: 480px;
+  border-radius: var(--r-xl); background: var(--surface); color: var(--text);
+  box-shadow: var(--shadow-3), inset 0 0 0 1px var(--line);
+}
+
+/* ---------- Every language ---------- */
+.langRow { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.langRow > button { flex: none; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+/* The chosen language in front, its neighbours behind. */
+.phones { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1fr); align-items: center; padding: 0 4%; }
+.phone {
+  position: relative; aspect-ratio: 9 / 16; overflow: hidden; container-type: inline-size;
+  border-radius: var(--r-frame); background: var(--surface-sunken); box-shadow: 0 0 0 1px var(--line);
+}
+.phone[data-pos="center"] { z-index: 1; box-shadow: 0 0 0 1px var(--line), var(--shadow-3); }
+.phone[data-pos="left"] { transform: translateX(14%) scale(.84); opacity: .42; }
+.phone[data-pos="right"] { transform: translateX(-14%) scale(.84); opacity: .42; }
+.detected {
+  position: absolute; top: 5%; left: 7%; display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px;
+  border-radius: var(--r-pill); background: var(--overlay); color: var(--text); font: var(--t-label-sm); white-space: nowrap;
+}
+
+/* ---------- Live streams ---------- */
+.live { align-content: space-between; }
+.stream { position: relative; aspect-ratio: 16 / 9; overflow: hidden; border-radius: var(--r-frame); background: var(--surface-sunken); }
+.liveBadge { position: absolute; left: 12px; top: 12px; }
+.streamChip {
+  position: absolute; right: 12px; top: 12px; display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px;
+  border-radius: var(--r-pill); background: var(--overlay); color: var(--text); font: var(--t-label-sm);
+}
+.follow { display: grid; gap: 10px; }
+.followHead { display: flex; justify-content: space-between; gap: 12px; font: var(--t-caption); color: var(--text-secondary); }
+.mono { font: var(--t-mono); color: var(--text); font-variant-numeric: tabular-nums; }
+.liveTrack { position: relative; height: 44px; border-radius: var(--r-xs); background: var(--surface-sunken); overflow: hidden; }
+/* What's captured so far grows toward the live edge when the card comes into view. */
+.captured {
+  position: absolute; top: 0; bottom: 0; left: 0; width: 86%;
+  background: repeating-linear-gradient(90deg, color-mix(in srgb, var(--text) 13%, var(--surface-sunken)) 0 calc(8% - 2px), var(--surface-sunken) calc(8% - 2px) 8%);
+  clip-path: inset(0 36% 0 0); transition: clip-path 2.4s var(--ease-out);
+}
+.edgeTrack { position: absolute; inset: 0; transform: translateX(-31%); transition: transform 2.4s var(--ease-out); pointer-events: none; }
+.live[data-seen] .captured { clip-path: inset(0); }
+.live[data-seen] .edgeTrack { transform: none; }
+.edge { position: absolute; left: 86%; top: 0; bottom: 0; width: 3px; margin-left: -1.5px; border-radius: 2px; background: var(--volt); }
+.liveClip { position: absolute; top: 5px; bottom: 5px; border: 2px solid var(--volt); border-radius: 5px; background: color-mix(in srgb, var(--volt) 22%, transparent); }
+
+/* Narrow cards (phones): the languages scroll in one row (fading at the edge), one big phone instead of three small ones. */
+@container (max-width: 420px) {
+  .chips {
+    flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding: 2px; margin: -2px;
+    mask-image: linear-gradient(90deg, black calc(100% - 28px), transparent); /* the fade is a mask (alpha), not a colour */
+  }
+  .chips::-webkit-scrollbar { display: none; }
+  .chips :global(.chip) { flex: none; }
+  .phones { grid-template-columns: minmax(0, 1fr); padding: 0; }
+  .phone[data-pos="left"], .phone[data-pos="right"] { display: none; }
+  .phone[data-pos="center"] { justify-self: center; width: min(240px, 74%); }
+}
+@container (max-width: 380px) {
+  .hint { display: none; }
+}
+@media (max-width: 767px) {
+  .media { padding: 16px; min-height: 0; border-radius: var(--r-lg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .captured, .edgeTrack { transition: none; }
+}

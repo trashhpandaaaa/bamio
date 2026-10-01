@@ -2,7 +2,8 @@
 
 import { Pause, Play, SpeakerSimpleHigh, SpeakerSimpleSlash } from "@phosphor-icons/react";
 import { useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
-import { sourceUrl, thumbUrl } from "@/lib/clips/api";
+import { useSourceVideo } from "@/hooks/use-source-video";
+import { thumbUrl } from "@/lib/clips/api";
 import { formatTimecode } from "@/lib/clips/logic";
 import type { Clip } from "@/lib/clips/schema";
 import styles from "./project.module.css";
@@ -17,11 +18,12 @@ export type PlayerHandle = {
 
 /**
  * The imported video with a scrubbable timeline. Clips show as blocks; the range
- * being marked shows as an outline.
+ * being marked shows as an outline. A followed stream plays as it grows.
  */
 export function SourcePlayer({
   ref,
   projectId,
+  following,
   durationSec,
   clips,
   mark,
@@ -29,6 +31,7 @@ export function SourcePlayer({
 }: {
   ref?: React.Ref<PlayerHandle>;
   projectId: string;
+  following: boolean;
   durationSec: number;
   clips: Clip[];
   mark: { start: number | null; end: number | null };
@@ -41,6 +44,7 @@ export function SourcePlayer({
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
   const [error, setError] = useState(false);
+  useSourceVideo(videoRef, projectId, following);
 
   const seek = useCallback(
     (t: number) => {
@@ -117,7 +121,6 @@ export function SourcePlayer({
       <div className={styles.screen}>
         <video
           ref={videoRef}
-          src={sourceUrl(projectId)}
           poster={thumbUrl(projectId)}
           preload="metadata"
           playsInline

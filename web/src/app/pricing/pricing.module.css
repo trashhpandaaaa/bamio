@@ -1,0 +1,87 @@
+/* ---------- Hero ---------- */
+.hero { display: grid; justify-items: center; gap: 20px; padding-top: 72px; text-align: center; }
+.hero h1 { max-width: 13ch; text-wrap: balance; }
+.lede { margin: 0; max-width: 50ch; font: var(--t-body-lg); color: var(--text-secondary); }
+
+/* ---------- Plans ---------- */
+.plans { display: grid; gap: 24px; margin-top: 40px; }
+.notices { display: grid; gap: 10px; width: 100%; max-width: 720px; justify-self: center; }
+.period { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 12px; }
+
+/* Cards keep their own heights, so opening "Coming soon" in one doesn't stretch the others. */
+.grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.card {
+  display: flex; flex-direction: column; gap: 14px; min-width: 0; padding: 28px;
+  border-radius: var(--r-lg); background: var(--surface); border: 1px solid var(--line);
+}
+.card[data-popular] { padding: 27px; border: 2px solid var(--text); box-shadow: var(--shadow-2); }
+.cardHead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
+.name { font: var(--t-heading-lg); letter-spacing: -.025em; }
+.popular { flex: none; }
+/* Two lines everywhere, so the prices line up across the cards. */
+.tagline { margin: 0; min-height: 2lh; font: var(--t-body-sm); color: var(--text-secondary); }
+
+.price { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; margin: 4px 0 0; }
+.amount { font: var(--t-display-lg); letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
+.per { font: var(--t-label); color: var(--text-secondary); }
+.note { margin: -6px 0 4px; min-height: 2lh; font: var(--t-caption); color: var(--text-tertiary); }
+.note[data-saving] { color: var(--success); }
+
+.cta { width: 100%; }
+.current {
+  display: flex; align-items: center; justify-content: center; gap: 8px; height: 54px; margin: 0;
+  border-radius: var(--r-pill); background: var(--volt-subtle); color: var(--text); font: var(--t-label); font-size: 16px;
+}
+
+.includes { margin: 8px 0 -2px; font: var(--t-label); }
+.features { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; }
+.features li { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 10px; align-items: start; font: var(--t-body-sm); color: var(--text); }
+/* The minutes line comes first: the number people compare. */
+.features li:first-child { font-weight: 650; }
+.features small { display: block; margin-top: 1px; font: var(--t-caption); color: var(--text-tertiary); }
+.tick {
+  display: inline-grid; place-items: center; width: 20px; height: 20px; margin-top: 0.5px; border-radius: 50%;
+  background: var(--volt-subtle); color: var(--text); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 14%, transparent);
+}
+
+/* Features still being built: folded away, clearly not part of the plan yet. */
+.soon { margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--line); interpolate-size: allow-keywords; }
+.soon::details-content { block-size: 0; overflow-y: clip; transition: block-size var(--dur-base) var(--ease-out), content-visibility var(--dur-base) allow-discrete; }
+.soon[open]::details-content { block-size: auto; }
+.soon summary {
+  display: flex; align-items: center; gap: 8px; min-height: 36px; margin: 0 -8px; padding: 0 8px; border-radius: var(--r-sm);
+  font: var(--t-label-sm); color: var(--text-secondary); cursor: pointer; list-style: none;
+  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.soon summary::-webkit-details-marker { display: none; }
+.soon summary:hover { background: var(--surface-sunken); color: var(--text); }
+.count { display: inline-grid; place-items: center; min-width: 22px; height: 20px; padding: 0 6px; border-radius: var(--r-pill); background: var(--surface-sunken); font: var(--t-mono); font-size: 12px; }
+.soon summary:hover .count { background: var(--surface); }
+.caret { margin-left: auto; transition: transform var(--dur-base) var(--ease-out); }
+.soon[open] .caret { transform: rotate(180deg); }
+.soon ul { margin: 6px 0 2px; padding: 0; list-style: none; display: grid; gap: 8px; }
+.soon li { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 10px; align-items: center; font: var(--t-body-sm); color: var(--text-tertiary); }
+.soon li::before { content: ""; justify-self: center; width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid var(--line-control); }
+
+.small { margin: 0; text-align: center; font: var(--t-caption); color: var(--text-tertiary); }
+
+/* ---------- Billing questions ---------- */
+.faq { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 32px 48px; align-items: start; padding-top: 120px; }
+.faq h2 { max-width: 12ch; }
+
+/* ---------- Smaller screens ---------- */
+@media (max-width: 1023px) {
+  .grid { grid-template-columns: minmax(0, 1fr); width: 100%; max-width: 560px; justify-self: center; }
+  .tagline, .note { min-height: 0; }
+  .faq { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 767px) {
+  .hero { padding-top: 40px; gap: 16px; }
+  .plans { margin-top: 28px; }
+  .card { padding: 22px; }
+  .card[data-popular] { padding: 21px; }
+  .faq { padding-top: 80px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .soon::details-content { transition: none; }
+}

@@ -1,0 +1,211 @@
+import { z } from "zod";
+
+/*
+ * Bamio's plans, shared by the pricing page and the server: prices, what each plan includes,
+ * and the limits the server enforces (AI processing minutes, projects kept, queue priority).
+ *
+ * Stripe holds the prices too (created by `npm run stripe:setup` with the lookup keys below);
+ * the amounts here are for display and must match.
+ *
+ * `soon: true` marks a feature Bamio doesn't have yet: the pricing page lists it as coming
+ * soon instead of included, so nobody pays for something that isn't there. Remove the flag
+ * when the feature ships.
+ */
+
+export const PLAN_IDS = ["starter", "pro", "team"] as const;
+export const INTERVALS = ["month", "quarter"] as const;
+export type PlanId = (typeof PLAN_IDS)[number];
+export type Interval = (typeof INTERVALS)[number];
+export const planIdSchema = z.enum(PLAN_IDS);
+export const intervalSchema = z.enum(INTERVALS);
+
+/** `detail`: what the line means in Bamio, shown under it. */
+export type Feature = { text: string; detail?: string; soon?: boolean };
+
+export type Plan = {
+  id: PlanId;
+  name: string;
+  tagline: string;
+  /** In US cents: billed every month, or every 3 months. */
+  price: Record<Interval, number>;
+  /** AI processing minutes a month (minutes of video imported). */
+  minutes: number;
+  /** Projects kept at once. */
+  projects: number;
+  /** Place in the processing queue: higher goes first. */
+  priority: number;
+  popular?: boolean;
+  /** The plan whose features this one includes ("Everything in Starter, plus:"). */
+  includes?: PlanId;
+  features: Feature[];
+};
+
+const soon = (text: string): Feature => ({ text, soon: true });
+
+export const PLANS: Record<PlanId, Plan> = {
+  starter: {
+    id: "starter",
+    name: "Starter",
+    tagline: "For individual creators getting started",
+    price: { month: 1200, quarter: 3000 },
+    minutes: 150,
+    projects: 50,
+    priority: 0,
+    features: [
+      { text: "150 AI processing minutes/month" },
+      { text: "AI video clipping" },
+      { text: "Automatic highlight detection" },
+      { text: "Auto captions" },
+      { text: "1080p export" },
+      { text: "No watermark" },
+      soon("AI video reframing"),
+      { text: "Vertical 9:16 clips" },
+      { text: "Basic caption styles" },
+      soon("Basic templates"),
+      soon("1 brand"),
+      { text: "1 user" },
+      { text: "Basic storage", detail: "Keep up to 50 projects" },
+      { text: "Standard processing speed" },
+      { text: "Basic support" },
+    ],
+  },
+  pro: {
+    id: "pro",
+    name: "Pro",
+    tagline: "For serious creators, podcasters & influencers",
+    price: { month: 2400, quarter: 6000 },
+    minutes: 400,
+    projects: 150,
+    priority: 1,
+    popular: true,
+    includes: "starter",
+    features: [
+      { text: "400 AI processing minutes/month" },
+      soon("4K export"),
+      soon("Advanced AI clip selection"),
+      { text: "AI virality/quality scoring" },
+      soon("AI-generated hooks"),
+      { text: "AI-generated titles" },
+      soon("AI B-roll"),
+      soon("Speaker detection"),
+      soon("Silence & filler-word removal"),
+      soon("Advanced caption styles"),
+      soon("Custom caption styling"),
+      soon("AI face tracking"),
+      soon("Smart reframing"),
+      soon("Social media scheduler"),
+      soon("3 brands"),
+      soon("Multiple social accounts"),
+      soon("2 users"),
+      { text: "Priority processing", detail: "Your videos go first in the queue" },
+      { text: "Extended storage", detail: "Keep up to 150 projects" },
+      soon("Advanced templates"),
+      { text: "Commercial usage" },
+      { text: "Priority support" },
+    ],
+  },
+  team: {
+    id: "team",
+    name: "Team",
+    tagline: "For agencies, businesses & content teams",
+    price: { month: 5400, quarter: 14400 },
+    minutes: 1000,
+    projects: 400,
+    priority: 1,
+    includes: "pro",
+    features: [
+      { text: "1,000 AI processing minutes/month" },
+      soon("4K / high-quality export"),
+      soon("Advanced AI clipping"),
+      soon("Advanced virality scoring"),
+      soon("AI hooks & titles"),
+      soon("AI B-roll"),
+      soon("Speaker detection"),
+      soon("Automatic silence/filler removal"),
+      soon("Advanced face tracking"),
+      soon("Advanced smart reframing"),
+      soon("Unlimited caption styles"),
+      soon("Brand kits"),
+      soon("Custom fonts"),
+      soon("Custom logos"),
+      soon("Custom caption templates"),
+      soon("10 brands/client workspaces"),
+      soon("5 team members"),
+      soon("Multiple social accounts"),
+      soon("Team collaboration"),
+      soon("Client approval workflow"),
+      soon("Content calendar"),
+      soon("Social media scheduling"),
+      soon("Advanced analytics"),
+      { text: "Priority processing", detail: "Your videos go first in the queue" },
+      { text: "Increased storage", detail: "Keep up to 400 projects" },
+      { text: "Commercial/client usage" },
+      soon("API access"),
+      { text: "Priority support" },
+    ],
+  },
+};
+
+/** Stripe price lookup keys, one per plan and billing period. */
+export const lookupKey = (plan: PlanId, interval: Interval) => `bamio_${plan}_${interval}`;
+export const ALL_LOOKUP_KEYS = PLAN_IDS.flatMap((plan) => INTERVALS.map((interval) => lookupKey(plan, interval)));
+
+export function fromLookupKey(key: string | null | undefined): { plan: PlanId; interval: Interval } | null {
+  const m = /^bamio_(starter|pro|team)_(month|quarter)$/.exec(key ?? "");
+  return m ? { plan: m[1] as PlanId, interval: m[2] as Interval } : null;
+}
+
+/** How much the 3-month plan saves against paying monthly for 3 months, in cents. */
+export const quarterSaving = (plan: Plan) => plan.price.month * 3 - plan.price.quarter;
+
+/** "$12", "$30", "$144". */
+export function formatPrice(cents: number): string {
+  return cents % 100 === 0 ? `$${(cents / 100).toLocaleString("en-US")}` : `$${(cents / 100).toFixed(2)}`;
+}
+
+/** Subscription states that keep a plan working (past_due: Stripe is still retrying the payment). */
+export const ENTITLED_STATUSES = new Set(["active", "trialing", "past_due"]);
+
+/** What /api/billing tells the pages about the signed-in user's plan. */
+export type BillingState = {
+  /** False when this server has no Stripe key: no plans to buy, and nothing is limited. */
+  enabled: boolean;
+  /** The plan works now (paid, or Stripe still retrying the payment). `plan` stays set after it ends. */
+  active: boolean;
+  plan: PlanId | null;
+  interval: Interval | null;
+  /** Stripe's subscription status: "active", "past_due", "canceled", ... */
+  status: string | null;
+  /** When the plan renews, or with `ending`, when it stops. */
+  periodEnd: number | null;
+  ending: boolean;
+  /** AI processing this month, with a working plan. Seconds; the allowance is the plan's minutes. */
+  usage: { usedSec: number; allowanceSec: number; resetsAt: number } | null;
+  projects: { count: number; limit: number };
+  /** Has a Stripe customer, so the billing portal can open (plan changes, card, invoices, cancelling). */
+  canManage: boolean;
+};
+
+/** Whole minutes for people: used rounds up, left rounds down. */
+export const usedMinutes = (sec: number) => Math.ceil(sec / 60 - 1e-6);
+export const minutesLeft = (usage: NonNullable<BillingState["usage"]>) => Math.max(0, Math.floor((usage.allowanceSec - usage.usedSec) / 60 + 1e-6));
+
+/**
+ * The month of usage that `now` falls in. Minutes reset monthly on the day the subscription
+ * started (also on 3-month plans: "150 minutes a month"), clamped to short months (a plan
+ * started on the 31st resets on the 30th, or the 28th in February).
+ */
+export function usageWindow(anchorMs: number, nowMs: number): { start: number; end: number } {
+  const anchor = new Date(anchorMs);
+  const at = (monthsAfter: number) => {
+    const d = new Date(Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth() + monthsAfter, 1, anchor.getUTCHours(), anchor.getUTCMinutes(), anchor.getUTCSeconds()));
+    const lastDay = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+    d.setUTCDate(Math.min(anchor.getUTCDate(), lastDay));
+    return d.getTime();
+  };
+  const now = new Date(nowMs);
+  let k = (now.getUTCFullYear() - anchor.getUTCFullYear()) * 12 + (now.getUTCMonth() - anchor.getUTCMonth());
+  if (at(k) > nowMs) k--;
+  if (at(k + 1) <= nowMs) k++;
+  return { start: at(k), end: at(k + 1) };
+}

@@ -14,7 +14,8 @@ import { api } from "@/lib/clips/api";
 import { CLIP_LENGTH_LABEL } from "@/lib/clips/labels";
 import { clipRangeError, formatTimecode, parseTimecode, sortClips } from "@/lib/clips/logic";
 import { languageName } from "@/lib/clips/languages";
-import { CLIP_LENGTHS, isJobActive, LIMITS, needsRetranscribe, type Clip, type ClipLength, type Project } from "@/lib/clips/schema";
+import { formatSpan } from "@/lib/clips/live";
+import { CLIP_LENGTHS, isFollowing, isJobActive, LIMITS, retranscribeReason, type Clip, type ClipLength, type Project } from "@/lib/clips/schema";
 import { PLATFORM_LABEL } from "@/lib/clips/url";
 import { ClipCard } from "./clip-card";
 import { SourcePlayer, type PlayerHandle } from "./source-player";
@@ -79,11 +80,13 @@ function ProjectScreen({ project, setProject }: { project: Project; setProject: 
           <p className="t-body-sm t-secondary">
             {status === "uploading"
               ? "The upload continues in the tab where you started it. Keep that tab open."
-              : status === "recording"
-                ? "Recording on the server: you can leave this page. Stop early to process what’s been recorded so far."
-                : "You can leave this page. Processing continues on the server, and your clips will be here when it’s done."}
+              : project.source.live?.follow
+                ? "Connecting to the stream. The video opens here as soon as the first seconds are in."
+                : status === "recording"
+                  ? "Recording on the server: you can leave this page. Stop early to process what’s been recorded so far."
+                  : "You can leave this page. Processing continues on the server, and your clips will be here when it’s done."}
           </p>
-          {status === "recording" ? <StopRecording project={project} setProject={setProject} /> : null}
+          {status === "recording" && !project.source.live?.follow ? <StopRecording project={project} setProject={setProject} /> : null}
         </section>
       ) : null}
 
@@ -188,7 +191,8 @@ function ProjectHeader({ project, setProject, onDelete }: { project: Project; se
         ) : null}
         {src.live ? (
           <span>
-            Captured live {new Date(src.live.requestedAt).toLocaleString(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}
+            {src.live.follow ? "Followed live" : "Captured live"}{" "}
+            {new Date(src.live.requestedAt).toLocaleString(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}
           </span>
         ) : null}
         {src.url ? (
@@ -201,7 +205,7 @@ function ProjectHeader({ project, setProject, onDelete }: { project: Project; se
   );
 }
 
-function StopRecording({ project, setProject }: { project: Project; setProject: (p: Project) => void }) {
+function StopRecording({ project, setProject, label = "Stop recording now" }: { project: Project; setProject: (p: Project) => void; label?: string }) {
   const toast = useToast();
   const [stopping, setStopping] = useState(false);
   async function stop() {
@@ -216,9 +220,48 @@ function StopRecording({ project, setProject }: { project: Project; setProject: 
   return (
     <div>
       <button className="btn btn-secondary" type="button" onClick={() => void stop()} disabled={stopping} aria-busy={stopping}>
-        {stopping ? "Stopping…" : "Stop recording now"}
+        {stopping ? "Stopping…" : label}
       </button>
     </div>
+  );
+}
+
+/**
+ * A followed stream while it grows: how much is in, how far captions have got, and a way
+ * to stop. Clipping and editing work meanwhile.
+ */
+function FollowBar({ project, setProject }: { project: Project; setProject: (p: Project) => void }) {
+  const follow = project.source.live?.follow;
+  if (!follow || follow.status === "ended") return null;
+  const captured = project.source.durationSec;
+  const captions = project.transcribedSec ?? 0;
+  const from = follow.fromStart ? "from the start of the stream" : follow.backSec >= 60 ? `from ${formatSpan(follow.backSec)} before you started` : "from when you started";
+  return (
+    <section className={styles.follow} aria-label="Following the stream" role="status">
+      <div className={styles.followText}>
+        <p className={styles.followTitle}>
+          <span className="badge is-live">Live</span>
+          {follow.status === "following" ? (
+            <span>
+              Following the stream: <span className="t-mono">{formatTimecode(captured)}</span> captured, {from}
+            </span>
+          ) : (
+            <span>The stream {follow.endReason === "stopped" ? "was stopped" : "ended"}. Making the final video and the last captions…</span>
+          )}
+        </p>
+        <p className="t-body-sm t-secondary">
+          {project.source.hasAudio ? (
+            <>
+              Captions so far: <span className="t-mono">{formatTimecode(Math.min(captions, captured))}</span>.{" "}
+            </>
+          ) : null}
+          {follow.status === "following"
+            ? `Clip and edit while it grows. It keeps going until the stream ends, you stop, or ${formatSpan(LIMITS.maxFollowSec)} are captured.`
+            : "Clips, edits and exports keep working meanwhile."}
+        </p>
+      </div>
+      {follow.status === "following" ? <StopRecording project={project} setProject={setProject} label="Stop following" /> : null}
+    </section>
   );
 }
 
@@ -246,8 +289,14 @@ function FailedPanel({ project, setProject }: { project: Project; setProject: (p
         <p>{project.job.error ?? "Something went wrong."}</p>
       </div>
       <div className={styles.failedActions}>
+        {/* Stopped for the plan (none, or out of AI minutes): the way to more minutes comes first. */}
+        {project.job.errorCode ? (
+          <Link href="/pricing" className="btn btn-volt">
+            See plans
+          </Link>
+        ) : null}
         {canRetry ? (
-          <button className="btn btn-primary" type="button" onClick={() => void retry()} aria-busy={busy} disabled={busy}>
+          <button className={`btn ${project.job.errorCode ? "btn-secondary" : "btn-primary"}`} type="button" onClick={() => void retry()} aria-busy={busy} disabled={busy}>
             <ArrowCounterClockwise size={18} aria-hidden /> Try again
           </button>
         ) : null}
@@ -366,10 +415,12 @@ function Workspace({ project, setProject }: { project: Project; setProject: (p: 
 
   return (
     <div className={styles.workspace}>
+      <FollowBar project={project} setProject={setProject} />
       <section className={`studio ${styles.stage}`} aria-label="Source video">
         <SourcePlayer
           ref={player}
           projectId={project.id}
+          following={isFollowing(project)}
           durationSec={duration}
           clips={project.clips}
           mark={{ start: inSec, end: outSec }}
@@ -444,14 +495,22 @@ function Workspace({ project, setProject }: { project: Project; setProject: (p: 
           </div>
         ) : null}
 
-        {needsRetranscribe(project) ? (
+        {retranscribeReason(project) ? (
           <div className="notice is-warning">
             <Warning size={20} weight="fill" aria-hidden />
             <div className={styles.noticeBody}>
-              <p>
-                <strong>Transcribe this video again for accurate timing</strong>
-                It was transcribed before on-device transcription, so caption timing and AI clip edges can be off, especially in long videos.
-              </p>
+              {retranscribeReason(project) === "timing" ? (
+                <p>
+                  <strong>Transcribe this video again for accurate timing</strong>
+                  It was transcribed before on-device transcription, so caption timing and AI clip edges can be off, especially in long videos.
+                </p>
+              ) : (
+                <p>
+                  <strong>Transcribe this video again for better captions</strong>
+                  Transcription now tells {languageName(project.spokenLanguage)} and English apart: English comes out as English with punctuation, and{" "}
+                  {languageName(project.spokenLanguage)} in its own script. Caption word fixes will be replaced.
+                </p>
+              )}
               <button className="btn btn-secondary btn-sm" type="button" onClick={() => void retranscribe()} disabled={retranscribing}>
                 Transcribe again
               </button>

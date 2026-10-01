@@ -1,12 +1,13 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
 /*
- * App pages need a signed-in user. The landing page, sign-in and sign-up stay public.
- * AI API routes check the session themselves (see src/lib/ai/server/route.ts) so they
- * can answer with JSON 401 instead of a redirect.
+ * App pages need a signed-in user. The landing page, pricing, sign-in and sign-up stay
+ * public. API routes check the session themselves (userRoute in src/lib/server/http.ts) so
+ * they can answer with JSON 401 instead of a redirect; Stripe's webhook has no session and
+ * is checked by its signature.
  */
 
-const isAppPage = createRouteMatcher(["/projects(.*)", "/new(.*)", "/profile(.*)"]);
+const isAppPage = createRouteMatcher(["/projects(.*)", "/new(.*)", "/profile(.*)", "/billing(.*)"]);
 
 export default clerkMiddleware(async (auth, req) => {
   if (isAppPage(req)) await auth.protect();

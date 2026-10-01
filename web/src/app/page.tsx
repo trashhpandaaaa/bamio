@@ -1,84 +1,133 @@
-import { Show } from "@clerk/nextjs";
-import { ArrowRight, Broadcast, Check, DownloadSimple, Globe, LinkSimple, TwitchLogo, YoutubeLogo } from "@phosphor-icons/react/ssr";
+import { Check, CloudArrowUp, DownloadSimple, Globe, TwitchLogo, UploadSimple, YoutubeLogo } from "@phosphor-icons/react/ssr";
 import Link from "next/link";
-import { AuthControls } from "@/components/auth-controls";
-import { AiMark, Wordmark } from "@/components/brand";
-import { CaptionDemo } from "@/components/caption-demo";
+import { AiMark } from "@/components/brand";
+import { CaptionStudio } from "@/components/landing/caption-studio";
+import { ClipFlow } from "@/components/landing/clip-flow";
+import { LanguageCard, LiveCard } from "@/components/landing/feature-cards";
+import { LinkForm } from "@/components/landing/link-form";
+import { MomentFinder } from "@/components/landing/moment-finder";
+import { StickyLinkBar } from "@/components/landing/sticky-link-bar";
+import { FaqList, type FaqItem } from "@/components/site/faq";
+import { SiteFooter, SiteHeader, type SiteLink } from "@/components/site/site-chrome";
+import { formatPrice, PLANS } from "@/lib/billing/plans";
 import styles from "./page.module.css";
+
+const LINKS: SiteLink[] = [
+  { href: "#how", label: "How it works" },
+  { href: "#captions", label: "Captions" },
+  { href: "#languages", label: "Languages" },
+  { href: "/pricing", label: "Pricing" },
+  { href: "#faq", label: "FAQ" },
+];
+
+const FAQ: FaqItem[] = [
+  {
+    q: "How does Bamio pick the moments?",
+    a: "Bamio transcribes the video itself, with a time for every word. Google Gemini then reads the transcript and picks the parts that stand on their own, with a hook at the start and a payoff at the end. Each clip gets a score and a title.",
+  },
+  {
+    q: "Which sites can I clip from?",
+    a: "YouTube, Twitch and Kick, plus over 1,000 other video sites. You can also upload a file up to 4 GB. Videos can be up to 3 hours long; for longer ones, import just the part you want.",
+  },
+  {
+    q: "Which languages work?",
+    a: "Over 100, detected for you, or pick one yourself. English and 24 European languages get punctuation and capitals. Captions use a font made for each script, and when a video mixes a language with English, each part keeps its own script.",
+  },
+  {
+    q: "Can I clip a live stream?",
+    a: "Yes. Paste the live link and choose Follow the stream. Bamio captures it from as far back as the site allows (on Twitch, up to 6 hours back) and keeps adding to it, so you can clip and export while it’s still live.",
+  },
+  {
+    q: "What do I get?",
+    a: "An MP4 at 1080p in 9:16, 1:1 or 16:9, with captions burned in (Pop, Clean or Boxed) and an optional title. It’s ready to post on TikTok, YouTube Shorts and Instagram Reels.",
+  },
+  {
+    q: "How much does it cost?",
+    a: (
+      <>
+        Plans start at {formatPrice(PLANS.starter.price.month)} a month for {PLANS.starter.minutes} minutes of video, or {formatPrice(PLANS.starter.price.quarter)} for 3
+        months. Every plan exports 1080p with no watermark. <Link href="/pricing">See the plans</Link>.
+      </>
+    ),
+  },
+  {
+    q: "Whose videos can I clip?",
+    a: "Only videos you own or have permission to use. Bamio downloads what you paste, so check the rights before you post a clip.",
+  },
+];
 
 export default function Home() {
   return (
     <>
-      <header className={styles.top}>
-        <div className={`container ${styles.topInner}`}>
-          <Wordmark />
-          <nav className={styles.topNav} aria-label="Main">
-            <a href="#how">How it works</a>
-            <a href="#captions">Captions</a>
-            <Show when="signed-in">
-              <Link href="/projects">Your projects</Link>
-            </Show>
-          </nav>
-          <div className={styles.topAuth}>
-            <AuthControls />
-          </div>
-        </div>
-      </header>
+      <SiteHeader links={LINKS} menu={[{ href: "#moments", label: "How it picks" }, ...LINKS]} />
 
       <main id="main">
-        <section className={`container ${styles.hero}`}>
-          <div className={styles.heroCopy}>
-            <h1 className="t-display-2xl">
+        <section className={styles.hero} aria-labelledby="hero-title">
+          <div className={`container ${styles.heroCopy}`}>
+            <h1 id="hero-title" className="t-display-2xl">
               clip the moments that <span className="hl">hook.</span>
             </h1>
-            <p className={styles.lede}>
-              Paste a YouTube, Twitch or Kick link, or upload a video. Bamio finds the best moments, frames them vertical and captions them word by word.
-            </p>
-            <div className={styles.ctas}>
-              <Link href="/new" className="btn btn-volt btn-lg">
-                Start clipping
-                <ArrowRight size={18} weight="bold" aria-hidden />
+            <p className={styles.lede}>Paste a YouTube, Twitch or Kick link. Bamio finds the best moments, frames them vertical and captions every word.</p>
+            <div className={styles.heroAction}>
+              <LinkForm variant="hero" id="hero-link" />
+              <span className={styles.or}>or</span>
+              <Link href="/new?mode=upload" className={`btn btn-secondary btn-lg ${styles.upload}`}>
+                <UploadSimple size={18} aria-hidden />
+                Upload a file
               </Link>
-              <a href="#how" className="btn btn-ghost btn-lg">
-                See how it works
-              </a>
             </div>
-            <ul className={styles.sources} aria-label="Works with">
-              <li>
-                <YoutubeLogo size={18} weight="fill" aria-hidden /> YouTube
-              </li>
-              <li>
-                <TwitchLogo size={18} weight="fill" aria-hidden /> Twitch
-              </li>
-              <li>
-                <Broadcast size={18} weight="bold" aria-hidden /> Kick
-              </li>
-              <li>
-                <Globe size={18} aria-hidden /> 1,000+ more sites, or your own files
-              </li>
-            </ul>
           </div>
-          <CaptionDemo />
+          <div className={`container ${styles.demo}`}>
+            <ClipFlow />
+          </div>
+        </section>
+
+        <section id="moments" className={`container ${styles.section}`} aria-labelledby="moments-title">
+          <div className={`${styles.head} ${styles.headWide} reveal`}>
+            <h2 id="moments-title" className="t-display-lg">
+              AI that finds the moment, <span className="hl">not just a clip.</span>
+            </h2>
+            <p className={styles.sub}>Bamio reads every word of the video, then starts each clip on the hook and ends it on the payoff, at a natural break.</p>
+          </div>
+          <div className="reveal">
+            <MomentFinder />
+          </div>
         </section>
 
         <section id="how" className={`container ${styles.section}`} aria-labelledby="how-title">
-          <h2 id="how-title" className="t-display-lg">
+          <h2 id="how-title" className="t-display-lg reveal">
             long video in, <span className="hl">shorts out.</span>
           </h2>
-          <div className={styles.bento}>
+          <div className={`${styles.bento} reveal`}>
             <article className={`${styles.cell} ${styles.cellLink}`}>
-              <h3 className="t-heading-md">Paste a link</h3>
+              <h3 className="t-heading-md">Bring any long video</h3>
               <p>Streams, VODs, podcasts and uploads up to 3 hours. Only need part of a long stream? Import just that part.</p>
-              <div className={styles.fakeInput} aria-hidden="true">
-                <LinkSimple size={18} />
-                <span>twitch.tv/videos/2193…</span>
-                <span className="btn btn-volt btn-sm">Import</span>
+              <div className={styles.sources} aria-hidden="true">
+                <span className="chip">
+                  <YoutubeLogo size={16} weight="fill" /> YouTube
+                </span>
+                <span className="chip">
+                  <TwitchLogo size={16} weight="fill" /> Twitch
+                </span>
+                <span className="chip">Kick</span>
+                <span className="chip">
+                  <Globe size={16} /> 1,000+ sites
+                </span>
+                <span className="chip">
+                  <CloudArrowUp size={16} /> Your files
+                </span>
+              </div>
+              <div className={styles.part} aria-hidden="true">
+                <span>Import only</span>
+                <b>1:02:10</b>
+                <span>to</span>
+                <b>1:14:00</b>
               </div>
             </article>
 
             <article className={`${styles.cell} ${styles.cellFind}`}>
               <h3 className="t-heading-md">AI finds the moments</h3>
-              <p>Bamio transcribes the video and picks the parts that stand on their own, with a hook up front and a payoff at the end.</p>
+              <p>Each clip gets a score, a title and the reason it was picked, best first. Want more? Find more, in the length you choose.</p>
               <ol className={styles.picks} aria-label="Example clips">
                 <li>
                   <span>The clutch nobody saw coming</span>
@@ -124,55 +173,57 @@ export default function Home() {
         </section>
 
         <section id="captions" className={`container ${styles.section}`} aria-labelledby="captions-title">
-          <h2 id="captions-title" className="t-display-lg">
-            captions people <span className="hl">actually read.</span>
-          </h2>
-          <ul className={styles.styles} aria-label="Caption styles">
-            <li>
-              <div className={`${styles.sample} ${styles.samplePop}`} aria-hidden="true">
-                <p>
-                  wait for <span>it</span>
-                </p>
-              </div>
-              <h3 className="t-heading-sm">Pop</h3>
-              <p>Big words, revealed as they’re spoken, with the current word in volt.</p>
-            </li>
-            <li>
-              <div className={`${styles.sample} ${styles.sampleClean}`} aria-hidden="true">
-                <p>and that’s when I knew it would work</p>
-              </div>
-              <h3 className="t-heading-sm">Clean</h3>
-              <p>One tidy line of subtitles for talks, interviews and podcasts.</p>
-            </li>
-            <li>
-              <div className={`${styles.sample} ${styles.sampleBoxed}`} aria-hidden="true">
-                <p>
-                  <span>three things I wish I knew</span>
-                </p>
-              </div>
-              <h3 className="t-heading-sm">Boxed</h3>
-              <p>White text on dark boxes that stays legible over busy footage.</p>
-            </li>
-          </ul>
+          <div className={`${styles.head} reveal`}>
+            <h2 id="captions-title" className="t-display-lg">
+              captions people <span className="hl">actually read.</span>
+            </h2>
+            <p className={styles.sub}>Each word lights up as it’s said. Pick a style, fix a word, and the export looks just like the preview.</p>
+          </div>
+          <div className="reveal">
+            <CaptionStudio />
+          </div>
         </section>
 
-        <section className={`container ${styles.section}`} aria-labelledby="cta-title">
-          <div className={styles.cta}>
+        <section id="languages" className={`container ${styles.section}`} aria-labelledby="languages-title">
+          <div className={`${styles.head} reveal`}>
+            <h2 id="languages-title" className="t-display-lg">
+              any language, <span className="hl">even live.</span>
+            </h2>
+          </div>
+          <div className={`${styles.features} reveal`}>
+            <article className={styles.feature}>
+              <LanguageCard />
+              <h3 className="t-heading-md">Every language, detected</h3>
+              <p>Nepali, Hindi, Japanese, Arabic and 100 more, detected for you. Mixed with English? Each part is written in its own script.</p>
+            </article>
+            <article className={styles.feature}>
+              <LiveCard />
+              <h3 className="t-heading-md">Clip live streams</h3>
+              <p>Paste a live Twitch, YouTube or Kick link. Bamio follows the stream, so you can clip while it’s still on.</p>
+            </article>
+          </div>
+        </section>
+
+        <section id="faq" className={`container ${styles.section} ${styles.faq}`} aria-labelledby="faq-title">
+          <h2 id="faq-title" className="t-display-lg reveal">
+            questions, <span className="hl">answered.</span>
+          </h2>
+          <FaqList items={FAQ} name="faq" className="reveal" />
+        </section>
+
+        <section id="get-started" className={`container ${styles.section}`} aria-labelledby="cta-title">
+          <div className={`${styles.cta} reveal`}>
             <h2 id="cta-title" className="t-display-lg">
               your best moment is already recorded.
             </h2>
-            <Link href="/new" className="btn btn-primary btn-lg">
-              Start clipping
-              <ArrowRight size={18} weight="bold" aria-hidden />
-            </Link>
+            <LinkForm variant="panel" />
           </div>
         </section>
       </main>
 
-      <footer className={`container ${styles.footer}`}>
-        <Wordmark size={22} />
-        <p>Only clip videos you own or have permission to use. Transcripts and clip picks by Google Gemini.</p>
-      </footer>
+      <SiteFooter links={LINKS} roomForBar />
+
+      <StickyLinkBar after="hero-link" until="get-started" />
     </>
   );
 }

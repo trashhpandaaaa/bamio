@@ -12,13 +12,19 @@ a { color: inherit; }
 .link { color: var(--text); text-decoration: underline; text-decoration-thickness: 1.5px; text-underline-offset: 3px; }
 .link:hover { text-decoration-color: var(--text-tertiary); }
 
-/* Wordmark: lowercase bamio, the dot of the i is a 9:16 frame tilted 12deg. */
+/* Wordmark: lowercase bamio, the dot of the i is a pair of scissors (see components/brand.tsx). */
 .wordmark { display: inline-flex; flex: none; white-space: nowrap; font: 800 27px/1 var(--font-sans); letter-spacing: -0.05em; color: var(--text); text-decoration: none; }
 .wordmark .i { position: relative; display: inline-block; }
-.wordmark .tittle {
-  position: absolute; left: 50%; top: -0.07em; width: 0.145em; height: 0.258em;
-  border-radius: 0.05em; background: currentColor; transform: translateX(-50%) rotate(12deg);
+.wordmark .tittle { position: absolute; left: 50%; top: -0.17em; width: 0.5em; height: auto; aspect-ratio: 31.97 / 25.09; transform: translateX(-46%); overflow: visible; }
+
+/* Sections ease in as they scroll into view, where the browser has scroll-driven animations
+   (no script, nothing runs with reduced motion; elsewhere they simply show). */
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .reveal { animation: bm-reveal linear both; animation-timeline: view(); animation-range: entry 0% entry 38%; }
+  }
 }
+@keyframes bm-reveal { from { opacity: 0; transform: translateY(32px); } to { opacity: 1; transform: none; } }
 
 /* Shared state panels */
 .state-panel { display: grid; justify-items: center; gap: 12px; text-align: center; padding: 64px 24px; }

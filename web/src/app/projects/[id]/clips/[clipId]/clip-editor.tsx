@@ -21,7 +21,8 @@ import { useProject, useTranscript } from "@/hooks/use-project";
 import { api, exportUrl, type ClipPatch } from "@/lib/clips/api";
 import { ASPECT_LABEL, CAPTION_POSITION_LABEL, CAPTION_STYLE_HELP, CAPTION_STYLE_LABEL, formatBytes } from "@/lib/clips/labels";
 import { captionLines, clipRangeError, cropRect, formatTimecode, overlayTitle, parseTimecode, sortClips, splitWords } from "@/lib/clips/logic";
-import { ASPECTS, CAPTION_POSITIONS, CAPTION_STYLES, isJobActive, LIMITS, needsRetranscribe, type Clip, type ClipEdit, type Project } from "@/lib/clips/schema";
+import { languageName } from "@/lib/clips/languages";
+import { ASPECTS, CAPTION_POSITIONS, CAPTION_STYLES, isFollowing, isJobActive, LIMITS, retranscribeReason, type Clip, type ClipEdit, type Project } from "@/lib/clips/schema";
 import { exportState } from "../../clip-card";
 import { ClipPreview, type PreviewHandle } from "./clip-preview";
 import { TrimBar } from "./trim-bar";
@@ -81,7 +82,8 @@ function Editor({ project, clip, setProject }: { project: Project; clip: Clip; s
   const [view, setView] = useState(() => viewAround(clip.start, clip.end, project.source.durationSec));
   const [exporting, setExporting] = useState(false);
   const [watching, setWatching] = useState(false);
-  const { transcript, setTranscript } = useTranscript(project.id, project.hasTranscript, project.transcriptRev);
+  // A followed stream's transcript grows as it's captioned: reload as it reaches further.
+  const { transcript, setTranscript } = useTranscript(project.id, project.hasTranscript, `${project.transcriptRev}:${project.transcribedSec ?? 0}`);
 
   /* ---------- Saving: changes are batched and sent 400 ms after the last edit ---------- */
   const pending = useRef<ClipPatch>({});
@@ -343,6 +345,7 @@ function Editor({ project, clip, setProject }: { project: Project; clip: Clip; s
             <ClipPreview
               ref={preview}
               projectId={project.id}
+              following={isFollowing(project)}
               srcW={srcW}
               srcH={srcH}
               start={draft.start}
@@ -495,7 +498,7 @@ function Editor({ project, clip, setProject }: { project: Project; clip: Clip; s
               <p className="field-help">No transcript for this video, so captions aren’t available. Use Find clips on the project page to transcribe it.</p>
             ) : (
               <>
-                <TranscriptStatus project={project} onRetranscribe={() => void retranscribe()} />
+                <TranscriptStatus project={project} clipEnd={draft.end} onRetranscribe={() => void retranscribe()} />
                 <div className={styles.styleChips} role="group" aria-label="Caption style">
                   {CAPTION_STYLES.map((s) => (
                     <button
@@ -594,9 +597,19 @@ function Editor({ project, clip, setProject }: { project: Project; clip: Clip; s
 
 /**
  * Caption timing: word-accurate when transcribed on this device. Older projects (transcribed
- * by Gemini) have approximate timing, and can be transcribed again here.
+ * by Gemini, or by the multilingual model before it told English apart) can be transcribed
+ * again here.
  */
-function TranscriptStatus({ project, onRetranscribe }: { project: Project; onRetranscribe: () => void }) {
+function TranscriptStatus({ project, clipEnd, onRetranscribe }: { project: Project; clipEnd: number; onRetranscribe: () => void }) {
+  // A followed stream is captioned as it grows: say when this clip goes past that point.
+  if (isFollowing(project) && project.source.hasAudio && clipEnd > (project.transcribedSec ?? 0)) {
+    return (
+      <p className="field-help" role="status">
+        Captions for this part of the stream are still being made (done up to {formatTimecode(project.transcribedSec ?? 0)}). They appear here as they’re ready; export
+        after that to include them.
+      </p>
+    );
+  }
   const working = project.job.status === "transcribing" || (project.job.status === "queued" && project.job.stages?.includes("transcribing"));
   if (working) {
     const pct = Math.round(project.job.progress * 100);
@@ -609,10 +622,17 @@ function TranscriptStatus({ project, onRetranscribe }: { project: Project; onRet
       </div>
     );
   }
-  if (!needsRetranscribe(project)) return null;
+  const reason = retranscribeReason(project);
+  if (!reason) return null;
+  const language = languageName(project.spokenLanguage);
   return (
     <div className={styles.sync}>
-      <span>These captions come from an earlier transcript whose timing can be off. Transcribe again on this device for word-accurate captions (caption word fixes will be replaced).</span>
+      <span>
+        {reason === "timing"
+          ? "These captions come from an earlier transcript whose timing can be off. Transcribe again on this device for word-accurate captions"
+          : `Transcription now tells ${language} and English apart: English comes out as English, ${language} in its own script. Transcribe again for better captions`}{" "}
+        (caption word fixes will be replaced).
+      </span>
       <button className="btn btn-secondary btn-sm" type="button" onClick={onRetranscribe} disabled={isJobActive(project.job.status)}>
         Transcribe again
       </button>

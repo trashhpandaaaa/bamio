@@ -1,0 +1,20 @@
+/* Mirrors .caption in app/projects/[id]/clips/[clipId]/editor.module.css (white text and a black
+   outline, like the export burns in). */
+.caption {
+  position: absolute; margin: 0; text-align: center; pointer-events: none; text-wrap: balance;
+  font-family: var(--font-sans); font-weight: 800; line-height: 1.3; letter-spacing: 0; color: #fff;
+}
+.caption[data-style="pop"], .caption[data-style="clean"] {
+  -webkit-text-stroke: var(--stroke) #000; paint-order: stroke fill;
+  text-shadow: var(--shadow) var(--shadow) 0 rgb(0 0 0 / .5);
+}
+.caption[data-style="boxed"] .text {
+  background: var(--ink); padding: calc(var(--pad) * .5) var(--pad); line-height: 1.5;
+  -webkit-box-decoration-break: clone; box-decoration-break: clone;
+}
+.past { color: #fff; }
+.now { color: var(--volt); font-size: 1.1em; }
+.next { visibility: hidden; }
+
+.title { position: absolute; margin: 0; text-align: center; pointer-events: none; font-family: var(--font-sans); font-weight: 800; line-height: 1.5; }
+.title span { background: var(--volt); color: var(--ink); -webkit-box-decoration-break: clone; box-decoration-break: clone; }

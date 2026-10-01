@@ -46,6 +46,42 @@ export function parsePlaylistWindow(text: string): { windowSec: number; segmentS
   return { windowSec, segmentSec };
 }
 
+/**
+ * The segment of a media playlist that holds time `t` (seconds from its first segment):
+ * its index and where it starts. Past the end: the last segment.
+ */
+export function segmentAt(text: string, t: number): { index: number; start: number } {
+  const durations = [...text.matchAll(/#EXTINF:([\d.]+)/g)].map((m) => Number(m[1]));
+  let start = 0;
+  for (let i = 0; i < durations.length; i++) {
+    if (t < start + durations[i]! || i === durations.length - 1) return { index: i, start };
+    start += durations[i]!;
+  }
+  return { index: 0, start: 0 };
+}
+
+/** A URL's text, tried three times on network errors (a long VOD's playlist is over a megabyte). */
+async function fetchText(url: string, headers: Record<string, string>, signal?: AbortSignal): Promise<string> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const res = await fetch(url, { headers, signal });
+      if (!res.ok) throw Object.assign(new Error(`playlist HTTP ${res.status}`), { http: true });
+      return await res.text();
+    } catch (err) {
+      if (signal?.aborted || (err as { http?: boolean }).http || attempt >= 3) throw err;
+      await new Promise((r) => setTimeout(r, 1000 * attempt));
+    }
+  }
+}
+
+/** A playlist's text (for a master playlist, its first variant's). */
+export async function playlistText(f: Format, signal?: AbortSignal): Promise<string> {
+  const text = await fetchText(f.url!, f.http_headers ?? {}, signal);
+  if (!text.includes("#EXT-X-STREAM-INF")) return text;
+  const variant = text.split(/\r?\n/).find((l) => l && !l.startsWith("#"));
+  return variant ? playlistText({ ...f, url: new URL(variant, f.url).href }, signal) : "";
+}
+
 export type Recording = { inputs: Format[]; windowSec: number; segmentSec: number };
 
 /**
@@ -70,14 +106,5 @@ export async function measureChoices(
 
 /** How much history a live input's playlist holds right now. */
 export async function playlistWindow(f: Format, signal?: AbortSignal): Promise<{ windowSec: number; segmentSec: number }> {
-  const res = await fetch(f.url!, { headers: f.http_headers ?? {}, signal });
-  if (!res.ok) throw new Error(`playlist HTTP ${res.status}`);
-  const text = await res.text();
-  if (text.includes("#EXT-X-STREAM-INF")) {
-    // A master playlist: measure its first variant.
-    const variant = text.split(/\r?\n/).find((l) => l && !l.startsWith("#"));
-    if (!variant) return { windowSec: 0, segmentSec: 2 };
-    return playlistWindow({ ...f, url: new URL(variant, f.url).href }, signal);
-  }
-  return parsePlaylistWindow(text);
+  return parsePlaylistWindow(await playlistText(f, signal));
 }

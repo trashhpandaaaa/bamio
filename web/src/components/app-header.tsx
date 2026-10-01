@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AuthControls } from "@/components/auth-controls";
 import { Wordmark } from "@/components/brand";
-import { ThemeToggle } from "@/components/theme-toggle";
+import { ThemeCycleButton, ThemeToggle } from "@/components/theme-toggle";
 import { useSystemStatus } from "@/hooks/use-project";
 import styles from "./app-header.module.css";
 
@@ -40,7 +40,10 @@ export function AppHeader() {
             </span>
           ) : null}
           {status?.ai.mock ? <span className="badge is-info">Demo AI</span> : null}
-          <ThemeToggle />
+          <span className={styles.themeFull}>
+            <ThemeToggle />
+          </span>
+          <ThemeCycleButton className={styles.themeCompact} />
           <AuthControls />
         </div>
       </div>

@@ -17,11 +17,18 @@
 .nav a:hover { color: var(--text); background: var(--surface-sunken); }
 .nav a[aria-current="page"] { color: var(--text); background: var(--surface-sunken); }
 .right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+/* The three-way theme switch, or (small screens) one button that steps through the themes. */
+.right .themeFull { display: contents; }
+.right .themeCompact { display: none; }
 
 @media (max-width: 640px) {
   .inner { gap: 12px; padding: 0 var(--gutter-mobile); }
   .nav a { padding: 8px 8px; }
   .right :global(.badge) { display: none; }
+}
+@media (max-width: 480px) {
+  .right .themeFull { display: none; }
+  .right .themeCompact { display: inline-flex; }
 }
 @media (max-width: 420px) {
   .nav a:last-child { display: none; }

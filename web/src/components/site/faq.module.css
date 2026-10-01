@@ -1,0 +1,24 @@
+.list { display: grid; gap: 10px; }
+.item { border-radius: var(--r-lg); background: var(--surface); border: 1px solid var(--line); transition: border-color var(--dur-fast) var(--ease-out); interpolate-size: allow-keywords; }
+/* Answers open smoothly where the browser can animate details (elsewhere, at once). */
+.item::details-content { block-size: 0; overflow-y: clip; transition: block-size var(--dur-base) var(--ease-out), content-visibility var(--dur-base) allow-discrete; }
+.item[open]::details-content { block-size: auto; }
+.item:hover, .item[open] { border-color: var(--line-control); }
+.item summary {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 20px 24px;
+  font: var(--t-heading-sm); letter-spacing: -.01em; color: var(--text); cursor: pointer; list-style: none; border-radius: inherit;
+}
+.item summary::-webkit-details-marker { display: none; }
+.item summary svg { flex: none; color: var(--text-secondary); transition: transform var(--dur-base) var(--ease-out); }
+.item[open] summary svg { transform: rotate(180deg); }
+.item p { margin: 0; padding: 0 24px 22px; max-width: 64ch; font: var(--t-body); color: var(--text-secondary); }
+/* Links in answers: a taller tap area without moving the lines. */
+.item p :global(a) { padding-block: 3px; color: var(--text); text-decoration: underline; text-decoration-thickness: 1.5px; text-underline-offset: 3px; }
+
+@media (max-width: 767px) {
+  .item summary { padding: 18px 18px; font-size: 16px; }
+  .item p { padding: 0 18px 18px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .item::details-content { transition: none; }
+}

@@ -47,3 +47,22 @@ export function ThemeToggle() {
     </div>
   );
 }
+
+/** One button that steps through the themes (match device, paper, night), for bars with little room. */
+export function ThemeCycleButton({ className = "" }: { className?: string }) {
+  const theme = useSyncExternalStore(subscribe, read, () => "system" as Theme);
+  const at = OPTIONS.findIndex((o) => o.value === theme);
+  const { label, Icon } = OPTIONS[at]!;
+  const next = OPTIONS[(at + 1) % OPTIONS.length]!;
+  return (
+    <button
+      className={`btn btn-ghost btn-icon btn-sm ${className}`}
+      type="button"
+      aria-label={`Theme: ${label}. Switch to ${next.label.toLowerCase()}`}
+      title={`${label} (switch to ${next.label.toLowerCase()})`}
+      onClick={() => write(next.value)}
+    >
+      <Icon size={18} aria-hidden />
+    </button>
+  );
+}

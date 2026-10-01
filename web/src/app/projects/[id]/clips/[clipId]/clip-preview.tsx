@@ -2,7 +2,8 @@
 
 import { Fragment, memo, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { ASS_EM, ASS_OUTLINE, ASS_SIZES, captionMarginV, MARGIN_H, TITLE_TOP } from "@/lib/clips/ass";
-import { sourceUrl, thumbUrl } from "@/lib/clips/api";
+import { useSourceVideo } from "@/hooks/use-source-video";
+import { thumbUrl } from "@/lib/clips/api";
 import { cropRect, joinWords, lineAt, OUTPUT_SIZE, titleLines, wordGap, type CaptionLine } from "@/lib/clips/logic";
 import type { ClipEdit } from "@/lib/clips/schema";
 import styles from "./editor.module.css";
@@ -19,6 +20,8 @@ export type PreviewHandle = {
 type Props = {
   ref?: React.Ref<PreviewHandle>;
   projectId: string;
+  /** A followed stream: its video plays as it grows. */
+  following: boolean;
   srcW: number;
   srcH: number;
   start: number;
@@ -37,7 +40,7 @@ type Props = {
  * The clip as it will export: framed to the output aspect (crop with a focus point,
  * or fit over a blurred fill), with captions and title drawn like the ASS export.
  */
-export function ClipPreview({ ref, projectId, srcW, srcH, start, end, edit, lines, title, language, onTime, onPlaying, onFocusX }: Props) {
+export function ClipPreview({ ref, projectId, following, srcW, srcH, start, end, edit, lines, title, language, onTime, onPlaying, onFocusX }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
@@ -48,6 +51,7 @@ export function ClipPreview({ ref, projectId, srcW, srcH, start, end, edit, line
   // Fixed at the first start, so trimming doesn't request a new poster frame on every step.
   const [poster] = useState(() => thumbUrl(projectId, start));
   const { width: W, height: H } = OUTPUT_SIZE[edit.aspect];
+  useSourceVideo(videoRef, projectId, following);
 
   useEffect(() => {
     range.current = { start, end };
@@ -155,7 +159,6 @@ export function ClipPreview({ ref, projectId, srcW, srcH, start, end, edit, line
       <video
         ref={videoRef}
         className={styles.video}
-        src={sourceUrl(projectId)}
         poster={poster}
         preload="auto"
         playsInline

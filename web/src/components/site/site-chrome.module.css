@@ -1,0 +1,43 @@
+/* The marketing pages' top bar and footer (landing, pricing). */
+
+/* ---------- Top bar ---------- */
+.top { position: sticky; top: 0; z-index: var(--z-sticky); background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-bottom: 1px solid var(--line); }
+.topInner { display: flex; align-items: center; gap: 24px; height: var(--topbar); }
+.topNav { display: flex; gap: 4px; margin-left: auto; }
+.topNav a { font: var(--t-label-sm); color: var(--text-secondary); text-decoration: none; white-space: nowrap; padding: 8px 12px; border-radius: var(--r-pill); transition: color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out); }
+.topNav a:hover, .topNav a[aria-current="page"] { color: var(--text); background: var(--surface-sunken); }
+.topAuth { display: flex; align-items: center; gap: 8px; }
+
+/* ---------- Footer ---------- */
+.footer { padding-top: 120px; padding-bottom: 32px; }
+.footerPanel {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 40px 48px; padding: 40px;
+  border-radius: var(--r-xl); background: var(--surface); border: 1px solid var(--line);
+}
+.footerBrand { display: grid; gap: 10px; align-content: start; }
+.footerBrand p { margin: 0; font: var(--t-body); color: var(--text-secondary); }
+.footerNav { display: flex; gap: 64px; }
+.footerTitle { margin: 0 0 12px; font: var(--t-label); color: var(--text); }
+.footerNav ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; }
+.footerNav a { display: inline-block; padding: 5px 0; font: var(--t-body-sm); color: var(--text-secondary); text-decoration: none; }
+.footerNav a:hover { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
+.footerBottom { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding-top: 24px; border-top: 1px solid var(--line); }
+.footerBottom p { margin: 0; max-width: 70ch; font: var(--t-caption); color: var(--text-tertiary); }
+
+/* Tablets: the bar's links would crowd the sign-in buttons; they move into the menu. */
+@media (max-width: 899px) {
+  .topNav { display: none; }
+  .topAuth { margin-left: auto; }
+}
+@media (max-width: 767px) {
+  .footer { padding-top: 80px; }
+  /* Room for the landing page's sticky link bar. */
+  .footer[data-bar] { padding-bottom: 96px; }
+  .footerPanel { grid-template-columns: minmax(0, 1fr); padding: 24px; }
+  .footerNav { gap: 40px; }
+}
+/* The smallest phones: "Sign in" moves into the menu so the bar fits (Clerk renders the buttons straight into .topAuth). */
+@media (max-width: 359px) {
+  .topAuth { gap: 4px; }
+  .topAuth > :global(button.btn-ghost):not([popovertarget]) { display: none; }
+}

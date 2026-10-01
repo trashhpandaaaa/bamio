@@ -6,21 +6,36 @@
  *   node workers/transcribe.mjs --prefetch <dir> [accurate|fast] [all|english]
  *                                                          download the models into <dir>
  *
- * job.json: { pcm, modelsDir, language, model, threads, out }. pcm is raw 16 kHz mono signed
- * 16-bit audio; language is a code such as "hi", or "auto" to detect it; model is "accurate"
- * (default) or "fast" (see speech-models.mjs).
+ * job.json: { pcm, modelsDir, language, model, threads, parallel, out }. pcm is raw 16 kHz mono
+ * signed 16-bit audio; language is a code such as "hi", or "auto" to detect it; model is
+ * "accurate" (default) or "fast" (see speech-models.mjs); `parallel` speech parts are decoded
+ * at once with `threads` threads each (set UV_THREADPOOL_SIZE above `parallel`).
  *
- * Whisper tiny detects the language from speech at three points of the video (unless it
+ * Whisper tiny detects the language from speech at five points of the video (unless it
  * was given). Silero VAD finds the speech, and the language's model (Parakeet for English
  * and 24 European languages, Omnilingual ASR for the rest) transcribes each part and gives
- * every token a time. Prints "LANGUAGE <code>" once known, "DOWNLOAD <0..1>" while fetching
- * models the first time and "PROGRESS <0..1>" while transcribing; writes { language, segments }
- * to job.out.
+ * every token a time. Omnilingual's transcript is then repaired where speakers switch
+ * languages (English checked against the English model, stretches in the wrong script
+ * decoded again; see repairMultilingual). Prints "LANGUAGE <code>" once known (again if the
+ * transcript names it better), "DOWNLOAD <0..1>" while fetching models the first time and
+ * "PROGRESS <0..1>" while transcribing; writes { language, segments } to job.out.
  */
 import { closeSync, openSync, readFileSync, readSync, statSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { ensureModels, MODELS, modelChoice, modelFiles, modelKey } from "./speech-models.mjs";
-import { engineFor, indicScriptFixer, tokensToWords, wordsToPhrases } from "./transcribe-core.mjs";
+import {
+  engineFor,
+  engineForWindows,
+  englishSpans,
+  indicScriptFixer,
+  languageForScript,
+  mainScript,
+  scriptOfLanguage,
+  scriptShare,
+  tokensToWords,
+  wordAgreement,
+  wordsToPhrases,
+} from "./transcribe-core.mjs";
 
 const require = createRequire(import.meta.url);
 const RATE = 16000;
@@ -54,14 +69,15 @@ const newVad = (sherpa, vadModel) =>
   );
 
 /**
- * The spoken language: Whisper's guess on up to 29 s of speech from each of three points
- * of the video (so a music intro or an ad in another language doesn't decide it), by vote.
+ * The language heard at five points of the video (Whisper on up to 29 s of speech each),
+ * with the seconds of speech behind each guess. Several points, so a music intro or an ad
+ * doesn't decide it, and a mix of languages shows (see engineForWindows).
  */
-function detectLanguage(sherpa, job, fd, total) {
+function detectLanguages(sherpa, job, fd, total) {
   const m = modelFiles(job.modelsDir, "lid");
   const lid = new sherpa.SpokenLanguageIdentification({ whisper: { encoder: m.encoder, decoder: m.decoder }, numThreads: job.threads ?? 2, debug: 0 });
-  const votes = new Map();
-  for (const at of [0.1, 0.45, 0.8]) {
+  const windows = [];
+  for (const at of [0.1, 0.3, 0.5, 0.7, 0.9]) {
     const vad = newVad(sherpa, m.vad);
     const start = Math.floor((total * at) / 2) * 2;
     const samples = readSamples(fd, start, Math.min(total - start, 180 * RATE * 2));
@@ -86,12 +102,147 @@ function detectLanguage(sherpa, job, fd, total) {
     const stream = lid.createStream();
     stream.acceptWaveform({ sampleRate: RATE, samples: joined });
     const lang = lid.compute(stream);
-    if (lang) votes.set(lang, (votes.get(lang) ?? 0) + have);
+    // Whisper calls Javanese "jw"; its ISO 639-1 code is "jv".
+    if (lang) windows.push({ lang: lang === "jw" ? "jv" : lang, weight: have / RATE });
   }
-  // No speech found anywhere: English, the model that needs no extra download.
-  const best = [...votes.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "en";
-  // Whisper calls Javanese "jw"; its ISO 639-1 code is "jv".
-  return best === "jw" ? "jv" : best;
+  return windows;
+}
+
+/** Run `work` on every item, `limit` at a time. */
+async function eachLimited(items, limit, work) {
+  let next = 0;
+  const lane = async () => {
+    while (next < items.length) await work(items[next++]);
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, lane));
+}
+
+/** English check: the share of words the English model must agree on for a stretch to be English (the lower one when decoding it again didn't give the language). */
+const ENGLISH_AGREES = 0.5;
+const ENGLISH_LIKELY = 0.3;
+/**
+ * Up to this much of the video's own speech is decoded before a stretch to keep the model in
+ * its language (after it only when there's none before: context on both sides did worse).
+ */
+const CONTEXT = 8 * RATE;
+
+/**
+ * A multilingual transcript (segments in time order, their `words` replaced in place),
+ * fixed up stretch by stretch where speakers switch languages. The script of the language
+ * decides (Devanagari for Nepali, however much English the video has):
+ *  - a stretch with Latin letters is transcribed by the English model too, and is English
+ *    where the two agree: all of it, or runs of 3+ words inside a sentence of both;
+ *  - a stretch not in the language's script (it spelled in Latin letters, or another script
+ *    altogether) is decoded again after a few seconds of the video's own speech in that
+ *    script from just before it, which keeps the model in the language;
+ *  - stray letters of neighbouring Indian scripts are mapped back.
+ * For a language written in Latin letters only the English check runs, and only if English
+ * was heard (`checkEnglish`). Returns the language to report: with `relabel` (detected, not
+ * chosen) it's named from the transcript's common words.
+ */
+async function repairMultilingual({ sherpa, job, choice, omni, segments, fd, language, relabel, checkEnglish, onProgress }) {
+  const texts = segments.map((s) => s.text);
+  const main = mainScript(texts);
+  const label = relabel ? languageForScript(language, main, texts) : language;
+  const script = (relabel ? null : scriptOfLanguage(label)) ?? main;
+  const latinScript = script === "Latin";
+  if (!script || script === "Other" || (latinScript && !checkEnglish)) return label;
+
+  const read = (start, length) => readSamples(fd, start * 2, length * 2);
+  const decode = async (rec, samples) => {
+    const stream = rec.createStream();
+    stream.acceptWaveform({ sampleRate: RATE, samples });
+    return rec.decodeAsync(stream);
+  };
+  const wordsOf = (r, seg, locale, tokens = r.tokens ?? [], times = r.timestamps ?? []) =>
+    tokensToWords(tokens, times, seg.start / RATE, (seg.start + seg.length) / RATE, locale);
+  const inScript = (words) => scriptShare(words.map((w) => w.text).join(" "), script);
+  const good = segments.map((s) => s.length >= RATE && scriptShare(s.text, script) >= 0.8);
+
+  /** Up to `limit` samples of speech in the language's script next to `segments[i]` (dir -1: before it, 1: after it), within a minute. */
+  const contextFor = (i, dir, limit) => {
+    const parts = [];
+    let have = 0;
+    for (let k = i + dir; k >= 0 && k < segments.length && have < limit && Math.abs(segments[k].start - segments[i].start) < 60 * RATE; k += dir) {
+      if (!good[k]) continue;
+      const take = Math.min(segments[k].length, limit - have);
+      parts.push({ start: dir < 0 ? segments[k].start + segments[k].length - take : segments[k].start, length: take });
+      have += take;
+    }
+    return { parts: dir < 0 ? parts.reverse() : parts, have };
+  };
+
+  /** `segments[i]` decoded after (or before) speech in the language's script from next to it, keeping only its own words (null without any). */
+  const primed = async (i) => {
+    const seg = segments[i];
+    let before = contextFor(i, -1, CONTEXT);
+    let after = { parts: [], have: 0 };
+    if (before.have < RATE) [before, after] = [after, contextFor(i, 1, CONTEXT)];
+    if (before.have + after.have < RATE) return null;
+    const gap = Math.round(0.3 * RATE);
+    const pieces = [...before.parts, { start: seg.start, length: seg.length, own: true }, ...after.parts];
+    const x = new Float32Array(pieces.reduce((n, p) => n + p.length + gap, 0));
+    let at = 0;
+    let offset = 0;
+    for (const p of pieces) {
+      if (p.own) offset = at;
+      x.set(read(p.start, p.length), at);
+      at += p.length + gap;
+    }
+    const r = await decode(omni, x);
+    const from = offset / RATE;
+    const own = seg.length / RATE;
+    // The gaps are 0.3 s of silence, so a token up to 0.15 s into one still belongs to the segment.
+    const kept = (r.tokens ?? []).map((t, k) => ({ t, at: (r.timestamps?.[k] ?? 0) - from })).filter((p) => p.at >= -0.15 && p.at < own + 0.15);
+    return wordsOf(r, seg, label, kept.map((p) => p.t), kept.map((p) => Math.min(own, Math.max(0, p.at))));
+  };
+
+  const todo = segments.map((_, i) => i).filter((i) => /\p{L}/u.test(segments[i].text) && (latinScript || scriptShare(segments[i].text, script) < 0.7));
+  const hasLatin = (i) => scriptShare(segments[i].text, "Latin") >= 0.3;
+  let english = null;
+  if (todo.some(hasLatin)) {
+    const key = modelKey("english", choice);
+    english = await ensureModels(job.modelsDir, [key], reporter("DOWNLOAD")).then(
+      () => recognizerFor(sherpa, job, key),
+      () => null, // offline: no English check
+    );
+  }
+
+  let done = 0;
+  await eachLimited(todo, Math.max(1, job.parallel ?? 1), async (i) => {
+    const seg = segments[i];
+    // Only a stretch with (almost) nothing in the language's script can be English throughout.
+    const couldBeEnglish = latinScript || scriptShare(seg.text, script) < 0.2;
+    let englishWords = [];
+    let agreement = { ratio: 0, matched: [] };
+    if (english && hasLatin(i)) {
+      englishWords = wordsOf(await decode(english, read(seg.start, seg.length)), seg, "en");
+      agreement = wordAgreement(seg.words.map((w) => w.text), englishWords.map((w) => w.text));
+    }
+    const spans = englishSpans(seg.words, agreement.matched);
+    const within = (t) => spans.some((s) => t >= s.start - 0.05 && t <= s.end + 0.05);
+    // A word that starts in an English run is (partly) that English, spelled in the language's script.
+    const inSpan = (w) => within(w.start) || within((w.start + w.end) / 2);
+    let words = seg.words;
+    if (couldBeEnglish && agreement.ratio >= ENGLISH_AGREES) words = englishWords;
+    else {
+      const again = latinScript ? null : await primed(i);
+      if (again && inScript(again.filter((w) => !inSpan(w))) >= 0.7) words = again;
+      // Not the language even among its own speech (or none of it within a minute): English is the likelier.
+      else if (couldBeEnglish && agreement.ratio >= ENGLISH_LIKELY) words = englishWords;
+      if (words !== englishWords && spans.length > 0) {
+        words = [...words.filter((w) => !inSpan(w)), ...englishWords.filter(inSpan)].sort((a, b) => a.start - b.start);
+      }
+    }
+    seg.words = words;
+    onProgress(++done / todo.length);
+  });
+
+  if (!latinScript) {
+    const fix = indicScriptFixer(segments.map((s) => s.words.map((w) => w.text).join(" ")), label);
+    for (const s of segments) for (const w of s.words) w.text = fix(w.text);
+  }
+  return label;
 }
 
 function recognizerFor(sherpa, job, key) {
@@ -121,30 +272,54 @@ async function main() {
   const total = statSync(job.pcm).size;
 
   let language = String(job.language ?? "auto");
-  if (language === "auto" || language === "other" || !language) {
+  const auto = language === "auto" || language === "other" || !language;
+  let engine = engineFor(language);
+  let heardEnglish = false;
+  if (auto) {
     await ensureModels(job.modelsDir, ["lid"], reporter("DOWNLOAD"));
-    language = detectLanguage(sherpa, job, fd, total);
+    const windows = detectLanguages(sherpa, job, fd, total);
+    ({ engine, language } = engineForWindows(windows));
+    heardEnglish = windows.some((w) => w.lang === "en");
   }
   console.log(`LANGUAGE ${language}`);
 
-  const engine = engineFor(language);
   const key = modelKey(engine, choice);
   await ensureModels(job.modelsDir, [key], reporter("DOWNLOAD"));
   const recognizer = recognizerFor(sherpa, job, key);
   const vad = newVad(sherpa, modelFiles(job.modelsDir, key).vad);
 
-  /** @type {{ text: string, start: number, end: number }[]} */
-  const words = [];
-  const decodeReady = () => {
+  /** Speech parts (start and length in samples) with the recognizer's text and words. */
+  const segments = [];
+  // Omnilingual's transcript is repaired afterwards (see repairMultilingual): the last 15% of the progress.
+  const decodeShare = engine === "omni" ? 0.85 : 1;
+  // A detected language is named again from the first few hundred letters of transcript
+  // (Whisper tiny once called Nepali "Malayalam"); the final name comes from all of it.
+  let renamed = !auto || engine !== "omni";
+  // Up to `parallel` speech parts decode at once (on libuv's pool, sharing the model) while
+  // the VAD reads on: much faster than one part at a time with more threads.
+  const parallel = Math.max(1, job.parallel ?? 1);
+  const pending = new Set();
+  const decodeOne = async (seg) => {
+    const start = seg.start / RATE;
+    const stream = recognizer.createStream();
+    stream.acceptWaveform({ sampleRate: RATE, samples: seg.samples });
+    const result = parallel > 1 ? await recognizer.decodeAsync(stream) : (recognizer.decode(stream), recognizer.getResult(stream));
+    const words = tokensToWords(result.tokens ?? [], result.timestamps ?? [], start, start + seg.samples.length / RATE, language);
+    segments.push({ start: seg.start, length: seg.samples.length, text: result.text ?? "", words });
+    if (!renamed && segments.reduce((n, s) => n + s.text.length, 0) >= 600) {
+      renamed = true;
+      const texts = segments.map((s) => s.text);
+      const early = languageForScript(language, mainScript(texts), texts);
+      if (early !== language) console.log(`LANGUAGE ${early}`);
+    }
+  };
+  const decodeReady = async () => {
     while (!vad.isEmpty()) {
       const seg = vad.front();
       vad.pop();
-      const start = seg.start / RATE;
-      const stream = recognizer.createStream();
-      stream.acceptWaveform({ sampleRate: RATE, samples: seg.samples });
-      recognizer.decode(stream);
-      const result = recognizer.getResult(stream);
-      words.push(...tokensToWords(result.tokens ?? [], result.timestamps ?? [], start, start + seg.samples.length / RATE, language));
+      const task = decodeOne(seg).finally(() => pending.delete(task));
+      pending.add(task);
+      if (pending.size >= parallel) await Promise.race(pending);
     }
   };
 
@@ -154,20 +329,32 @@ async function main() {
     const samples = readSamples(fd, offset, chunk);
     if (samples.length === 0) break;
     for (let k = 0; k < samples.length; k += VAD_WINDOW) vad.acceptWaveform(samples.subarray(k, Math.min(samples.length, k + VAD_WINDOW)));
-    decodeReady();
-    progress(Math.min(1, (offset + chunk) / total));
+    await decodeReady();
+    progress(decodeShare * Math.min(1, (offset + chunk) / total));
   }
-  closeSync(fd);
   vad.flush();
-  decodeReady();
-  progress(1);
+  await decodeReady();
+  await Promise.all(pending);
+  segments.sort((a, b) => a.start - b.start);
 
   if (engine === "omni") {
-    const fix = indicScriptFixer(words.map((w) => w.text), language);
-    for (const w of words) w.text = fix(w.text);
+    progress(decodeShare);
+    language = await repairMultilingual({
+      sherpa,
+      job,
+      choice,
+      omni: recognizer,
+      segments,
+      fd,
+      language,
+      relabel: auto,
+      checkEnglish: heardEnglish,
+      onProgress: (v) => progress(decodeShare + (1 - decodeShare) * v),
+    });
   }
-  words.sort((a, b) => a.start - b.start);
-  writeFileSync(job.out, JSON.stringify({ language, segments: wordsToPhrases(words) }));
+  closeSync(fd);
+  progress(1);
+  writeFileSync(job.out, JSON.stringify({ language, segments: wordsToPhrases(segments.flatMap((s) => s.words)) }));
 }
 
 main().catch((err) => {

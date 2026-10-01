@@ -23,12 +23,20 @@ const workerPath = () => path.join(/*turbopackIgnore: true*/ process.cwd(), "wor
 export const modelsDir = () =>
   path.resolve(/*turbopackIgnore: true*/ process.env.BAMIO_MODELS_DIR || path.join(/*turbopackIgnore: true*/ process.cwd(), ".models"));
 
-/** Threads for the model: half the cores (at most 4), so exports and the web server keep running. */
-const threads = () => Math.max(1, Math.min(4, Math.floor(os.cpus().length / 2)));
+/**
+ * How the model uses the CPU: several speech parts decoded at once (sharing one model), two
+ * threads each. That was 1.6x faster than one part at a time with four threads (English
+ * 21.5x real time instead of 13.1x on a 6-core laptop, Omnilingual 3.7x instead of 2.9x).
+ * About two thirds of the machine, so exports and the web server keep running.
+ */
+export function speechCpu(cpus = os.cpus().length): { threads: number; parallel: number } {
+  return { threads: cpus >= 4 ? 2 : 1, parallel: Math.max(1, Math.min(6, Math.floor(cpus / 3))) };
+}
 
 /**
- * Transcribe a video's audio. `workDir` is scratch space (removed afterwards).
- * Progress messages cover the one-time model download too.
+ * Transcribe a video's audio, or with `range` just that part of it (times in the result
+ * are still the video's). `workDir` is scratch space (removed afterwards). Progress
+ * messages cover the one-time model download too.
  */
 export async function transcribeLocal(
   source: string,
@@ -36,6 +44,7 @@ export async function transcribeLocal(
   language: string | undefined,
   signal: AbortSignal,
   onProgress: (value: number, message: string) => void,
+  range?: { start: number; end: number },
 ): Promise<Transcript> {
   if (!existsSync(workerPath())) throw new HttpError(500, "no_worker", "The transcription worker is missing.");
   await rm(workDir, { recursive: true, force: true });
@@ -45,31 +54,53 @@ export async function transcribeLocal(
     const pcm = path.join(workDir, "audio.s16");
     await run(
       "ffmpeg",
-      ["-hide_banner", "-nostdin", "-y", "-i", source, "-map", "0:a:0", "-vn", "-ac", "1", "-ar", "16000", "-af", "aresample=async=1:first_pts=0", "-f", "s16le", pcm],
+      [
+        "-hide_banner",
+        "-nostdin",
+        "-y",
+        ...(range ? ["-ss", range.start.toFixed(3), "-t", (range.end - range.start).toFixed(3)] : []),
+        "-i",
+        source,
+        ...["-map", "0:a:0", "-vn", "-ac", "1", "-ar", "16000", "-af", "aresample=async=1:first_pts=0", "-f", "s16le", pcm],
+      ],
       { signal, timeoutMs: 60 * 60 * 1000 },
     );
     const job = path.join(workDir, "job.json");
     const out = path.join(workDir, "out.json");
-    await writeFile(job, JSON.stringify({ pcm, modelsDir: modelsDir(), language: isAutoLanguage(language) ? "auto" : language, model: process.env.BAMIO_SPEECH_MODEL, threads: threads(), out }));
+    const cpu = speechCpu();
+    await writeFile(
+      job,
+      JSON.stringify({ pcm, modelsDir: modelsDir(), language: isAutoLanguage(language) ? "auto" : language, model: process.env.BAMIO_SPEECH_MODEL, ...cpu, out }),
+    );
     let spoken = isAutoLanguage(language) ? "" : languageName(language);
+    let done = 0;
     onProgress(0, spoken ? `Transcribing ${spoken} on this device` : "Detecting the language");
     await runNode(workerPath(), [job], {
       signal,
       timeoutMs: 6 * 60 * 60 * 1000,
+      // Parallel decodes run on libuv's pool (4 threads by default).
+      env: { UV_THREADPOOL_SIZE: String(cpu.parallel + 2) },
       onStdoutLine: (line) => {
+        // The language is named once detected, and again mid-way if the transcript names it better.
         const lang = /^LANGUAGE (\S+)/.exec(line);
         if (lang) {
           spoken = languageName(lang[1]);
-          onProgress(0, `Transcribing ${spoken} on this device`);
+          onProgress(done, `Transcribing ${spoken} on this device`);
           return;
         }
         const m = /^(DOWNLOAD|PROGRESS) ([\d.]+)/.exec(line);
         if (!m) return;
         if (m[1] === "DOWNLOAD") onProgress(Number(m[2]), `Downloading the speech model${spoken ? ` for ${spoken}` : ""} (first time only)`);
-        else onProgress(Number(m[2]), `Transcribing ${spoken || "the speech"} on this device`);
+        else onProgress((done = Number(m[2])), `Transcribing ${spoken || "the speech"} on this device`);
       },
     });
-    return transcriptSchema.parse(JSON.parse(await readFile(out, "utf8")));
+    const transcript = transcriptSchema.parse(JSON.parse(await readFile(out, "utf8")));
+    if (!range) return transcript;
+    const at = (t: number) => Math.round((t + range.start) * 1000) / 1000;
+    return {
+      ...transcript,
+      segments: transcript.segments.map((s) => ({ ...s, start: at(s.start), end: at(s.end), words: s.words?.map((w) => ({ start: at(w.start), end: at(w.end) })) })),
+    };
   } catch (err) {
     if (isAbortError(err) || signal.aborted) throw err;
     if (err instanceof HttpError) throw err;

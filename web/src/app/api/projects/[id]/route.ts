@@ -1,11 +1,16 @@
 import { clipEditSchema, updateProjectSchema } from "@/lib/clips/schema";
 import { HttpError, readJson, userRoute } from "@/lib/server/http";
-import { stopProject } from "@/lib/server/jobs";
+import { resumeFollow, stopProject } from "@/lib/server/jobs";
 import { deleteProjectFiles, getProject, mutateProject } from "@/lib/server/store";
 
 type Params = { id: string };
 
-export const GET = userRoute<Params>(async (_req, { userId, params }) => Response.json(await getProject(userId, params.id)));
+export const GET = userRoute<Params>(async (_req, { userId, params }) => {
+  const project = await getProject(userId, params.id);
+  // A followed stream cut off by a restart gets its video finished.
+  resumeFollow(userId, project);
+  return Response.json(project);
+});
 
 /** Rename, or copy one clip's look (frame and caption style) to every clip. */
 export const PATCH = userRoute<Params>(async (req, { userId, params }) => {

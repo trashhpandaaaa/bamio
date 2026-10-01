@@ -1,14 +1,15 @@
 import "server-only";
-import { mkdir, stat } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { formatTimecode } from "@/lib/clips/logic";
 import { LIVE_WINDOW_SEC, vodRange } from "@/lib/clips/live";
 import { parseFfmpegProgress } from "@/lib/clips/progress";
 import { LIMITS, type InspectResult, type Platform, type Source } from "@/lib/clips/schema";
 import { isAbortError, ProcessError, run } from "@/lib/server/bin";
-import { measureChoices, type Format } from "@/lib/server/hls";
+import { inputChoices, measureChoices, parsePlaylistWindow, playlistText, playlistWindow, segmentAt, type Format } from "@/lib/server/hls";
 import { HttpError } from "@/lib/server/http";
-import { downloadUrl, explainYtdlpError, inspectCached, ytdlpArgs } from "@/lib/server/media";
+import { explainYtdlpError, inspectCached, ytdlpArgs } from "@/lib/server/media";
 
 /*
  * Capturing live streams (YouTube, Twitch, Kick and other HLS live sources).
@@ -38,16 +39,25 @@ async function ytdlpJson(url: string, extra: string[], signal?: AbortSignal): Pr
   }
 }
 
-export type LiveDetails = { canRewind: boolean; rewindSec: number; vod?: { url: string; durationSec: number } };
+/**
+ * How far back a live stream can be captured: `rewindSec` for capturing a part (at most
+ * 3 hours), `availableSec` all the history the site keeps (a Twitch VOD: the whole stream),
+ * and (Twitch) its in-progress VOD.
+ */
+export type LiveDetails = { canRewind: boolean; rewindSec: number; availableSec: number; vod?: { url: string; durationSec: number } };
 
-/** How far back a live stream can be captured, and (Twitch) its in-progress VOD. */
 export async function liveInfo(url: string, platform: Platform, signal?: AbortSignal): Promise<LiveDetails> {
   if (platform === "twitch") {
     try {
       const vod = await ytdlpJson(url, ["--live-from-start"], signal);
       const duration = Number(vod.duration);
       if (vod.extractor_key === "TwitchVod" && vod.webpage_url && Number.isFinite(duration) && duration > 0) {
-        return { canRewind: true, rewindSec: Math.floor(Math.min(duration, LIMITS.maxMediaSec)), vod: { url: vod.webpage_url, durationSec: duration } };
+        return {
+          canRewind: true,
+          rewindSec: Math.floor(Math.min(duration, LIMITS.maxMediaSec)),
+          availableSec: Math.floor(duration),
+          vod: { url: vod.webpage_url, durationSec: duration },
+        };
       }
     } catch (err) {
       if (isAbortError(err)) throw err;
@@ -57,8 +67,21 @@ export async function liveInfo(url: string, platform: Platform, signal?: AbortSi
   const info = await ytdlpJson(url, [], signal);
   const choices = await measureChoices(info.formats ?? [], UNKNOWN_WINDOW, signal);
   const usable = Math.max(0, ...choices.map(usableRewind));
-  if (usable >= MIN_REWIND_SEC) return { canRewind: true, rewindSec: Math.min(usable, LIMITS.maxMediaSec) };
-  return { canRewind: false, rewindSec: LIVE_WINDOW_SEC };
+  if (usable >= MIN_REWIND_SEC) return { canRewind: true, rewindSec: Math.min(usable, LIMITS.maxMediaSec), availableSec: usable };
+  return { canRewind: false, rewindSec: LIVE_WINDOW_SEC, availableSec: LIVE_WINDOW_SEC };
+}
+
+/** How far back following may start (BAMIO_FOLLOW_MAX_BACK_SEC overrides the 6 hours, e.g. for tests). */
+export const followMaxBackSec = () => Number(process.env.BAMIO_FOLLOW_MAX_BACK_SEC) || LIMITS.maxFollowBackSec;
+
+/**
+ * Where following a stream would start: as far back as the site keeps, up to the limit,
+ * and whether that reaches the stream's start (`startedAt`, ms, when the site says).
+ */
+export function followStart(live: Pick<LiveDetails, "availableSec" | "vod">, startedAt: number | undefined, now = Date.now()): { backSec: number; fromStart: boolean } {
+  const backSec = Math.floor(Math.min(live.availableSec, followMaxBackSec()));
+  const elapsed = live.vod ? live.vod.durationSec : startedAt ? (now - startedAt) / 1000 : Infinity;
+  return { backSec, fromStart: elapsed <= backSec + 60 };
 }
 
 /** What a playlist that can't be read is taken to hold (a typical short live playlist). */
@@ -121,17 +144,19 @@ const inputArgs = (f: Format, startIndex: number, seconds: number) => [
   f.url!,
 ];
 
-const sleep = (ms: number, signal: AbortSignal) =>
+/** Wait `ms`, or reject with an AbortError when `signal` fires. */
+export const sleep = (ms: number, signal: AbortSignal) =>
   new Promise<void>((resolve, reject) => {
-    const t = setTimeout(resolve, ms);
-    signal.addEventListener(
-      "abort",
-      () => {
-        clearTimeout(t);
-        reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
-      },
-      { once: true },
-    );
+    const onAbort = () => {
+      clearTimeout(t);
+      reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
+    };
+    const t = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    if (signal.aborted) onAbort();
+    else signal.addEventListener("abort", onAbort, { once: true });
   });
 
 export type LiveProgress = (value: number, message: string) => void;
@@ -184,15 +209,7 @@ export async function recordLive(
     }
     const span = formatTimecode(range.end - range.start);
     opts.onProgress(0, `Downloading the captured ${span}`);
-    const file = await downloadUrl(live.vodUrl, dir, {
-      range,
-      precise: false,
-      // The VOD is still growing while the stream is live; without this yt-dlp would wait at its live end.
-      extraArgs: ["--live-from-start"],
-      signal: opts.signal,
-      onProgress: (p) => opts.onProgress(p ?? 0, `Downloading the captured ${span}`),
-    });
-    return { file, vodRange: range };
+    return { file: await downloadVodRange(live.vodUrl, range, dir, opts, span), vodRange: range };
   }
 
   // Everything else: record the live playlist with ffmpeg.
@@ -278,6 +295,126 @@ export async function recordLive(
   return { file: out };
 }
 
+/**
+ * A stretch of a Twitch VOD (seconds from its start), read straight from its playlist
+ * with ffmpeg from the segment that holds `range.start`. (yt-dlp's section download of a
+ * VOD that is still growing reads it from the beginning: minutes on a long stream.) An
+ * in-progress VOD is a live playlist, started by segment index; a finished one is seeked.
+ */
+async function downloadVodRange(vodUrl: string, range: { start: number; end: number }, dir: string, opts: { signal: AbortSignal; onProgress: LiveProgress }, span: string) {
+  const vod = await ytdlpJson(vodUrl, ["--live-from-start"], opts.signal);
+  const input = inputChoices(vod.formats ?? [])[0]?.[0];
+  if (!input?.url) throw new HttpError(422, "no_stream", "Bamio couldn’t find the stream’s broadcast (VOD).");
+  const text = await playlistText(input, opts.signal);
+  const seg = segmentAt(text, range.start);
+  const finished = text.includes("#EXT-X-ENDLIST");
+  const length = range.end - (finished ? range.start : seg.start);
+  const out = path.join(dir, "vod.ts");
+  await mkdir(dir, { recursive: true });
+  const start = finished ? ["-ss", range.start.toFixed(2)] : ["-live_start_index", String(seg.index)];
+  const args = [
+    ...["-hide_banner", "-y", ...headerArgs(input), ...start, "-rw_timeout", "20000000", "-t", length.toFixed(2), "-i", input.url],
+    ...["-map", "0:v:0", "-map", "0:a:0?", "-c", "copy", "-f", "mpegts", "-progress", "pipe:1", "-nostats", out],
+  ];
+  try {
+    await run("ffmpeg", args, {
+      signal: opts.signal,
+      timeoutMs: (length + 600) * 1000,
+      onStdoutLine: (line) => {
+        const t = parseFfmpegProgress(line);
+        if (t !== null) opts.onProgress(Math.min(0.99, t / Math.max(1, length)), `Downloading the captured ${span}`);
+      },
+    });
+  } catch (err) {
+    if (isAbortError(err)) throw err;
+    console.error("[bamio/live] VOD download failed:", err instanceof ProcessError ? err.stderrTail.slice(-1500) : err);
+    throw new HttpError(422, "record_failed", "Bamio couldn’t download that part of the stream. Try again.");
+  }
+  const size = await stat(out).then((s) => s.size).catch(() => 0);
+  if (size < 64 * 1024) throw new HttpError(422, "record_failed", "Nothing was captured. The stream may have ended.");
+  return out;
+}
+
+/* ------------------------------ Following ------------------------------ */
+
+export type FollowEnd = "stopped" | "ended" | "limit" | "error";
+
+/** The live dir's files: the growing playlist, its init segment, and 6 s media segments. */
+export const LIVE_PLAYLIST = "source.m3u8";
+export const LIVE_FILE = /^(source\.m3u8|init\.mp4|seg-\d{6}\.m4s)$/;
+
+/**
+ * Follow a live stream into `dir` as HLS (fMP4 segments and a growing EVENT playlist that
+ * the editor plays while it grows): from `backSec` before now (a Twitch VOD: from its
+ * start), until the stream ends, `stopSignal` fires (the playlist is closed cleanly), or
+ * 12 hours are captured. Resolves with why it ended.
+ */
+export async function followLive(source: Source, dir: string, opts: { backSec: number; signal: AbortSignal; stopSignal: AbortSignal }): Promise<FollowEnd> {
+  const live = source.live;
+  if (!live || !source.url) throw new HttpError(400, "not_live", "This project wasn’t captured from a live stream.");
+  let inputs: Format[];
+  let startIndex: number;
+  if (live.vodUrl) {
+    // Twitch: the in-progress VOD is a growing playlist of the whole stream.
+    const vod = await ytdlpJson(live.vodUrl, ["--live-from-start"], opts.signal);
+    const choice = inputChoices(vod.formats ?? [])[0];
+    if (!choice) throw new HttpError(422, "no_stream", "Bamio couldn’t find a recordable stream at that link.");
+    inputs = choice;
+    const { windowSec, segmentSec } = await playlistWindow(choice[0]!, opts.signal).catch(() => ({ windowSec: 0, segmentSec: 10 }));
+    startIndex = opts.backSec >= windowSec - segmentSec ? 0 : -Math.ceil(opts.backSec / segmentSec);
+  } else {
+    const info = await ytdlpJson(source.url, [], opts.signal);
+    if (info.is_live === false) throw new HttpError(422, "not_live", "The stream has ended. Import its replay (VOD) instead.");
+    const recording = chooseRecording(await measureChoices(info.formats ?? [], UNKNOWN_WINDOW, opts.signal), opts.backSec);
+    if (!recording) throw new HttpError(422, "no_stream", "Bamio couldn’t find a recordable stream at that link.");
+    inputs = recording.inputs;
+    ({ startIndex } = playlistStart(opts.backSec, recording.windowSec, recording.segmentSec));
+  }
+  if (inputs.length === 2 && (await hasAudio(inputs[0]!, opts.signal))) inputs = [inputs[0]!];
+  const single = inputs.length === 1;
+  const limit = LIMITS.maxFollowSec;
+  const args = [
+    "-hide_banner",
+    "-y",
+    ...inputs.flatMap((f) => inputArgs(f, startIndex, limit)),
+    ...(single
+      ? ["-map", "0:v:0", "-map", "0:a:0?", "-c", "copy", "-bsf:a", "aac_adtstoasc"]
+      : ["-copyts", "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-af", "aresample=async=1", "-c:a", "aac", "-b:a", "160k"]),
+    ...["-f", "hls", "-hls_time", "6", "-hls_list_size", "0", "-hls_playlist_type", "event", "-hls_segment_type", "fmp4"],
+    ...["-hls_fmp4_init_filename", "init.mp4", "-hls_segment_filename", "seg-%06d.m4s", "-hls_flags", "temp_file", LIVE_PLAYLIST],
+  ];
+  await mkdir(dir, { recursive: true });
+  try {
+    // Relative names, run inside `dir`: the playlist then refers to its segments by name.
+    await run("ffmpeg", args, { cwd: dir, signal: opts.signal, stopSignal: opts.stopSignal, timeoutMs: (limit + 3600) * 1000 });
+  } catch (err) {
+    if (isAbortError(err)) throw err;
+    console.error("[bamio/live] following stopped:", err instanceof ProcessError ? err.stderrTail.slice(-1500) : err);
+    // A stream that went offline often ends this way too; the caller keeps what was captured.
+    return "error";
+  }
+  if (opts.stopSignal.aborted) return "stopped";
+  const captured = await readFile(path.join(dir, LIVE_PLAYLIST), "utf8").then((t) => parsePlaylistWindow(t).windowSec, () => 0);
+  return captured >= limit - 30 ? "limit" : "ended";
+}
+
+/**
+ * A copy of the live playlist as it is now, closed with ENDLIST, for ffmpeg to read like
+ * a finished video (seeking works; it doesn't wait for more). Remove it with `done`.
+ */
+export async function livePlaylistSnapshot(dir: string): Promise<{ file: string; durationSec: number; done: () => Promise<void> }> {
+  const text = await readFile(path.join(dir, LIVE_PLAYLIST), "utf8").catch(() => "");
+  if (!text.includes("#EXTINF")) throw new HttpError(409, "no_video_yet", "No video has been captured yet.");
+  // Forward slashes: ffprobe 4 finds the playlist's segments next to it only with those.
+  const file = path.join(dir, `snap-${randomUUID()}.m3u8`).split(path.sep).join("/");
+  await writeFile(file, text.includes("#EXT-X-ENDLIST") ? text : `${text.trimEnd()}\n#EXT-X-ENDLIST\n`, "utf8");
+  return { file, durationSec: parsePlaylistWindow(text).windowSec, done: () => rm(file, { force: true }) };
+}
+
+/** Seconds of video in the live playlist so far. */
+export const liveCapturedSec = (dir: string) =>
+  readFile(path.join(dir, LIVE_PLAYLIST), "utf8").then((t) => parsePlaylistWindow(t).windowSec, () => 0);
+
 type CachedLive = { at: number; result: Promise<InspectResult> };
 const liveCache: Map<string, CachedLive> = ((globalThis as { __bamioLiveInspect?: Map<string, CachedLive> }).__bamioLiveInspect ??= new Map());
 
@@ -291,10 +428,13 @@ export async function inspectLink(input: string): Promise<InspectResult> {
   const key = info.url;
   const hit = liveCache.get(key);
   if (hit && Date.now() - hit.at < 60_000) return hit.result;
-  const result = liveInfo(info.url, info.platform).then((live) => ({
-    ...info,
-    live: { ...info.live!, canRewind: live.canRewind, rewindSec: Math.round(live.rewindSec) },
-  }));
+  const result = liveInfo(info.url, info.platform).then((live) => {
+    const follow = followStart(live, info.live!.startedAt);
+    return {
+      ...info,
+      live: { ...info.live!, canRewind: live.canRewind, rewindSec: Math.round(live.rewindSec), followBackSec: follow.backSec, followFromStart: follow.fromStart },
+    };
+  });
   liveCache.set(key, { at: Date.now(), result });
   result.catch(() => liveCache.delete(key));
   return result;

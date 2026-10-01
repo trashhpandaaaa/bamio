@@ -12,7 +12,8 @@
     "test:e2e": "playwright test",
     "check": "npm run typecheck && npm run lint && npm run test",
     "ai:check": "node scripts/check-ai.mjs",
-    "setup:media": "node scripts/setup-media.mjs"
+    "setup:media": "node scripts/setup-media.mjs",
+    "stripe:setup": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/setup-stripe.mjs"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.9.7",
@@ -20,11 +21,13 @@
     "@phosphor-icons/react": "^2.1.10",
     "ffmpeg-static": "^5.3.0",
     "ffprobe-static": "^3.1.0",
+    "hls.js": "^1.7.3",
     "next": "16.3.6",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "server-only": "^0.0.1",
     "sherpa-onnx-node": "1.13.8",
+    "stripe": "^23.0.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {

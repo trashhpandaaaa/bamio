@@ -148,11 +148,13 @@ export async function findHighlights(opts: {
   title: string;
   /** The transcript's language code, when known. */
   language?: string;
+  /** How much video the transcript covers, if not all of it (a followed stream's newest part): sets how many clips to ask for. */
+  spanSec?: number;
   avoid?: { start: number; end: number }[];
   signal?: AbortSignal;
 }): Promise<RawClip[]> {
   const range = CLIP_LENGTH_RANGE[opts.clipLength];
-  const target = clipTarget(opts.durationSec, opts.clipLength);
+  const target = clipTarget(opts.spanSec ?? opts.durationSec, opts.clipLength);
   const limits = { durationSec: opts.durationSec, segments: opts.segments, minSec: Math.max(LIMITS.minClipSec, range.min * 0.6), maxSec: Math.min(LIMITS.maxClipSec, range.max * 1.3), max: target };
   if (isMock()) return normalizeClips(mockHighlights(opts.segments, opts.durationSec, opts.clipLength, target, opts.avoid ?? []), limits);
 

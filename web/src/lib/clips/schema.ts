@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { usesMultilingualModel } from "./languages";
 
 /* Shared by the browser and the server. Times are seconds within the imported media. */
 
@@ -24,6 +25,9 @@ export const LIMITS = {
   maxUploadBytes: 4 * 1024 ** 3,
   /** Longest live recording from "now" onwards. */
   maxLiveRecordSec: 60 * 60,
+  /** Following a stream: how far back it may start, and the most it captures in all. */
+  maxFollowBackSec: 6 * 60 * 60,
+  maxFollowSec: 12 * 60 * 60,
 } as const;
 
 /** Target clip length the AI aims for. */
@@ -121,6 +125,22 @@ export const sourceSchema = z.object({
       vodDurationSec: z.number().min(0).optional(),
       /** The part of the VOD that was captured, once known (lets a failed download be retried). */
       vodRange: z.object({ start: z.number(), end: z.number() }).optional(),
+      /**
+       * Set when the stream is followed: captured from as far back as possible and kept
+       * growing (as HLS) until it ends or the user stops, then made into one MP4.
+       */
+      follow: z
+        .object({
+          /** following: capturing; finishing: last captions and the MP4; ended: a normal video now. */
+          status: z.enum(["following", "finishing", "ended"]),
+          /** How far before `requestedAt` the capture starts, and whether that is the stream's start. */
+          backSec: z.number().min(0),
+          fromStart: z.boolean(),
+          endedAt: z.number().optional(),
+          /** stopped (by the user), ended (the stream did), limit (12 hours), error, restart (the server restarted). */
+          endReason: z.enum(["stopped", "ended", "limit", "error", "restart"]).optional(),
+        })
+        .optional(),
     })
     .optional(),
 });
@@ -130,6 +150,8 @@ export const jobSchema = z.object({
   progress: z.number().min(0).max(1),
   message: z.string().max(300),
   error: z.string().max(500).optional(),
+  /** Why it failed, when a plan fixes it ("plan_required", "minutes_used", "minutes_short"): the page links to Pricing. */
+  errorCode: z.string().max(40).optional(),
   /** Set when the import finished but a later step (captions, AI clips) was skipped. */
   warning: z.string().max(500).optional(),
   /** The steps this run goes through, in order (for the progress stepper). */
@@ -160,6 +182,11 @@ export const projectSchema = z.object({
   captionTiming: z.enum(["estimated", "synced"]).optional(),
   /** What made the transcript. Missing on transcripts made before on-device transcription. */
   transcriptEngine: z.enum(["device", "gemini"]).optional(),
+  /** The version of the on-device transcriber that made it (TRANSCRIBER_VERSION; missing means 1). */
+  transcriber: z.number().int().min(1).optional(),
+  /** Followed streams: the transcript covers the video up to here (seconds), and AI clips were looked for up to here. */
+  transcribedSec: z.number().min(0).optional(),
+  clipsFoundSec: z.number().min(0).optional(),
   /** Bytes expected and received while a file upload is in progress. */
   upload: z.object({ fileName: z.string().max(260), size: z.number().int().min(1), received: z.number().int().min(0) }).optional(),
   clips: z.array(clipSchema).max(LIMITS.maxClips),
@@ -196,13 +223,30 @@ export function isJobActive(status: JobStatus): boolean {
   return status !== "ready" && status !== "failed";
 }
 
+/** A followed stream that is still growing (or being finished): its video is HLS, not source.mp4. */
+export const isFollowing = (p: Pick<Project, "source">) => {
+  const status = p.source.live?.follow?.status;
+  return status === "following" || status === "finishing";
+};
+
 /**
- * True for projects whose transcript wasn't made on the device (older projects, and
- * languages other than English before every language was): their caption timing can be
- * off, and "Transcribe again" fixes it.
+ * The on-device transcriber's version, saved with each transcript it makes.
+ * 2 (2026-09-30): the multilingual model's transcripts tell English from the video's language
+ * (English as English, with punctuation; the language in its own script).
  */
-export function needsRetranscribe(p: Pick<Project, "hasTranscript" | "transcriptEngine" | "source">): boolean {
-  return p.hasTranscript && p.source.hasAudio && p.transcriptEngine !== "device";
+export const TRANSCRIBER_VERSION = 2;
+
+/**
+ * Why "Transcribe again" would give a better transcript, if it would: "timing" when it wasn't
+ * made on the device (older projects, and languages other than English before every language
+ * was: caption timing can be off), "languages" when the multilingual model made it before
+ * version 2 (English and the video's language were mixed up).
+ */
+export function retranscribeReason(p: Pick<Project, "hasTranscript" | "transcriptEngine" | "transcriber" | "spokenLanguage" | "source">): "timing" | "languages" | null {
+  if (!p.hasTranscript || !p.source.hasAudio || isFollowing(p)) return null;
+  if (p.transcriptEngine !== "device") return "timing";
+  if ((p.transcriber ?? 1) < 2 && usesMultilingualModel(p.spokenLanguage)) return "languages";
+  return null;
 }
 
 /* ------------------------------ Requests ------------------------------ */
@@ -212,8 +256,13 @@ export const inspectRequestSchema = z.object({ url: z.string().trim().min(1).max
 export const createFromUrlSchema = z.object({
   url: z.string().trim().min(1).max(2000),
   range: rangeSchema.optional(),
-  /** For a live stream: how far back to start and how long to keep recording, in seconds. */
-  live: z.object({ rewindSec: z.number().min(0).max(LIMITS.maxMediaSec), recordSec: z.number().min(0).max(LIMITS.maxLiveRecordSec) }).optional(),
+  /**
+   * For a live stream: follow it (from as far back as possible, until it ends), or capture
+   * a part: how far back to start and how long to keep recording, in seconds.
+   */
+  live: z
+    .object({ follow: z.boolean().optional(), rewindSec: z.number().min(0).max(LIMITS.maxMediaSec), recordSec: z.number().min(0).max(LIMITS.maxLiveRecordSec) })
+    .optional(),
   findClips: z.boolean(),
   clipLength: clipLengthSchema,
   language: languageSchema.optional(),
@@ -272,11 +321,20 @@ export type InspectResult = {
    * a Twitch stream with past broadcasts on can go back to its start; other streams only
    * hold the last few seconds (included automatically).
    */
-  live?: { rewindSec: number; canRewind: boolean; startedAt?: number };
+  live?: {
+    rewindSec: number;
+    canRewind: boolean;
+    startedAt?: number;
+    /** Following: how far back the capture would start, and whether that is the stream's start. */
+    followBackSec: number;
+    followFromStart: boolean;
+  };
 };
 
 export type SystemStatus = {
   ytdlp: string | null;
   ffmpeg: string | null;
   ai: { configured: boolean; mock: boolean };
+  /** Plans and payments (Stripe) are on: importing needs a plan. */
+  billing: boolean;
 };

@@ -66,11 +66,20 @@ for (const c of CASES) {
     await page.getByRole("switch", { name: "Show a title" }).check();
     await page.getByLabel("Title text").fill(title);
     await expect(page.getByRole("status").filter({ hasText: /Saved|Saving/ })).toHaveText(/Saved/, { timeout: 10_000 });
-    await page.getByRole("button", { name: "Play", exact: true }).click();
-    await expect(page.getByTestId("caption")).toBeVisible({ timeout: 20_000 });
+    const caption = page.getByTestId("caption");
+    const play = page.getByRole("button", { name: "Play", exact: true });
+    const pause = page.getByRole("button", { name: "Pause", exact: true });
+    await play.click();
+    await expect(caption).toBeVisible({ timeout: 20_000 });
     await page.waitForTimeout(2500);
-    await page.getByRole("button", { name: "Pause", exact: true }).click();
-    const sample = (await page.getByTestId("caption").textContent()) ?? "";
+    await pause.click();
+    // Between phrases there's no caption: play on until one shows, and pause on it.
+    for (let tries = 0; tries < 5 && !(await caption.isVisible()); tries++) {
+      await play.click();
+      await expect(caption).toBeVisible({ timeout: 20_000 });
+      await pause.click();
+    }
+    const sample = (await caption.textContent({ timeout: 5_000 })) ?? "";
     expect(sample).toMatch(c.script);
     const loaded = await page.evaluate(async (text) => {
       await document.fonts.load(`800 40px "Bamio Caption"`, text);

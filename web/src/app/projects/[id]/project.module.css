@@ -55,6 +55,15 @@
 .time { font: var(--t-mono); font-size: 15px; }
 .mark :global(.kbd) { height: 18px; font-size: 10.5px; }
 
+/* ---------- Following a live stream ---------- */
+.follow {
+  grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  padding: 14px 16px; border-radius: var(--r-lg); background: var(--surface); border: 1px solid var(--line);
+}
+.followText { display: grid; gap: 4px; min-width: 0; }
+.followText p { margin: 0; }
+.followTitle { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font: var(--t-label); }
+
 /* ---------- Clips ---------- */
 .clipsPanel { display: grid; gap: 16px; min-width: 0; }
 .clipsHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }

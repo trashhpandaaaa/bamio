@@ -1,24 +1,30 @@
-.top { position: sticky; top: 0; z-index: var(--z-sticky); background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-bottom: 1px solid var(--line); }
-.topInner { display: flex; align-items: center; gap: 24px; height: var(--topbar); }
-.topNav { display: flex; gap: 4px; margin-left: auto; }
-.topNav a { font: var(--t-label-sm); color: var(--text-secondary); text-decoration: none; padding: 8px 12px; border-radius: var(--r-pill); transition: color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out); }
-.topNav a:hover { color: var(--text); background: var(--surface-sunken); }
-.topAuth { display: flex; align-items: center; gap: 8px; }
+/* The top bar, footer and FAQ list are shared with the pricing page (components/site/). */
 
-.hero {
-  display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.75fr); gap: 48px; align-items: center;
-  padding-top: 56px; padding-bottom: 72px; min-height: calc(100dvh - var(--topbar));
+/* ---------- Hero: the headline, then the link field itself, then the demo ---------- */
+.hero { padding-top: 72px; }
+.heroCopy { display: grid; justify-items: center; gap: 22px; text-align: center; }
+.heroCopy h1 { max-width: 13ch; text-wrap: balance; animation: rise var(--dur-scene) var(--ease-out) both; }
+.lede { margin: 0; max-width: 46ch; font: var(--t-body-lg); color: var(--text-secondary); animation: rise var(--dur-scene) var(--ease-out) 80ms both; }
+.heroAction {
+  display: grid; grid-template-columns: minmax(0, 620px) auto auto; align-items: start; gap: 14px; width: 100%; justify-content: center; margin-top: 10px;
+  animation: rise var(--dur-scene) var(--ease-out) 160ms both;
 }
-.heroCopy { display: grid; gap: 24px; align-content: center; }
-.heroCopy h1 { max-width: 12ch; }
-.lede { margin: 0; max-width: 46ch; font: var(--t-body-lg); color: var(--text-secondary); }
-.ctas { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; }
-.sources { display: flex; flex-wrap: wrap; gap: 8px 20px; margin: 8px 0 0; padding: 0; list-style: none; font: var(--t-label-sm); color: var(--text-secondary); }
-.sources li { display: inline-flex; align-items: center; gap: 6px; }
+.or { align-self: start; font: var(--t-label); line-height: 64px; color: var(--text-tertiary); }
+.upload { --btn-h: 64px; }
+.demo { margin-top: 56px; animation: rise var(--dur-scene) var(--ease-out) 260ms both; }
+@keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
 
-.section { padding-top: 96px; }
+/* ---------- Sections ---------- */
+.section { padding-top: 120px; }
 .section > h2 { max-width: 16ch; margin-bottom: 36px; }
+.head { display: grid; gap: 16px; margin-bottom: 36px; }
+.head h2 { max-width: 16ch; }
+/* "AI that finds the moment," then "not just a clip." (balanced wrapping would split after "the"). */
+.headWide h2 { max-width: 25ch; }
+@media (min-width: 768px) { .headWide h2 { max-width: 19ch; text-wrap: wrap; } }
+.sub { margin: 0; max-width: 52ch; font: var(--t-body-lg); color: var(--text-secondary); }
 
+/* How it works: a bento of the four steps. */
 .bento { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 12px; }
 .cell {
   display: flex; flex-direction: column; gap: 10px; min-height: 260px; padding: 28px;
@@ -28,15 +34,15 @@
 .cellLink { grid-column: span 7; }
 .cellFind { grid-column: span 5; background: var(--volt); color: var(--on-volt); border-color: var(--volt-edge); }
 .cellFind p { color: color-mix(in srgb, var(--ink) 78%, var(--volt)); }
-.cellTrim { grid-column: span 5; background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.cellTrim { grid-column: span 5; background: var(--ink); color: var(--paper); border-color: color-mix(in srgb, var(--paper) 12%, var(--ink)); }
 .cellTrim p { color: color-mix(in srgb, var(--paper) 66%, var(--ink)); }
 .cellExport { grid-column: span 7; }
 
-.fakeInput {
-  margin-top: auto; display: flex; align-items: center; gap: 10px; height: 54px; padding: 0 8px 0 18px;
-  border-radius: var(--r-pill); border: 1.5px solid var(--line-control); background: var(--bg); font: var(--t-body);
-}
-.fakeInput > span:first-of-type { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); }
+.sources { display: flex; flex-wrap: wrap; gap: 8px; margin-top: auto; }
+.sources :global(.chip) { cursor: default; }
+.sources :global(.chip):hover { border-color: var(--line-control); }
+.part { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font: var(--t-body-sm); color: var(--text-secondary); }
+.part b { padding: 6px 12px; border-radius: var(--r-pill); border: 1.5px solid var(--line-control); background: var(--bg); color: var(--text); font: var(--t-mono); font-variant-numeric: tabular-nums; }
 
 .picks { margin: auto 0 0; padding: 0; list-style: none; display: grid; gap: 8px; }
 .picks li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; border-radius: var(--r-md); background: color-mix(in srgb, var(--ink) 7%, transparent); font: var(--t-label-sm); }
@@ -51,43 +57,55 @@
 
 .exportRow { display: flex; gap: 8px; flex-wrap: wrap; margin-top: auto; }
 
-.styles { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
-.styles > li { display: grid; gap: 10px; align-content: start; }
-.styles > li > p { margin: 0; color: var(--text-secondary); font: var(--t-body-sm); max-width: 36ch; }
-.sample {
-  position: relative; aspect-ratio: 4 / 5; overflow: hidden; border-radius: var(--r-lg); container-type: inline-size;
-  background: linear-gradient(160deg, color-mix(in srgb, var(--paper) 12%, var(--ink)) 0%, var(--ink) 100%);
-}
-.sample p { position: absolute; left: 8%; right: 8%; bottom: 16%; margin: 0; text-align: center; color: var(--paper); font-family: var(--font-sans); font-weight: 800; }
-.samplePop p { font-size: 9.5cqw; line-height: 1.2; -webkit-text-stroke: 1.6cqw var(--ink); paint-order: stroke fill; }
-.samplePop span { display: inline-block; color: var(--volt); transform: scale(1.1); }
-.sampleClean p { font-size: 5.4cqw; line-height: 1.3; text-shadow: .3cqw .3cqw 0 color-mix(in srgb, var(--ink) 60%, transparent); -webkit-text-stroke: .6cqw var(--ink); paint-order: stroke fill; }
-.sampleBoxed p { font-size: 5.6cqw; line-height: 1.6; }
-.sampleBoxed span { background: var(--ink); padding: .6cqw 2cqw; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+/* Every language, even live: two media cards, words under each. */
+.features { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.feature { display: grid; gap: 10px; align-content: start; }
+.feature > :first-child { margin-bottom: 10px; }
+.feature p { margin: 0; max-width: 48ch; font: var(--t-body); color: var(--text-secondary); }
 
+/* FAQ: the question list beside the heading. */
+.faq { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 32px 48px; align-items: start; }
+.faq > h2 { margin-bottom: 0; }
+
+/* Closing panel: volt, with the link field. Volt in both themes, so ink text throughout. */
 .cta {
-  display: flex; align-items: flex-end; justify-content: space-between; gap: 32px; flex-wrap: wrap;
-  padding: 56px; border-radius: var(--r-xl); background: var(--volt); color: var(--on-volt);
+  display: grid; grid-template-columns: minmax(0, 1fr); justify-items: center; gap: 28px; padding: 72px 40px; text-align: center;
+  border-radius: var(--r-xl); background: var(--volt); color: var(--on-volt);
   box-shadow: inset 0 0 0 1.5px var(--volt-edge);
 }
-.cta h2 { max-width: 14ch; }
-.cta :global(.btn-primary) { background: var(--ink); color: var(--paper); }
+.cta h2 { max-width: 14ch; text-wrap: balance; }
+.cta > form { max-width: 620px; }
 
-.footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding-top: 72px; padding-bottom: 48px; }
-.footer p { margin: 0; font: var(--t-caption); color: var(--text-tertiary); max-width: 60ch; }
-
+/* ---------- Smaller screens ---------- */
 @media (max-width: 1023px) {
-  .hero { grid-template-columns: 1fr; min-height: 0; gap: 40px; }
-  .heroCopy h1 { max-width: 14ch; }
   .cellLink, .cellFind, .cellTrim, .cellExport { grid-column: span 12; }
-  .styles { grid-template-columns: 1fr 1fr; }
+  .faq { grid-template-columns: minmax(0, 1fr); }
+  .features { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 767px) {
-  .topNav { display: none; }
-  .topAuth { margin-left: auto; }
-  .hero { padding-top: 32px; padding-bottom: 32px; }
-  .section { padding-top: 72px; }
+  .hero { padding-top: 40px; }
+  .heroCopy { gap: 18px; }
+  .heroAction { grid-template-columns: minmax(0, 1fr); justify-items: center; gap: 10px; }
+  .or { line-height: 1; }
+  .upload { --btn-h: 48px; }
+  .demo { margin-top: 36px; }
+  .section { padding-top: 80px; }
   .cell { padding: 22px; min-height: 0; }
-  .cta { padding: 28px; }
-  .styles { grid-template-columns: 1fr; }
+  .cta { padding: 40px 20px; }
+}
+/* Short screens (phones on their side): a tighter hero, so the link field is in the first screen. */
+@media (max-height: 520px) and (orientation: landscape) {
+  .hero { padding-top: 20px; }
+  .heroCopy { gap: 14px; }
+  .heroCopy h1 { font-size: 44px; }
+  .lede { font: var(--t-body); }
+  .heroAction { margin-top: 0; }
+}
+/* Small phones: the closing headline in fewer lines, the panel a little tighter. */
+@media (max-width: 420px) {
+  .cta { padding: 36px 16px; }
+  .cta h2 { font-size: clamp(28px, 9vw, 36px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .heroCopy h1, .lede, .heroAction, .demo { animation: none; }
 }

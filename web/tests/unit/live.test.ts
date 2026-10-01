@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { formatSpan, liveCaptureProblem, vodRange } from "@/lib/clips/live";
-import { inputChoices, parsePlaylistWindow } from "@/lib/server/hls";
-import { chooseRecording, playlistStart, usableRewind } from "@/lib/server/live";
+import { commitPiece, formatSpan, liveCaptureProblem, vodRange } from "@/lib/clips/live";
+import { inputChoices, parsePlaylistWindow, segmentAt } from "@/lib/server/hls";
+import { chooseRecording, followStart, playlistStart, usableRewind } from "@/lib/server/live";
 
 describe("live capture rules", () => {
   const twitch = { canRewind: true, rewindSec: 8729 };
@@ -53,6 +53,13 @@ describe("live playlists", () => {
     expect(parsePlaylistWindow("#EXTM3U\n#EXTINF:2.002,\na.ts\n#EXTINF:2.002,\nb.ts").segmentSec).toBeCloseTo(2.002);
   });
 
+  it("finds the segment that holds a moment", () => {
+    const text = ["#EXTM3U", "#EXT-X-TARGETDURATION:10", ...Array.from({ length: 5 }, (_, i) => `#EXTINF:10.000,\n${i}.ts`)].join("\n");
+    expect(segmentAt(text, 0)).toEqual({ index: 0, start: 0 });
+    expect(segmentAt(text, 25)).toEqual({ index: 2, start: 20 });
+    expect(segmentAt(text, 999)).toEqual({ index: 4, start: 40 }); // past the end: the last one
+  });
+
   it("starts the right number of segments back", () => {
     expect(playlistStart(60, 3600, 5)).toEqual({ startIndex: -13, backlog: 65 }); // one spare segment
     expect(playlistStart(0, 3600, 5)).toEqual({ startIndex: -3, backlog: 15 }); // DVR stream, from now
@@ -81,5 +88,42 @@ describe("live playlists", () => {
     expect(chooseRecording([combined, separate], 3000)?.name).toBe("separate"); // as far as any can go
     expect(chooseRecording([separate], 60)?.name).toBe("separate");
     expect(chooseRecording([], 60)).toBeUndefined();
+  });
+});
+
+describe("following a stream", () => {
+  const hour = 3600;
+
+  it("starts at the stream's start when it can, else as far back as allowed", () => {
+    // Twitch: the in-progress VOD is the whole stream.
+    expect(followStart({ availableSec: 2 * hour, vod: { url: "v", durationSec: 2 * hour } }, undefined)).toEqual({ backSec: 2 * hour, fromStart: true });
+    expect(followStart({ availableSec: 27 * hour, vod: { url: "v", durationSec: 27 * hour } }, undefined)).toEqual({ backSec: 6 * hour, fromStart: false });
+    // YouTube: its rewind history; the start is reached when the stream is younger than it.
+    const now = 1_000_000_000_000;
+    expect(followStart({ availableSec: 3600 }, now - 1800_000, now)).toEqual({ backSec: 3600, fromStart: true });
+    expect(followStart({ availableSec: 900 }, now - 5 * hour * 1000, now)).toEqual({ backSec: 900, fromStart: false });
+    // Kick: a few seconds, and the start unknown.
+    expect(followStart({ availableSec: 30 }, undefined)).toEqual({ backSec: 30, fromStart: false });
+  });
+
+  const p = (start: number, end: number) => ({ start, end });
+
+  it("keeps the phrases of a piece up to a pause clear of its end", () => {
+    // Piece 100..160 s: the phrase ending near the edge may be cut, so keep up to the pause before it.
+    expect(commitPiece([p(100, 110), p(111, 120), p(140, 158)], 100, 160, false)).toEqual({ keep: [p(100, 110), p(111, 120)], until: 130 });
+    // Silence after the last phrase: all of it is done.
+    expect(commitPiece([p(100, 110)], 100, 160, false)).toEqual({ keep: [p(100, 110)], until: 157 });
+    // No speech at all.
+    expect(commitPiece([], 100, 160, false)).toEqual({ keep: [], until: 157 });
+    // The last piece keeps everything.
+    expect(commitPiece([p(100, 110), p(150, 160)], 100, 160, true)).toEqual({ keep: [p(100, 110), p(150, 160)], until: 160 });
+  });
+
+  it("always moves forward, even through speech without pauses", () => {
+    const run = [p(0, 5), p(5.1, 10), p(10.1, 15)];
+    const { keep, until } = commitPiece(run, 0, 16, false);
+    expect(keep).toEqual([p(0, 5), p(5.1, 10)]);
+    expect(until).toBe(10);
+    expect(commitPiece([p(0, 15.5)], 0, 16, false).until).toBeGreaterThan(0);
   });
 });

@@ -1,0 +1,58 @@
+/* Sizes itself by its own width (container queries), wherever it sits. */
+.form { display: grid; gap: 8px; width: 100%; container-type: inline-size; }
+
+/* One pill: link icon, the field, and the button inside it. The pill shows the focus outline. */
+.field {
+  --h: 64px;
+  display: flex; align-items: center; gap: 10px; height: var(--h); padding: 0 6px 0 22px;
+  border-radius: var(--r-pill); border: 1.5px solid var(--line-control); background: var(--surface);
+  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+.field:hover { border-color: var(--text-secondary); }
+.field:focus-within { border-color: var(--text); outline: 2px solid var(--focus); outline-offset: 2px; }
+.field[data-invalid] { border-color: var(--error); }
+.icon { flex: none; color: var(--text-tertiary); }
+.input {
+  flex: 1 1 0; width: 0; min-width: 0; height: 100%; padding: 0; border: 0; background: transparent; outline: none;
+  font: var(--t-body-lg); color: var(--text);
+}
+.input::placeholder { color: var(--text-tertiary); opacity: 1; }
+.submit { --btn-h: calc(var(--h) - 14px); --btn-px: 24px; flex: none; font-size: 16px; }
+.error { padding-left: 22px; }
+
+.form[data-variant="hero"] .field { box-shadow: var(--shadow-2); }
+
+/* The bar that follows the page: smaller, on a raised surface. */
+.form[data-variant="bar"] .field { --h: 56px; padding-left: 18px; }
+.form[data-variant="bar"] .input { font: var(--t-body); }
+.form[data-variant="bar"] .submit { --btn-px: 18px; font-size: 14px; }
+
+/* On volt (in both themes): a paper field with an ink edge and an ink button. Theme tokens
+   would turn light in night mode, so these mix the fixed ink and paper. */
+.form[data-variant="panel"] .field { border-color: var(--ink); background: var(--paper); }
+.form[data-variant="panel"] .input { color: var(--ink); }
+.form[data-variant="panel"] .input::placeholder,
+.form[data-variant="panel"] .icon { color: color-mix(in srgb, var(--ink) 72%, var(--paper)); }
+.form[data-variant="panel"] .field:focus-within { outline-color: var(--ink); }
+.form[data-variant="panel"] .submit { background: var(--ink); color: var(--paper); }
+.form[data-variant="panel"] .submit:hover { background: color-mix(in srgb, var(--ink) 86%, var(--paper)); }
+.form[data-variant="panel"] .error { color: var(--ink); }
+
+@media (max-width: 767px) {
+  .field { --h: 56px; padding-left: 16px; gap: 8px; }
+  .input { font: var(--t-body); }
+  .submit { --btn-px: 16px; font-size: 14px; }
+  .form[data-variant="bar"] .icon { display: none; }
+  .form[data-variant="bar"] .field { --h: 52px; padding-left: 16px; }
+}
+
+/* Tight spots (the closing panel on a small phone): drop the icon, then the arrow, so the placeholder still fits. */
+@container (max-width: 340px) {
+  .icon { display: none; }
+  .field { padding-left: 16px; }
+  .error { padding-left: 16px; }
+}
+@container (max-width: 300px) {
+  .submit { --btn-px: 14px; }
+  .submit svg { display: none; }
+}

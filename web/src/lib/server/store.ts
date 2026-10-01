@@ -1,6 +1,7 @@
 import "server-only";
 import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import type { z } from "zod";
 import { DEFAULT_EDIT, clipEditSchema, projectSchema, transcriptSchema, isJobActive, type ClipEdit, type ClipLength, type Job, type Language, type Project, type Source, type Transcript } from "@/lib/clips/schema";
 import { newId } from "@/lib/ids";
 import { HttpError } from "@/lib/server/http";
@@ -9,6 +10,7 @@ import { HttpError } from "@/lib/server/http";
  * Projects live on the server's disk, one folder per project:
  *   <data>/users/<userId>/projects/<projectId>/
  *     project.json  transcript.json  source.mp4  thumb.jpg  frames/  exports/  (work folders while busy)
+ * Beside them, small files about the account: <data>/users/<userId>/billing.json, usage.json.
  * <data> is BAMIO_DATA_DIR, or web/.data.
  */
 
@@ -24,10 +26,15 @@ export const dataRoot = () =>
   path.resolve(/*turbopackIgnore: true*/ process.env.BAMIO_DATA_DIR || path.join(/*turbopackIgnore: true*/ process.cwd(), ".data"));
 
 export const isProjectId = (id: string) => UUID.test(id);
+export const isUserId = (id: string) => USER_ID.test(id);
+
+function accountDir(userId: string) {
+  if (!USER_ID.test(userId)) throw new HttpError(400, "bad_request", "Unknown user.");
+  return path.join(dataRoot(), "users", userId);
+}
 
 function userDir(userId: string) {
-  if (!USER_ID.test(userId)) throw new HttpError(400, "bad_request", "Unknown user.");
-  return path.join(dataRoot(), "users", userId, "projects");
+  return path.join(accountDir(userId), "projects");
 }
 
 /** A project's folder. Ids are validated so a path can never leave the data folder. */
@@ -49,6 +56,8 @@ export const paths = (userId: string, projectId: string) => {
     project: path.join(dir, "project.json"),
     transcript: path.join(dir, "transcript.json"),
     source: path.join(dir, "source.mp4"),
+    /** A followed stream while it grows: HLS (source.m3u8, init.mp4, seg-NNNNNN.m4s). */
+    live: path.join(dir, "live"),
     thumb: path.join(dir, "thumb.jpg"),
     frames: path.join(dir, "frames"),
     exports: path.join(dir, "exports"),
@@ -63,16 +72,18 @@ export const paths = (userId: string, projectId: string) => {
 /* --------------------------- Running work --------------------------- */
 
 export type RunningTask = { controller: AbortController; done: Promise<unknown> };
-/** stops: live recordings that can be ended early, by project id. */
-type Registry = { imports: Map<string, RunningTask>; exports: Map<string, RunningTask>; stops: Map<string, AbortController> };
+/** stops: live recordings that can be ended early; follows: followed streams (hours long), by project id. */
+type Registry = { imports: Map<string, RunningTask>; exports: Map<string, RunningTask>; stops: Map<string, AbortController>; follows: Map<string, RunningTask> };
 
 /** Imports and exports running in this server process (kept across dev reloads). */
 export const running: Registry = ((globalThis as { __bamioRunning?: Registry }).__bamioRunning ??= {
   imports: new Map(),
   exports: new Map(),
   stops: new Map(),
+  follows: new Map(),
 });
 running.stops ??= new Map(); // registries created before live capture existed
+running.follows ??= new Map();
 
 export const exportKey = (projectId: string, clipId: string) => `${projectId}:${clipId}`;
 
@@ -90,7 +101,9 @@ function reconcile(project: Project, now = Date.now()): Project {
   let next = project;
   const status = project.job.status;
   const stalled =
-    status === "uploading" ? now - project.job.updatedAt > UPLOAD_IDLE_MS : isJobActive(status) && !running.imports.has(project.id);
+    status === "uploading"
+      ? now - project.job.updatedAt > UPLOAD_IDLE_MS
+      : isJobActive(status) && !running.imports.has(project.id) && !running.follows.has(project.id);
   if (stalled && isPrepared(project)) {
     // The video itself is fine; only captions or AI clips were cut off.
     next = { ...next, job: { status: "ready", progress: 1, message: "Ready", warning: "Processing stopped before it finished. Use Find clips to try again.", updatedAt: now } };
@@ -103,6 +116,15 @@ function reconcile(project: Project, now = Date.now()): Project {
         error: status === "uploading" ? "The upload stopped before it finished. Upload the file again." : "Processing stopped because the server restarted. Try again.",
         updatedAt: now,
       },
+    };
+  }
+  // A followed stream whose capture was cut off: what was captured gets finished (see resumeFollow in jobs.ts).
+  const follow = next.source.live?.follow;
+  if (follow && (follow.status === "following" || follow.status === "finishing") && !running.follows.has(project.id)) {
+    const live = next.source.live!;
+    next = {
+      ...next,
+      source: { ...next.source, live: { ...live, follow: { ...follow, status: "finishing", endReason: follow.endReason ?? "restart", endedAt: follow.endedAt ?? now } } },
     };
   }
   const clips = next.clips.map((clip) => {
@@ -196,10 +218,11 @@ export function blankProject(input: {
   };
 }
 
-export async function createProject(userId: string, project: Project) {
+/** `maxProjects`: how many projects the user may keep (their plan's, with billing on). */
+export async function createProject(userId: string, project: Project, maxProjects = MAX_PROJECTS_PER_USER) {
   const list = await listProjects(userId);
-  if (list.length >= MAX_PROJECTS_PER_USER) {
-    throw new HttpError(409, "too_many", `You have ${MAX_PROJECTS_PER_USER} projects. Delete one to import another.`);
+  if (list.length >= maxProjects) {
+    throw new HttpError(409, "too_many", `You have ${list.length} projects, the most you can keep. Delete one to import another.`);
   }
   const p = paths(userId, project.id);
   await mkdir(p.dir, { recursive: true });
@@ -208,26 +231,28 @@ export async function createProject(userId: string, project: Project) {
 
 const locks: Map<string, Promise<unknown>> = ((globalThis as { __bamioLocks?: Map<string, Promise<unknown>> }).__bamioLocks ??= new Map());
 
-/**
- * Read, change and write a project with no other change in between (per-project
- * queue). `change` may throw an HttpError to refuse the change.
- */
-export function mutateProject(userId: string, projectId: string, change: (project: Project) => Project | Promise<Project>): Promise<Project> {
-  const key = `${userId}/${projectId}`;
+/** Run `work` once every earlier call with the same key has finished (one at a time per key). */
+function serialized<T>(key: string, work: () => Promise<T>): Promise<T> {
   const previous = locks.get(key) ?? Promise.resolve();
-  const next = previous
-    .catch(() => undefined)
-    .then(async () => {
-      const current = await getProject(userId, projectId);
-      const updated = projectSchema.parse({ ...(await change(current)), updatedAt: Date.now() });
-      await writeAtomic(paths(userId, projectId).project, JSON.stringify(updated));
-      return updated;
-    });
+  const next = previous.catch(() => undefined).then(work);
   locks.set(key, next);
   void next.finally(() => {
     if (locks.get(key) === next) locks.delete(key);
   }).catch(() => undefined);
   return next;
+}
+
+/**
+ * Read, change and write a project with no other change in between (per-project
+ * queue). `change` may throw an HttpError to refuse the change.
+ */
+export function mutateProject(userId: string, projectId: string, change: (project: Project) => Project | Promise<Project>): Promise<Project> {
+  return serialized(`${userId}/${projectId}`, async () => {
+    const current = await getProject(userId, projectId);
+    const updated = projectSchema.parse({ ...(await change(current)), updatedAt: Date.now() });
+    await writeAtomic(paths(userId, projectId).project, JSON.stringify(updated));
+    return updated;
+  });
 }
 
 export async function listProjects(userId: string): Promise<Project[]> {
@@ -257,4 +282,33 @@ export async function readTranscript(userId: string, projectId: string): Promise
 
 export async function writeTranscript(userId: string, projectId: string, transcript: Transcript) {
   await writeAtomic(paths(userId, projectId).transcript, JSON.stringify(transcriptSchema.parse(transcript)));
+}
+
+/* ---------------------------- Account files ---------------------------- */
+
+/** billing.json: the Stripe customer and subscription. usage.json: AI processing used. */
+export type AccountFile = "billing" | "usage";
+
+const accountFile = (userId: string, name: AccountFile) => path.join(accountDir(userId), `${name}.json`);
+
+/** One of the user's account files, or null if it doesn't exist (or no longer fits the schema). */
+export async function readAccountFile<T>(userId: string, name: AccountFile, schema: z.ZodType<T>): Promise<T | null> {
+  const raw = await readJsonFile(accountFile(userId, name));
+  if (raw === null) return null;
+  const parsed = schema.safeParse(raw);
+  if (!parsed.success) {
+    console.error(`[bamio/store] ${name}.json of ${userId} failed validation`, parsed.error.issues.slice(0, 3));
+    return null;
+  }
+  return parsed.data;
+}
+
+/** Read, change and write an account file with no other change in between. `change` may throw to leave it as it was. */
+export function updateAccountFile<T>(userId: string, name: AccountFile, schema: z.ZodType<T>, change: (current: T | null) => T | Promise<T>): Promise<T> {
+  return serialized(`${userId}#${name}`, async () => {
+    const updated = schema.parse(await change(await readAccountFile(userId, name, schema)));
+    await mkdir(accountDir(userId), { recursive: true });
+    await writeAtomic(accountFile(userId, name), JSON.stringify(updated));
+    return updated;
+  });
 }

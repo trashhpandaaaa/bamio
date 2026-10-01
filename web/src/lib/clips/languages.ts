@@ -47,3 +47,11 @@ export function languageName(code: string | undefined): string {
 
 /** "auto" for automatic detection (older projects saved "other" for that). */
 export const isAutoLanguage = (code: string | undefined) => !code || code === AUTO_LANGUAGE || code === "other";
+
+/** What Parakeet transcribes: English and 24 European languages (keep in sync with EUROPEAN in workers/transcribe-core.mjs). */
+export const PARAKEET_LANGUAGES = new Set(
+  ["en", "bg", "hr", "cs", "da", "nl", "et", "fi", "fr", "de", "el", "hu", "it", "lv", "lt", "mt", "pl", "pt", "ro", "sk", "sl", "es", "sv", "ru", "uk"],
+);
+
+/** True when Meta's multilingual model transcribes the language (everything Parakeet doesn't). */
+export const usesMultilingualModel = (code: string | undefined) => !isAutoLanguage(code) && !PARAKEET_LANGUAGES.has(code!.toLowerCase().split("-")[0]!);

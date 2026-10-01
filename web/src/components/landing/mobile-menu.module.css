@@ -1,0 +1,27 @@
+.button { display: none; flex: none; }
+
+/* Drops down under the bar, full width, in the top layer. */
+.panel {
+  position: fixed; inset: calc(var(--topbar) + 8px) var(--gutter-mobile) auto; margin: 0; width: auto; max-height: calc(100dvh - var(--topbar) - 24px);
+  overflow: auto; padding: 8px; border: 1px solid var(--line); border-radius: var(--r-lg);
+  background: var(--surface-raised); color: var(--text); box-shadow: var(--shadow-3);
+  opacity: 0; transform: translateY(-8px);
+  transition: opacity var(--dur-base) var(--ease-out), transform var(--dur-base) var(--ease-out), overlay var(--dur-base) allow-discrete, display var(--dur-base) allow-discrete;
+}
+.panel:popover-open { opacity: 1; transform: none; }
+@starting-style { .panel:popover-open { opacity: 0; transform: translateY(-8px); } }
+.panel::backdrop { background: var(--overlay); opacity: 0; transition: opacity var(--dur-base) var(--ease-out), overlay var(--dur-base) allow-discrete, display var(--dur-base) allow-discrete; }
+.panel:popover-open::backdrop { opacity: 1; }
+@starting-style { .panel:popover-open::backdrop { opacity: 0; } }
+
+.panel nav { display: grid; }
+.panel a {
+  display: flex; align-items: center; min-height: 48px; padding: 0 14px; border-radius: var(--r-md);
+  font: var(--t-heading-sm); letter-spacing: -.01em; color: var(--text); text-decoration: none;
+}
+.panel a:hover, .panel a:focus-visible { background: var(--surface-sunken); }
+
+/* Below 900px the bar has no room for the section links (see site-chrome.module.css). */
+@media (max-width: 899px) {
+  .button { display: inline-flex; }
+}

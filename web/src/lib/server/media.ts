@@ -8,6 +8,7 @@ import { renderArgs, type RenderPlan } from "@/lib/clips/render";
 import { detectPlatform, isPrivateAddress, parseVideoUrl } from "@/lib/clips/url";
 import { LIMITS, type InspectResult } from "@/lib/clips/schema";
 import { binPath, isAbortError, ProcessError, run } from "@/lib/server/bin";
+import { downloadIndexedPart } from "@/lib/server/dash";
 import { HttpError } from "@/lib/server/http";
 
 /** rename(), retried briefly: Windows refuses while another request is still reading the target. */
@@ -129,6 +130,7 @@ export async function inspectUrl(input: string, signal?: AbortSignal): Promise<I
   const title = (info.title ?? info.fulltitle ?? "").trim() || "Untitled video";
   const thumb = info.thumbnail && /^https:\/\//.test(info.thumbnail) ? info.thumbnail : undefined;
   const page = info.webpage_url && /^https?:\/\//.test(info.webpage_url) ? info.webpage_url : url.href;
+  if (!isLive) rememberInfo(page, stdout);
   return {
     url: page,
     platform: detectPlatform(new URL(page)),
@@ -136,9 +138,32 @@ export async function inspectUrl(input: string, signal?: AbortSignal): Promise<I
     uploader: (info.channel ?? info.uploader)?.slice(0, 200),
     durationSec,
     thumbnail: thumb,
-    // Twitch rewind is filled in by lib/server/live.ts (inspectLink).
-    live: isLive ? { rewindSec: 30, canRewind: false, startedAt: startedAt ? startedAt * 1000 : undefined } : undefined,
+    // How far back a capture can go is filled in by lib/server/live.ts (inspectLink).
+    live: isLive ? { rewindSec: 30, canRewind: false, startedAt: startedAt ? startedAt * 1000 : undefined, followBackSec: 30, followFromStart: false } : undefined,
   };
+}
+
+/*
+ * yt-dlp's full answer about a video, kept briefly so the import that usually follows a
+ * lookup doesn't ask the site again (7 to 9 s each time on YouTube): the download reads it
+ * with --load-info-json. Its format URLs stay valid for hours; kept for 30 minutes, the 20
+ * most recent (each is up to a few MB).
+ */
+const infoCache: Map<string, { at: number; json: string }> = ((globalThis as { __bamioInfoJson?: Map<string, { at: number; json: string }> }).__bamioInfoJson ??= new Map());
+
+function rememberInfo(page: string, json: string) {
+  infoCache.delete(page);
+  infoCache.set(page, { at: Date.now(), json });
+  while (infoCache.size > 20) infoCache.delete(infoCache.keys().next().value!);
+}
+
+/** yt-dlp options to read the video from `url`, or from its remembered answer (written into `dir`). */
+async function ytdlpSource(url: string, dir: string): Promise<{ args: string[]; saved: boolean }> {
+  const hit = infoCache.get(url);
+  if (!hit || Date.now() - hit.at > 30 * 60 * 1000) return { args: ["--", url], saved: false };
+  const file = path.join(dir, "info.json");
+  await writeFile(file, hit.json, "utf8");
+  return { args: ["--load-info-json", file], saved: true };
 }
 
 type CachedInspect = { at: number; ttl: number; result: Promise<InspectResult> };
@@ -174,10 +199,6 @@ export async function downloadUrl(
   dir: string,
   opts: {
     range?: { start: number; end: number };
-    /** Cut exactly at the range (re-encodes around the cuts). Off: cut at the nearest segment, much faster. */
-    precise?: boolean;
-    /** Extra yt-dlp options (for example --live-from-start for a VOD that is still being recorded). */
-    extraArgs?: string[];
     signal?: AbortSignal;
     onProgress?: (p: number | null) => void;
   },
@@ -188,16 +209,29 @@ export async function downloadUrl(
   if (!ffmpeg) throw new HttpError(503, "no_ffmpeg", "ffmpeg is missing. Reinstall the app’s packages (npm install).");
   await mkdir(dir, { recursive: true });
 
-  const args = [
+  // A part: cut at the nearest keyframe (up to a few seconds early) rather than re-encode,
+  // and when it's quicker, fetch the whole file and cut it here (see partFromWholeFile).
+  const range = opts.range;
+  const source = await ytdlpSource(url, dir);
+  let whole = false;
+  if (range) {
+    const chosen = await chosenFormats(source.args, opts.signal);
+    // Fastest: only the part's fragments, when the files have an index (YouTube's H.264 and AAC do).
+    const indexed = chosen?.formats.every((f) => f.url && (f.protocol === "https" || f.protocol === "http") && /^(mp4|m4a)$/.test(f.ext ?? ""));
+    if (chosen && indexed) {
+      const files = chosen.formats.map((f) => ({ url: f.url!, headers: f.http_headers ?? {} }));
+      const part = await downloadIndexedPart(files, range, dir, { signal: opts.signal, onProgress: (p) => opts.onProgress?.(p) });
+      if (part) return part;
+    }
+    whole = chosen ? wholeFileIsQuicker(chosen, range) : false;
+  }
+  const args = (from: string[]) => [
     ...ytdlpArgs(),
     "--newline",
     "--no-mtime",
     "--ffmpeg-location",
     ffmpeg,
-    "-f",
-    "bv*+ba/b",
-    "-S",
-    "res:1080,vcodec:h264,acodec:aac",
+    ...FORMAT,
     "--merge-output-format",
     "mp4",
     "--progress-template",
@@ -206,28 +240,39 @@ export async function downloadUrl(
     dir,
     "-o",
     "download.%(ext)s",
+    ...(range && !whole ? ["--download-sections", `*${range.start.toFixed(2)}-${range.end.toFixed(2)}`] : []),
+    ...from,
   ];
-  if (opts.extraArgs) args.push(...opts.extraArgs);
-  if (opts.range) {
-    args.push("--download-sections", `*${opts.range.start.toFixed(2)}-${opts.range.end.toFixed(2)}`);
-    if (opts.precise !== false) args.push("--force-keyframes-at-cuts");
-  }
-  args.push("--", url);
 
   // Separate video and audio downloads each report 0 to 100%; fold them into one rising number.
+  // A part read by ffmpeg reports its position instead ("time=00:01:23.45").
   let phase = 0;
   let last = 0;
   let best = 0;
-  const onLine = (line: string) => {
-    const p = parseYtdlpProgress(line);
-    if (p === null) return;
-    if (p < last - 0.3) phase = Math.min(1, phase + 1);
-    last = p;
-    best = Math.max(best, Math.min(0.99, (phase + p) / 2));
+  const report = (p: number) => {
+    best = Math.max(best, Math.min(0.99, p));
     opts.onProgress?.(best);
   };
+  const onLine = (line: string) => {
+    const p = parseYtdlpProgress(line);
+    if (p !== null) {
+      if (p < last - 0.3) phase = Math.min(1, phase + 1);
+      last = p;
+      report(((phase + p) / 2) * (whole ? 0.95 : 1));
+      return;
+    }
+    const time = [...line.matchAll(/time=(\d+):(\d+):([\d.]+)/g)].at(-1);
+    if (range && !whole && time) report((Number(time[1]) * 3600 + Number(time[2]) * 60 + Number(time[3])) / Math.max(1, range.end - range.start));
+  };
+  const download = (from: string[]) => run("yt-dlp", args(from), { signal: opts.signal, onStdoutLine: onLine, onStderrLine: onLine, timeoutMs: 6 * 60 * 60 * 1000 });
   try {
-    await run("yt-dlp", args, { signal: opts.signal, onStdoutLine: onLine, onStderrLine: onLine, timeoutMs: 6 * 60 * 60 * 1000 });
+    try {
+      await download(source.args);
+    } catch (err) {
+      // A remembered answer may be stale (links expire): ask the site afresh once.
+      if (!source.saved || isAbortError(err)) throw err;
+      await download(["--", url]);
+    }
   } catch (err) {
     if (isAbortError(err)) throw err;
     const tail = err instanceof ProcessError ? err.stderrTail : "";
@@ -237,7 +282,66 @@ export async function downloadUrl(
   const files = (await readdir(dir)).filter((f) => f.startsWith("download.") && !/\.(part|ytdl|temp)$/i.test(f) && !f.includes(".part-"));
   const file = files.find((f) => f.endsWith(".mp4")) ?? files[0];
   if (!file) throw new HttpError(422, "download_failed", "The download finished without a video file. Try again.");
-  return path.join(dir, file);
+  if (!range || !whole) return path.join(dir, file);
+
+  // Cut the part out of the whole file: a copy from the keyframe at or before its start.
+  const part = path.join(dir, "part.mp4");
+  try {
+    await run(
+      "ffmpeg",
+      [
+        ...["-hide_banner", "-nostdin", "-y", "-ss", range.start.toFixed(3), "-i", path.join(dir, file), "-t", (range.end - range.start).toFixed(3)],
+        ...["-map", "0:v:0", "-map", "0:a:0?", "-c", "copy", "-avoid_negative_ts", "make_zero", part],
+      ],
+      { signal: opts.signal, timeoutMs: 30 * 60 * 1000 },
+    );
+  } catch (err) {
+    if (isAbortError(err)) throw err;
+    console.error("[bamio/media] cutting the part failed:", err instanceof ProcessError ? err.stderrTail.slice(-1500) : err);
+    throw new HttpError(422, "download_failed", "Bamio couldn’t cut that part out of the video. Try again.");
+  }
+  await rm(path.join(dir, file), { force: true });
+  return part;
+}
+
+/** yt-dlp's choice of formats: H.264/AAC up to 1080p where there is one. */
+const FORMAT = ["-f", "bv*+ba/b", "-S", "res:1080,vcodec:h264,acodec:aac"];
+
+type FormatInfo = {
+  url?: string;
+  ext?: string;
+  protocol?: string;
+  filesize?: number;
+  filesize_approx?: number;
+  tbr?: number;
+  http_headers?: Record<string, string>;
+};
+
+/** The files yt-dlp would download (video and audio, or one), with the video's length. */
+async function chosenFormats(from: string[], signal?: AbortSignal): Promise<{ formats: FormatInfo[]; duration: number } | null> {
+  try {
+    const { stdout } = await run("yt-dlp", [...ytdlpArgs(), ...FORMAT, "-J", "--skip-download", ...from], { signal, timeoutMs: 90_000, collectStdout: 30 * 1024 * 1024 });
+    const info = JSON.parse(stdout) as FormatInfo & { duration?: number; requested_formats?: FormatInfo[] };
+    return { formats: info.requested_formats ?? [info], duration: Number(info.duration) || 0 };
+  } catch (err) {
+    if (isAbortError(err)) throw err;
+    return null;
+  }
+}
+
+/**
+ * Whether a part is quicker to get by downloading the whole file and cutting it here.
+ * yt-dlp fetches a whole file in ranged chunks at full speed (16 to 35 MB/s from YouTube
+ * in tests: a 2.8-hour 1080p video in about 1.5 minutes), but a part is read by ffmpeg over
+ * one connection, which YouTube throttles to about 2x real time (20 minutes took over 10).
+ * Streamed formats (HLS, as on Twitch and Kick) fetch only the part's segments at full speed.
+ */
+function wholeFileIsQuicker(chosen: { formats: FormatInfo[]; duration: number }, range: { start: number; end: number }): boolean {
+  if (!chosen.formats.every((f) => f.protocol === "https" || f.protocol === "http")) return false;
+  const bytes = chosen.formats.reduce((sum, f) => sum + (f.filesize ?? f.filesize_approx ?? ((f.tbr ?? 0) * 1000 * chosen.duration) / 8), 0);
+  if (!bytes) return false;
+  // Conservative speeds: 8 MB/s for a whole file, 1.5x real time for a part.
+  return bytes / (8 * 1024 * 1024) < (range.end - range.start) / 1.5;
 }
 
 /* ------------------------------ Probe ------------------------------ */
@@ -293,8 +397,9 @@ export async function probe(file: string, signal?: AbortSignal): Promise<Probe> 
     rotation === 0 &&
     Math.max(rawW, rawH) <= 3840 &&
     (!audio || audio.codec_name === "aac") &&
-    // Recorded live streams are MPEG-TS: H.264/AAC in TS copies into MP4 without re-encoding.
-    /mp4|mov|mpegts/.test(container);
+    // Recorded live streams are MPEG-TS, and followed ones HLS of fMP4 segments: H.264/AAC in
+    // either copies into MP4 without re-encoding.
+    /mp4|mov|mpegts|hls/.test(container);
   return {
     durationSec: Number.isFinite(durationSec) ? durationSec : 0,
     width: rotation === 90 ? rawH : rawW,
@@ -366,10 +471,14 @@ export async function extractFrame(input: string, output: string, atSec: number,
   try {
     await run(
       "ffmpeg",
-      ["-hide_banner", "-nostdin", "-y", "-ss", Math.max(0, atSec).toFixed(2), "-i", input, "-frames:v", "1", "-vf", `scale=${width}:-2`, "-q:v", "4", tmp],
+      ["-hide_banner", "-nostdin", "-y", "-ss", Math.max(0, atSec).toFixed(2), "-i", input, "-frames:v", "1", "-update", "1", "-vf", `scale=${width}:-2`, "-q:v", "4", tmp],
       { signal, timeoutMs: 30_000 },
     );
     await replaceFile(tmp, output);
+  } catch (err) {
+    // The project was deleted while its frame was being drawn.
+    if (!(await stat(path.dirname(output)).catch(() => null))) throw new HttpError(404, "not_found", "That project was deleted.");
+    throw err;
   } finally {
     await rm(tmp, { force: true });
   }

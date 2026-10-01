@@ -1,5 +1,5 @@
 /* The editor is a studio surface: always night, whatever the app theme. */
-.shell { min-height: calc(100dvh - var(--topbar)); background: var(--bg); color: var(--text); display: grid; grid-template-rows: auto 1fr; }
+.shell { min-height: calc(100dvh - var(--topbar)); background: var(--bg); color: var(--text); display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; }
 .loading { display: grid; place-items: center; padding: 48px; }
 
 /* ---------- Top bar ---------- */
@@ -74,26 +74,31 @@
 .hint { margin-left: auto; font: var(--t-caption); color: var(--text-tertiary); }
 
 /* ---------- Trim ---------- */
-.trim { display: grid; gap: 6px; }
-.trimTrack { position: relative; height: 64px; border-radius: var(--r-sm); background: var(--surface-sunken); cursor: pointer; touch-action: none; }
+/* --grab: how far a handle's box (what a finger hits) reaches past its 16px bar; the track is inset by it so handles at the very ends stay on screen. */
+.trim { --grab: 4px; display: grid; gap: 6px; }
+@media (pointer: coarse) { .trim { --grab: 8px; } }
+.trimTrack { margin-inline: var(--grab); position: relative; height: 64px; border-radius: var(--r-sm); background: var(--surface-sunken); cursor: pointer; touch-action: none; }
 .filmstrip { position: absolute; inset: 0; display: flex; overflow: hidden; border-radius: inherit; }
 .filmstrip img { flex: 1; min-width: 0; height: 100%; object-fit: cover; opacity: .9; }
 .trimShade { position: absolute; top: 0; bottom: 0; background: rgb(0 0 0 / .62); pointer-events: none; }
 .trimShade:first-of-type { border-radius: var(--r-sm) 0 0 var(--r-sm); }
 .trimRange { position: absolute; top: 0; bottom: 0; border-top: 3px solid var(--volt); border-bottom: 3px solid var(--volt); pointer-events: none; }
+/* The volt bar is 16px; the box (what a finger hits) is wider: 24px, 32px on touch screens. */
 .trimHandle {
-  position: absolute; top: -4px; bottom: -4px; width: 16px; border-radius: 6px; background: var(--volt); cursor: ew-resize; touch-action: none;
+  position: absolute; top: -4px; bottom: -4px; width: calc(16px + 2 * var(--grab)); padding: 0 var(--grab);
+  border-radius: 6px; background: var(--volt); background-clip: content-box; cursor: ew-resize; touch-action: none;
 }
-.trimHandle[data-edge="start"] { margin-left: -14px; }
-.trimHandle[data-edge="end"] { margin-left: -2px; }
-.trimHandle::after { content: ""; position: absolute; left: 6px; top: 50%; width: 4px; height: 18px; margin-top: -9px; border-radius: 2px; background: var(--ink); opacity: .55; }
-.trimHandle:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+.trimHandle[data-edge="start"] { margin-left: calc(-14px - var(--grab)); }
+.trimHandle[data-edge="end"] { margin-left: calc(-2px - var(--grab)); }
+.trimHandle::after { content: ""; position: absolute; left: calc(6px + var(--grab)); top: 50%; width: 4px; height: 18px; margin-top: -9px; border-radius: 2px; background: var(--ink); opacity: .55; }
+.trimHandle:focus-visible { outline: 2px solid var(--text); outline-offset: calc(2px - var(--grab)); }
 .trimHead { position: absolute; top: -8px; bottom: -8px; width: 2px; margin-left: -1px; background: #fff; pointer-events: none; border-radius: 2px; }
-.trimRuler { display: flex; justify-content: space-between; font: 500 11px/1 var(--font-mono); color: var(--text-tertiary); }
+.trimRuler { margin-inline: var(--grab); display: flex; justify-content: space-between; font: 500 11px/1 var(--font-mono); color: var(--text-tertiary); }
 
 .times { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .timeRow { display: flex; gap: 6px; align-items: center; }
-.time { font: var(--t-mono); font-size: 15px; min-width: 0; }
+/* A zero basis: an input's own width (about 20 characters) would otherwise widen the editor on small phones. */
+.time { flex: 1 1 0; width: 0; min-width: 0; font: var(--t-mono); font-size: 15px; }
 .times :global(.kbd) { height: 18px; font-size: 10.5px; }
 
 /* ---------- Inspector ---------- */
@@ -108,7 +113,7 @@
 .group :global(.seg) { flex-wrap: wrap; }
 .groupHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .groupTitle { font: var(--t-label); color: var(--text-secondary); text-transform: uppercase; letter-spacing: .06em; font-size: 11.5px; }
-.range { width: 100%; accent-color: var(--volt); }
+.range { width: 100%; height: 28px; accent-color: var(--volt); }
 
 .styleChips { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .styleChip {
@@ -144,6 +149,8 @@
   .frame { --frame-h: 62dvh; }
 }
 @media (max-width: 767px) {
+  /* A little shorter on phones, so the trim bar is on screen with the preview. */
+  .frame { --frame-h: 54dvh; }
   .bar { flex-wrap: wrap; padding: 8px var(--gutter-mobile); }
   .barTitle { order: 3; flex-basis: 100%; }
   .stage { padding: 14px var(--gutter-mobile) 24px; }

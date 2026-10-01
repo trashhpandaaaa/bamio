@@ -1,0 +1,708 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bamio design system</title>
+<meta name="description" content="Bamio design system v0.1: tokens, rules and components, built on the Hook direction.">
+<meta name="theme-color" content="#F2F2EE">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23CDEA55'/%3E%3Crect x='22' y='14.2' width='20' height='35.6' rx='6' fill='%23121212' transform='rotate(12 32 32)'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://cdn.jsdelivr.net">
+<link rel="preconnect" href="https://picsum.photos">
+<!-- Comps only. Production self-hosts fonts and bundles icons. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,200..800&family=Geist+Mono:wght@400..600&display=swap">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@phosphor-icons/web@2.1.1/src/regular/style.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@phosphor-icons/web@2.1.1/src/fill/style.css">
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="components.css">
+<script>
+  /* Apply the saved theme before first paint to avoid a flash. */
+  try { const t = localStorage.getItem('bamio-theme'); if (t === 'paper' || t === 'night') document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
+<style>
+  .wrap { max-width: var(--container); margin: 0 auto; padding: 0 var(--gutter); }
+  [id] { scroll-margin-top: calc(var(--topbar) + 16px); }
+
+  .topbar {
+    position: sticky; top: 0; z-index: var(--z-sticky);
+    background: color-mix(in srgb, var(--bg) 86%, transparent);
+    backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(140%);
+    border-bottom: 1px solid var(--line);
+  }
+  .topbar .wrap { display: flex; align-items: center; gap: 20px; height: var(--topbar); }
+  .brand { display: inline-flex; align-items: baseline; gap: 10px; text-decoration: none; color: var(--text); flex: none; }
+  .wm { font: 800 27px/1 var(--font-sans); letter-spacing: -.05em; }
+  .wm .i { position: relative; display: inline-block; }
+  /* The dot of the i is a pair of scissors (since 2026-09-30; same path as web/src/components/brand.tsx). */
+  .wm .tittle { position: absolute; left: 50%; top: -.17em; width: .5em; height: auto; aspect-ratio: 31.97 / 25.09; transform: translateX(-46%); overflow: visible; }
+  .brand small { font: var(--t-caption); color: var(--text-tertiary); }
+  .topnav { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; margin-left: auto; }
+  .topnav::-webkit-scrollbar { display: none; }
+  .topnav a { font: var(--t-label-sm); color: var(--text-secondary); text-decoration: none; padding: 8px 10px; border-radius: var(--r-pill); white-space: nowrap; transition: color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out); }
+  .topnav a:hover { color: var(--text); background: var(--surface-sunken); }
+
+  .hero { padding: 80px 0 64px; border-bottom: 1px solid var(--line); }
+  .hero p { max-width: 58ch; margin: 22px 0 0; color: var(--text-secondary); font: var(--t-body-lg); }
+  .hero-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 28px; }
+
+  .sec { padding: 88px 0 0; }
+  .sec-head { max-width: 720px; margin-bottom: 28px; display: grid; gap: 10px; }
+  .sec-head p { margin: 0; color: var(--text-secondary); }
+  .sub { margin: 40px 0 14px; font: var(--t-heading-md); letter-spacing: -.02em; }
+
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 28px; min-width: 0; }
+  .panel-title { margin: 0 0 18px; font: var(--t-label-sm); color: var(--text-tertiary); }
+  .panel-note { margin: 18px 0 0; font: var(--t-body-sm); color: var(--text-secondary); max-width: 60ch; }
+  .g2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .g3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+  .stack { display: grid; gap: 18px; }
+
+  /* Principles */
+  .principles { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; }
+  .principle { grid-column: span 2; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 26px; }
+  .principle:nth-child(1) { grid-column: span 3; background: var(--volt); color: var(--on-volt); border-color: var(--volt-edge); }
+  .principle:nth-child(1) p { color: #33391A; }
+  .principle:nth-child(2) { grid-column: span 3; background: var(--surface-inverse); color: var(--text-inverse); }
+  .principle:nth-child(2) p { color: color-mix(in srgb, var(--text-inverse) 72%, var(--surface-inverse)); }
+  .principle h3 { font: var(--t-heading-md); letter-spacing: -.02em; }
+  .principle p { margin: 10px 0 0; color: var(--text-secondary); font: var(--t-body-sm); }
+
+  /* Color */
+  .brand-swatches { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 12px; }
+  .bs { border-radius: var(--r-lg); padding: 22px; min-height: 180px; display: flex; flex-direction: column; justify-content: space-between; box-shadow: inset 0 0 0 1px rgb(127 127 127 / .2); }
+  .bs b { font: var(--t-heading-md); letter-spacing: -.02em; }
+  .bs span { font: var(--t-mono); }
+  .bs p { margin: 6px 0 0; font: var(--t-body-sm); max-width: 38ch; }
+  .tok-table { width: 100%; border-collapse: collapse; font: var(--t-body-sm); }
+  .tok-table th { text-align: left; font: var(--t-label-sm); color: var(--text-tertiary); padding: 0 12px 10px 0; }
+  .tok-table td { padding: 10px 12px 10px 0; border-top: 1px solid var(--line); vertical-align: middle; }
+  .tok-table code { font: var(--t-mono); font-size: 12.5px; }
+  .chipc { display: inline-flex; align-items: center; gap: 8px; font: var(--t-mono); font-size: 12px; white-space: nowrap; }
+  .chipc i { width: 18px; height: 18px; border-radius: 5px; box-shadow: inset 0 0 0 1px rgb(127 127 127 / .35); background: var(--c); }
+  .table-scroll { overflow-x: auto; }
+  .status-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+  .status { border-radius: var(--r-md); overflow: hidden; border: 1px solid var(--line); }
+  .status > div { padding: 14px 16px; display: flex; align-items: center; gap: 8px; font: var(--t-label); }
+  .status small { margin-left: auto; font: var(--t-mono); font-size: 11.5px; }
+  .rules { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+  .rule { border-radius: var(--r-md); border: 1px solid var(--line); overflow: hidden; background: var(--surface); }
+  .rule-demo { height: 112px; display: grid; place-items: center; background: #F2F2EE; color: #121212; padding: 12px; }
+  .rule-demo.dark { background: #151515; color: #EDEDED; }
+  .rule-cap { padding: 12px 14px; font: var(--t-body-sm); display: flex; gap: 8px; align-items: flex-start; }
+  .rule-cap .ph { font-size: 18px; flex: none; margin-top: 1px; }
+  .rule.do .rule-cap .ph { color: var(--success); }
+  .rule.dont .rule-cap .ph { color: var(--error); }
+
+  /* Type */
+  .type-row { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 24px; align-items: baseline; padding: 18px 0; border-top: 1px solid var(--line); }
+  .type-row:first-child { border-top: 0; padding-top: 0; }
+  .type-meta code { display: block; font: var(--t-mono); font-size: 12.5px; }
+  .type-meta span { font: var(--t-caption); color: var(--text-tertiary); }
+  .type-sample { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+
+  /* Space, shape, depth */
+  .space-list { display: grid; gap: 8px; }
+  .space-item { display: grid; grid-template-columns: 64px 44px minmax(0, 1fr); gap: 12px; align-items: center; font: var(--t-mono); font-size: 12px; color: var(--text-secondary); }
+  .space-item i { display: block; height: 12px; border-radius: 3px; background: var(--mark); width: var(--w); }
+  .radius-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+  .radius-tile { aspect-ratio: 1; background: var(--surface-sunken); border: 1.5px solid var(--line-control); display: grid; place-items: end start; padding: 10px; font: var(--t-mono); font-size: 11.5px; color: var(--text-secondary); }
+  .shadow-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  .shadow-tile { height: 110px; border-radius: var(--r-lg); background: var(--surface-raised); display: grid; place-items: center; font: var(--t-mono); font-size: 12px; color: var(--text-secondary); }
+
+  /* Motion */
+  .motion-demo { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 24px; align-items: center; }
+  .cap-demo span { display: inline-block; }
+  .cap-demo.is-playing span { animation: pop var(--dur-base) var(--ease-pop) both; animation-delay: calc(var(--i) * 240ms); }
+  @keyframes pop { from { opacity: 0; transform: translateY(.35em) scale(.86); } to { opacity: 1; transform: none; } }
+
+  /* Icons */
+  .icon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
+  .icon-cell { display: grid; justify-items: center; gap: 8px; padding: 16px 6px 12px; border-radius: var(--r-md); background: var(--surface-sunken); }
+  .icon-cell .ph { font-size: 24px; }
+  .icon-cell code { font: var(--t-mono); font-size: 10.5px; color: var(--text-tertiary); text-align: center; overflow-wrap: anywhere; }
+
+  /* Components */
+  .overlays { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 12px; }
+  .demo-menu-wrap { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 24px; align-items: start; }
+  .cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+  .sk-card { display: grid; gap: 10px; }
+  .sk-card .skeleton:first-child { aspect-ratio: 9 / 16; border-radius: var(--r-md); }
+
+  /* Studio */
+  .studio-wrap { background: var(--bg); color: var(--text); border-radius: var(--r-xl); padding: 20px; display: grid; grid-template-columns: minmax(220px, 300px) minmax(0, 1fr); gap: 20px; align-items: start; }
+  .studio-side { display: grid; gap: 14px; align-content: start; }
+  .studio-main { display: grid; gap: 16px; align-content: start; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 18px; min-width: 0; }
+  .studio-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .studio-bar .timecode { margin-left: auto; }
+  .suggest { display: flex; gap: 12px; align-items: flex-start; padding: 14px; border-radius: var(--r-md); background: var(--surface-raised); border: 1px solid var(--line); }
+  .suggest p { margin: 0; font: var(--t-body-sm); color: var(--text-secondary); }
+  .suggest strong { display: block; color: var(--text); font: var(--t-label); margin-bottom: 2px; }
+  .suggest .ai-mark { font-size: 18px; margin-top: 2px; }
+
+  /* Voice */
+  .voice-table { width: 100%; border-collapse: collapse; font: var(--t-body-sm); }
+  .voice-table th { text-align: left; font: var(--t-label-sm); color: var(--text-tertiary); padding: 0 16px 10px 0; }
+  .voice-table td { padding: 12px 16px 12px 0; border-top: 1px solid var(--line); vertical-align: top; }
+  .voice-table td:nth-child(3) { color: var(--text-tertiary); text-decoration: line-through; text-decoration-color: var(--error); }
+
+  .foot { margin-top: 96px; padding: 32px 0 56px; border-top: 1px solid var(--line); font: var(--t-body-sm); color: var(--text-secondary); }
+  .foot ul { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 6px; }
+  .foot code { font: var(--t-mono); font-size: 12.5px; }
+
+  @media (max-width: 1023px) {
+    .g3, .status-grid, .rules { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .principles { grid-template-columns: 1fr 1fr; }
+    .principle, .principle:nth-child(1), .principle:nth-child(2) { grid-column: span 1; }
+    .principle:nth-child(5) { grid-column: 1 / -1; }
+    .cards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .studio-wrap { grid-template-columns: 1fr; }
+    .studio-side { grid-template-columns: minmax(0, 260px) minmax(0, 1fr); align-items: start; }
+  }
+  @media (max-width: 767px) {
+    .wrap { padding: 0 var(--gutter-mobile); }
+    .hero { padding: 48px 0 44px; }
+    .sec { padding-top: 64px; }
+    .panel { padding: 20px; }
+    .g2, .g3, .status-grid, .rules, .principles, .shadow-grid { grid-template-columns: 1fr; }
+    .principle:nth-child(5) { grid-column: auto; }
+    .brand-swatches { grid-template-columns: 1fr 1fr; }
+    .brand-swatches .bs:first-child { grid-column: 1 / -1; }
+    .radius-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .type-row { grid-template-columns: 1fr; gap: 6px; }
+    .motion-demo, .demo-menu-wrap, .overlays { grid-template-columns: 1fr; }
+    .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .studio-wrap { padding: 12px; border-radius: var(--r-lg); }
+    .studio-side { grid-template-columns: 1fr; }
+    .brand small { display: none; }
+  }
+</style>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="topbar">
+  <div class="wrap">
+    <a class="brand" href="#main" aria-label="Bamio design system, back to top">
+      <span class="wm" aria-hidden="true" translate="no">bam<span class="i">ı<svg class="tittle" viewBox="0 0 31.97 25.09" focusable="false"><path fill="currentColor" d="M0 8.33a5.8 5.8 0 1 0 11.6 0a5.8 5.8 0 1 0 -11.6 0ZM2.9 8.33a2.9 2.9 0 1 1 5.8 0a2.9 2.9 0 1 1 -5.8 0ZM2.33 19.29a5.8 5.8 0 1 0 11.6 0a5.8 5.8 0 1 0 -11.6 0ZM5.23 19.29a2.9 2.9 0 1 1 5.8 0a2.9 2.9 0 1 1 -5.8 0ZM9.22 11.74L16.35 14.18L31.51 18L31.97 16.67L18.12 9.07L10.6 7.77ZM12.74 17.84L19.08 13.6L28.64 1.02L27.68 0L15.39 9.66L9.87 14.78Z"/></svg></span>o</span>
+      <small>Design system v0.1</small>
+    </a>
+    <nav class="topnav" aria-label="Sections">
+      <a href="#principles">Principles</a>
+      <a href="#color">Color</a>
+      <a href="#type">Type</a>
+      <a href="#shape">Space and shape</a>
+      <a href="#motion">Motion</a>
+      <a href="#icons">Icons</a>
+      <a href="#components">Components</a>
+      <a href="#studio">Studio</a>
+      <a href="#voice">Voice</a>
+    </nav>
+    <div class="seg" role="group" aria-label="Theme">
+      <button type="button" data-set-theme="system" aria-pressed="true"><i class="ph ph-circle-half" aria-hidden="true"></i><span class="sr-only">System theme</span></button>
+      <button type="button" data-set-theme="paper" aria-pressed="false"><i class="ph ph-sun" aria-hidden="true"></i><span class="sr-only">Paper theme</span></button>
+      <button type="button" data-set-theme="night" aria-pressed="false"><i class="ph ph-moon" aria-hidden="true"></i><span class="sr-only">Night theme</span></button>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+  <section class="hero">
+    <div class="wrap">
+      <h1 class="t-display-xl">bamio <span class="hl">design system.</span></h1>
+      <p>Tokens, rules and components for every Bamio screen, built on the Hook direction. Switch themes in the top bar; everything on this page responds except the Studio, which is always night.</p>
+      <div class="hero-meta">
+        <span class="badge">v0.1</span>
+        <span class="badge">Phase B</span>
+        <span class="badge">26 Sep 2026</span>
+        <span class="badge is-live">Draft for review</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Principles -->
+  <section class="sec" id="principles" aria-labelledby="principles-title">
+    <div class="wrap">
+      <div class="sec-head"><h2 class="t-heading-xl" id="principles-title">Principles</h2><p>Five rules that decide the close calls.</p></div>
+      <div class="principles">
+        <article class="principle"><h3>Volt marks the moment.</h3><p>Volt is for what is live, what is selected, and the one action that matters most on a screen. Never decoration, never status, never text on paper.</p></article>
+        <article class="principle"><h3>Video sits on night.</h3><p>Anything that shows footage is dark and untinted, in every theme, so creators judge color and exposure accurately.</p></article>
+        <article class="principle"><h3>Loud type, quiet chrome.</h3><p>Bricolage carries the personality. Controls stay calm, consistent and predictable.</p></article>
+        <article class="principle"><h3>Show what the AI did.</h3><p>AI work carries the tilted frame and a plain verb, and it can always be edited or undone. No sparkles, no magic.</p></article>
+        <article class="principle"><h3>Talk like a creator.</h3><p>Second person, sentence case, verbs first, numbers as numerals, no exclamation marks.</p></article>
+      </div>
+    </div>
+  </section>
+
+  <!-- Color -->
+  <section class="sec" id="color" aria-labelledby="color-title">
+    <div class="wrap">
+      <div class="sec-head"><h2 class="t-heading-xl" id="color-title">Color</h2><p>Three brand colors, two themes and four status colors. Every text pair meets 4.5:1 and every control edge meets 3:1.</p></div>
+      <div class="brand-swatches">
+        <div class="bs" style="background:#CDEA55;color:#121212"><b>Volt</b><div><span>#CDEA55</span><p>The accent. Fill or highlighter on paper, and it can be text on night (13.5:1).</p></div></div>
+        <div class="bs" style="background:#121212;color:#F2F2EE"><b>Ink</b><div><span>#121212</span><p>Text, primary buttons, and the edge around volt on paper.</p></div></div>
+        <div class="bs" style="background:#F2F2EE;color:#121212"><b>Paper</b><div><span>#F2F2EE</span><p>The page. Slightly warm, never cream.</p></div></div>
+      </div>
+
+      <h3 class="sub">Theme tokens</h3>
+      <div class="panel table-scroll">
+        <table class="tok-table">
+          <thead><tr><th scope="col">Token</th><th scope="col">Paper</th><th scope="col">Night</th><th scope="col">Use</th></tr></thead>
+          <tbody>
+            <tr><td><code>--bg</code></td><td><span class="chipc"><i style="--c:#F2F2EE"></i>#F2F2EE</span></td><td><span class="chipc"><i style="--c:#0E0E0E"></i>#0E0E0E</span></td><td>Page background</td></tr>
+            <tr><td><code>--surface</code></td><td><span class="chipc"><i style="--c:#FBFBF9"></i>#FBFBF9</span></td><td><span class="chipc"><i style="--c:#151515"></i>#151515</span></td><td>Cards, panels, inputs</td></tr>
+            <tr><td><code>--surface-raised</code></td><td><span class="chipc"><i style="--c:#FBFBF9"></i>#FBFBF9</span></td><td><span class="chipc"><i style="--c:#1C1C1C"></i>#1C1C1C</span></td><td>Menus, dialogs, toasts</td></tr>
+            <tr><td><code>--surface-sunken</code></td><td><span class="chipc"><i style="--c:#E9E9E4"></i>#E9E9E4</span></td><td><span class="chipc"><i style="--c:#0A0A0A"></i>#0A0A0A</span></td><td>Wells, hover fills, tracks</td></tr>
+            <tr><td><code>--line</code></td><td><span class="chipc"><i style="--c:#DADAD4"></i>#DADAD4</span></td><td><span class="chipc"><i style="--c:#2A2A2A"></i>#2A2A2A</span></td><td>Dividers only</td></tr>
+            <tr><td><code>--line-control</code></td><td><span class="chipc"><i style="--c:#8B8B84"></i>#8B8B84</span></td><td><span class="chipc"><i style="--c:#6E6E6E"></i>#6E6E6E</span></td><td>Input and control edges, 3:1 or more</td></tr>
+            <tr><td><code>--text</code></td><td><span class="chipc"><i style="--c:#121212"></i>#121212</span></td><td><span class="chipc"><i style="--c:#EDEDED"></i>#EDEDED</span></td><td>Primary text</td></tr>
+            <tr><td><code>--text-secondary</code></td><td><span class="chipc"><i style="--c:#4A4A46"></i>#4A4A46</span></td><td><span class="chipc"><i style="--c:#A3A3A3"></i>#A3A3A3</span></td><td>Supporting text</td></tr>
+            <tr><td><code>--text-tertiary</code></td><td><span class="chipc"><i style="--c:#676761"></i>#676761</span></td><td><span class="chipc"><i style="--c:#8A8A8A"></i>#8A8A8A</span></td><td>Meta, placeholders, 4.5:1 or more on every surface</td></tr>
+            <tr><td><code>--mark</code></td><td><span class="chipc"><i style="--c:#121212"></i>#121212</span></td><td><span class="chipc"><i style="--c:#CDEA55"></i>#CDEA55</span></td><td>Playhead, progress, selected tab line</td></tr>
+            <tr><td><code>--focus</code></td><td><span class="chipc"><i style="--c:#121212"></i>#121212</span></td><td><span class="chipc"><i style="--c:#CDEA55"></i>#CDEA55</span></td><td>Focus outline, 2px, offset 2px</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 class="sub">Status</h3>
+      <div class="status-grid">
+        <div class="status"><div style="background:#E2F2E8;color:#1D7A48"><i class="ph ph-check-circle" aria-hidden="true"></i>Success<small>4.6:1</small></div><div style="background:#151515;color:#5CCB8A"><i class="ph ph-check-circle" aria-hidden="true"></i>Night<small>9.0:1</small></div></div>
+        <div class="status"><div style="background:#FBEAD8;color:#A34A07"><i class="ph ph-warning" aria-hidden="true"></i>Warning<small>5.1:1</small></div><div style="background:#151515;color:#F29A4A"><i class="ph ph-warning" aria-hidden="true"></i>Night<small>8.3:1</small></div></div>
+        <div class="status"><div style="background:#FBE2DD;color:#C2311F"><i class="ph ph-warning-circle" aria-hidden="true"></i>Error<small>4.5:1</small></div><div style="background:#151515;color:#FF7B69"><i class="ph ph-warning-circle" aria-hidden="true"></i>Night<small>7.2:1</small></div></div>
+        <div class="status"><div style="background:#E3E9FA;color:#2D5BD0"><i class="ph ph-info" aria-hidden="true"></i>Info<small>4.9:1</small></div><div style="background:#151515;color:#86A4FF"><i class="ph ph-info" aria-hidden="true"></i>Night<small>7.6:1</small></div></div>
+      </div>
+      <p class="panel-note">Success is emerald (hue 148) and warning is burnt orange (hue 26), kept well away from volt (hue 72) so a status is never mistaken for the brand. Status always pairs color with an icon and words.</p>
+
+      <h3 class="sub">Volt rules</h3>
+      <div class="rules">
+        <div class="rule do"><div class="rule-demo"><span class="btn btn-volt" style="--volt-edge:#121212">Make a video</span></div><p class="rule-cap"><i class="ph ph-check-circle" aria-hidden="true"></i>On paper, volt fills get an ink edge.</p></div>
+        <div class="rule do"><div class="rule-demo"><span style="font:800 26px/1 var(--font-sans);letter-spacing:-.03em">find the <span class="hl">hook</span></span></div><p class="rule-cap"><i class="ph ph-check-circle" aria-hidden="true"></i>Highlight a word, like a marker.</p></div>
+        <div class="rule dont"><div class="rule-demo"><span style="font:800 26px/1 var(--font-sans);color:#CDEA55">Make a video</span></div><p class="rule-cap"><i class="ph ph-x-circle" aria-hidden="true"></i>Never volt text on paper (1.2:1).</p></div>
+        <div class="rule dont"><div class="rule-demo"><span class="badge" style="background:#CDEA55;color:#121212"><i class="ph ph-check" aria-hidden="true"></i>Saved</span></div><p class="rule-cap"><i class="ph ph-x-circle" aria-hidden="true"></i>Never volt for status. Saved is success green.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Type -->
+  <section class="sec" id="type" aria-labelledby="type-title">
+    <div class="wrap">
+      <div class="sec-head"><h2 class="t-heading-xl" id="type-title">Type</h2><p>Bricolage Grotesque for everything, with optical sizing on. Geist Mono only for numbers that must line up. Lowercase display is for marketing; the product uses sentence case.</p></div>
+      <div class="panel">
+        <div class="type-row"><div class="type-meta"><code>display-2xl</code><span>56 to 104 / .9 / 800 / -5%</span></div><p class="type-sample t-display-2xl">hook them.</p></div>
+        <div class="type-row"><div class="type-meta"><code>display-xl</code><span>44 to 76 / .92 / 800 / -4.5%</span></div><p class="type-sample t-display-xl">make it in minutes.</p></div>
+        <div class="type-row"><div class="type-meta"><code>display-lg</code><span>36 to 56 / .96 / 800 / -4%</span></div><p class="type-sample t-display-lg">every second counts.</p></div>
+        <div class="type-row"><div class="type-meta"><code>heading-xl</code><span>40 / 1.02 / 700 / -3%</span></div><p class="type-sample t-heading-xl">Your videos</p></div>
+        <div class="type-row"><div class="type-meta"><code>heading-lg</code><span>30 / 1.08 / 700 / -2.5%</span></div><p class="type-sample t-heading-lg">Pick a hook</p></div>
+        <div class="type-row"><div class="type-meta"><code>heading-md</code><span>22 / 1.18 / 700 / -2%</span></div><p class="type-sample t-heading-md">Captions and style</p></div>
+        <div class="type-row"><div class="type-meta"><code>heading-sm</code><span>17 / 1.3 / 650 / -1%</span></div><p class="type-sample t-heading-sm">Cold brew launch, take 3</p></div>
+        <div class="type-row"><div class="type-meta"><code>body-lg</code><span>18 / 1.5 / 400</span></div><p class="type-sample t-body-lg">Drop in an idea, a link or a rough clip. Bamio writes three hooks and you pick the one that stops the scroll.</p></div>
+        <div class="type-row"><div class="type-meta"><code>body</code><span>16 / 1.5 / 400</span></div><p class="type-sample t-body">Your draft saves as you work. Share a preview link with your team before you post.</p></div>
+        <div class="type-row"><div class="type-meta"><code>body-sm</code><span>14 / 1.45 / 400</span></div><p class="type-sample t-body-sm">Captions follow the voice-over word by word. Change the style for the whole video or one line.</p></div>
+        <div class="type-row"><div class="type-meta"><code>label</code><span>14 / 1.25 / 600</span></div><p class="type-sample t-label">Export video</p></div>
+        <div class="type-row"><div class="type-meta"><code>caption</code><span>12 / 1.35 / 500</span></div><p class="type-sample t-caption t-tertiary">Edited 12 min ago · 1080 × 1920</p></div>
+        <div class="type-row"><div class="type-meta"><code>mono</code><span>Geist Mono 13 / 500, tabular</span></div><p class="type-sample t-mono">00:14.08 / 00:30.00</p></div>
+        <div class="type-row"><div class="type-meta"><code>mono-lg</code><span>Geist Mono 24 / 500, tabular</span></div><p class="type-sample t-mono-lg">64%</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Space, shape, depth -->
+  <section class="sec" id="shape" aria-labelledby="shape-title">
+    <div class="wrap">
+      <div class="sec-head"><h2 class="t-heading-xl" id="shape-title">Space, shape and depth</h2><p>A 4px spacing base. Pills for single-line controls, soft rectangles for everything that holds content.</p></div>
+      <div class="g2">
+        <div class="panel">
+          <p class="panel-title">Spacing</p>
+          <div class="space-list">
+            <div class="space-item"><span>--s-1</span><span>4</span><i style="--w:4px"></i></div>
+            <div class="space-item"><span>--s-2</span><span>8</span><i style="--w:8px"></i></div>
+            <div class="space-item"><span>--s-3</span><span>12</span><i style="--w:12px"></i></div>
+            <div class="space-item"><span>--s-4</span><span>16</span><i style="--w:16px"></i></div>
+            <div class="space-item"><span>--s-6</span><span>24</span><i style="--w:24px"></i></div>
+            <div class="space-item"><span>--s-8</span><span>32</span><i style="--w:32px"></i></div>
+            <div class="space-item"><span>--s-12</span><span>48</span><i style="--w:48px"></i></div>
+            <div class="space-item"><span>--s-16</span><span>64</span><i style="--w:64px"></i></div>
+            <div class="space-item"><span>--s-24</span><span>96</span><i style="--w:96px"></i></div>
+            <div class="space-item"><span>--s-32</span><span>128</span><i style="--w:128px"></i></div>
+          </div>
+        </div>
+        <div class="stack">
+          <div class="panel">
+            <p class="panel-title">Radius</p>
+            <div class="radius-grid">
+              <div class="radius-tile" style="border-radius:var(--r-xs)">xs 6<br>thumbs</div>
+              <div class="radius-tile" style="border-radius:var(--r-md)">md 16<br>menus</div>
+              <div class="radius-tile" style="border-radius:var(--r-lg)">lg 22<br>cards</div>
+              <div class="radius-tile" style="border-radius:var(--r-xl)">xl 28<br>dialogs</div>
+            </div>
+            <p class="panel-note">Single-line controls (buttons, inputs, chips) are always pills. Large video frames use 18.</p>
+          </div>
+          <div class="panel">
+            <p class="panel-title">Elevation</p>
+            <div class="shadow-grid">
+              <div class="shadow-tile" style="box-shadow:var(--shadow-1)">shadow-1</div>
+              <div class="shadow-tile" style="box-shadow:var(--shadow-2)">shadow-2</div>
+              <div class="shadow-tile" style="box-shadow:var(--shadow-3)">shadow-3</div>
+            </div>
+            <p class="panel-note">Ink-tinted on paper. On night, depth comes from lighter surfaces and a faint edge.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Motion -->
+  <section class="sec" id="motion" aria-labelledby="motion-title">
+    <div class="wrap">
+      <div class="sec-head"><h2 class="t-heading-xl" id="motion-title">Motion</h2><p>Quick and springy, never floaty. Every animation shows feedback, a change of state, or the order things happen in. With reduced motion on, states still change but nothing moves.</p></div>
+      <div class="g2">
+        <div class="panel table-scroll">
+          <table class="tok-table">
+            <thead><tr><th scope="col">Token</th><th scope="col">Value</th><th scope="col">Use</th></tr></thead>
+            <tbody>
+              <tr><td><code>--dur-instant</code></td><td class="t-mono">80ms</td><td>Press feedback</td></tr>
+              <tr><td><code>--dur-fast</code></td><td class="t-mono">140ms</td><td>Hover, toggles</td></tr>
+              <tr><td><code>--dur-base</code></td><td class="t-mono">220ms</td><td>Menus, tooltips, tabs</td></tr>
+              <tr><td><code>--dur-slow</code></td><td class="t-mono">360ms</td><td>Dialogs, toasts, panels</td></tr>
+              <tr><td><code>--dur-scene</code></td><td class="t-mono">560ms</td><td>Page and hero moments</td></tr>
+              <tr><td><code>--ease-out</code></td><td class="t-mono">.16, 1, .3, 1</td><td>Things entering</td></tr>
+              <tr><td><code>--ease-in</code></td><td class="t-mono">.7, 0, .84, 0</td><td>Things leaving</td></tr>
+              <tr><td><code>--ease-pop</code></td><td class="t-mono">.34, 1.56, .64, 1</td><td>Caption words, confirmations</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="panel">
+          <p class="panel-title">Signature: caption pop</p>
+          <div class="motion-demo">
+            <div class="studio" style="background:transparent">
+              <div class="player">
+                <img src="https://picsum.photos/id/281/360/640" width="360" height="640" alt="Placeholder: a skateboarder mid-trick under palm trees" loading="lazy">
+                <p class="caption cap-demo" data-caption-demo><span style="--i:0">3</span> <span style="--i:1">tricks</span> <span style="--i:2">in</span> <span style="--i:3"><mark>10</mark></span> <span style="--i:4">seconds</span></p>
+              </div>
+            </div>
+            <div class="stack">
+              <p class="t-body-sm t-secondary" style="margin:0">Words pop in on the beat of the voice-over with <code class="t-mono">--ease-pop</code>. The spoken word gets the volt highlight. This is the one place Bamio overshoots.</p>
+              <div><button class="btn btn-secondary btn-sm" type="button" data-replay><i class="ph ph-arrow-counter-clockwise" aria-hidden="true"></i>Replay</button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Icons -->
+  <section class="sec" id="icons" aria-labelledby="icons-title">
+    <div class="wrap">
+      <div class="sec-head"><h2 class="t-heading-xl" id="icons-title">Icons</h2><p>Phosphor, regular weight, 20px in controls and 24px on their own. Fill weight marks an active state. One family only; no hand-drawn icons.</p></div>
+      <div class="panel">
+        <div class="icon-grid">
+          <div class="icon-cell"><i class="ph ph-house" aria-hidden="true"></i><code>house</code></div>
+          <div class="icon-cell"><i class="ph ph-folder-simple" aria-hidden="true"></i><code>folder-simple</code></div>
+          <div class="icon-cell"><i class="ph ph-squares-four" aria-hidden="true"></i><code>squares-four</code></div>
+          <div class="icon-cell"><i class="ph ph-plus" aria-hidden="true"></i><code>plus</code></div>
+          <div class="icon-cell"><i class="ph ph-play" aria-hidden="true"></i><code>play</code></div>
+          <div class="icon-cell"><i class="ph ph-pause" aria-hidden="true"></i><code>pause</code></div>
+          <div class="icon-cell"><i class="ph ph-skip-back" aria-hidden="true"></i><code>skip-back</code></div>
+          <div class="icon-cell"><i class="ph ph-scissors" aria-hidden="true"></i><code>scissors</code></div>
+          <div class="icon-cell"><i class="ph ph-film-strip" aria-hidden="true"></i><code>film-strip</code></div>
+          <div class="icon-cell"><i class="ph ph-subtitles" aria-hidden="true"></i><code>subtitles</code></div>
+          <div class="icon-cell"><i class="ph ph-text-aa" aria-hidden="true"></i><code>text-aa</code></div>
+          <div class="icon-cell"><i class="ph ph-music-notes" aria-hidden="true"></i><code>music-notes</code></div>
+          <div class="icon-cell"><i class="ph ph-microphone" aria-hidden="true"></i><code>microphone</code></div>
+          <div class="icon-cell"><i class="ph ph-video-camera" aria-hidden="true"></i><code>video-camera</code></div>
+          <div class="icon-cell"><i class="ph ph-image" aria-hidden="true"></i><code>image</code></div>
+          <div class="icon-cell"><i class="ph ph-upload-simple" aria-hidden="true"></i><code>upload-simple</code></div>
+          <div class="icon-cell"><i class="ph ph-export" aria-hidden="true"></i><code>export</code></div>
+          <div class="icon-cell"><i class="ph ph-share-network" aria-hidden="true"></i><code>share-network</code></div>
+          <div class="icon-cell"><i class="ph ph-arrow-counter-clockwise" aria-hidden="true"></i><code>undo</code></div>
+          <div class="icon-cell"><i class="ph ph-sliders-horizontal" aria-hidden="true"></i><code>sliders</code></div>
+          <div class="icon-cell"><i class="ph ph-magnifying-glass" aria-hidden="true"></i><code>search</code></div>
+          <div class="icon-cell"><i class="ph ph-dots-three" aria-hidden="true"></i><code>dots-three</code></div>
+          <div class="icon-cell"><i class="ph-fill ph-star" aria-hidden="true"></i><code>star, fill</code></div>
+          <div class="icon-cell"><span class="ai-mark" style="font-size:24px" aria-hidden="true"></span><code>ai-mark</code></div>
+        </div>
+        <p class="panel-note">The last glyph is not an icon font character. It is Bamio’s 9:16 frame, tilted 12° (the wordmark’s i-dot until the scissors replaced it), and it labels work Bamio did, always next to a verb: “Hook suggested by Bamio”.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Components -->
+  <section class="sec" id="components" aria-labelledby="components-title">
+    <div class="wrap">
+      <div class="sec-head"><h2 class="t-heading-xl" id="components-title">Components</h2><p>Hover, press and tab through them. Every control has hover, active, focus, disabled and, where it applies, loading and error states.</p></div>
+
+      <h3 class="sub">Buttons</h3>
+      <div class="panel stack">
+        <div class="row">
+          <button class="btn btn-volt" type="button"><i class="ph ph-plus" aria-hidden="true"></i>Make a video</button>
+          <button class="btn btn-primary" type="button">Export</button>
+          <button class="btn btn-secondary" type="button">Preview</button>
+          <button class="btn btn-ghost" type="button">Cancel</button>
+          <button class="btn btn-danger" type="button">Delete video</button>
+        </div>
+        <div class="row">
+          <button class="btn btn-primary btn-sm" type="button">Small</button>
+          <button class="btn btn-primary" type="button">Medium</button>
+          <button class="btn btn-primary btn-lg" type="button">Large</button>
+          <button class="btn btn-secondary btn-icon" type="button" aria-label="More options"><i class="ph ph-dots-three" aria-hidden="true"></i></button>
+          <button class="btn btn-ghost btn-icon btn-sm" type="button" aria-label="Undo"><i class="ph ph-arrow-counter-clockwise" aria-hidden="true"></i></button>
+        </div>
+        <div class="row">
+          <button class="btn btn-volt" type="button" aria-busy="true">Rendering…</button>
+          <button class="btn btn-primary" type="button" disabled>Export</button>
+          <button class="btn btn-secondary" type="button" disabled>Preview</button>
+        </div>
+        <p class="panel-note" style="margin:0">One volt button per screen, for the single most important action. Primary (ink) does everything else that matters.</p>
+      </div>
+
+      <h3 class="sub">Fields</h3>
+      <div class="g2">
+        <div class="panel stack">
+          <div class="field">
+            <label class="field-label" for="f-title">Video title</label>
+            <input class="input" id="f-title" name="title" type="text" autocomplete="off" value="Cold brew launch" aria-describedby="f-title-help">
+            <p class="field-help" id="f-title-help">Only you and your team see this.</p>
+          </div>
+          <div class="field">
+            <label class="field-label" for="f-link">Source link</label>
+            <input class="input" id="f-link" name="source-url" type="url" inputmode="url" autocomplete="off" spellcheck="false" value="youtube.com/watch" aria-invalid="true" aria-describedby="f-link-err">
+            <p class="field-error" id="f-link-err"><i class="ph ph-warning-circle" aria-hidden="true"></i>Paste the full link, starting with https://</p>
+          </div>
+          <div class="field">
+            <label class="field-label" for="f-search">Search templates</label>
+            <div class="input-wrap"><i class="ph ph-magnifying-glass" aria-hidden="true"></i><input class="input" id="f-search" name="q" type="search" autocomplete="off" placeholder="Product launch, recipe, day in the life…"></div>
+          </div>
+          <div class="field">
+            <label class="field-label" for="f-format">Format</label>
+            <div class="select-wrap">
+              <select class="select" id="f-format" name="format"><option>9:16 vertical</option><option>1:1 square</option><option>16:9 landscape</option></select>
+              <i class="ph ph-caret-down" aria-hidden="true"></i>
+            </div>
+          </div>
+        </div>
+        <div class="panel stack">
+          <p class="panel-title" style="margin:0">Prompt, the heart of create</p>
+          <div class="prompt">
+            <label class="sr-only" for="f-prompt">Describe your video</label>
+            <textarea id="f-prompt" name="prompt" autocomplete="off" placeholder="Our new cold brew, for people who hate mornings…"></textarea>
+            <div class="prompt-row">
+              <button class="chip" type="button" aria-pressed="true"><i class="ph ph-check" aria-hidden="true"></i>30 sec</button>
+              <button class="chip" type="button" aria-pressed="false"><i class="ph ph-check" aria-hidden="true"></i>Voice-over</button>
+              <button class="btn btn-ghost btn-icon btn-sm" type="button" aria-label="Attach a clip"><i class="ph ph-paperclip" aria-hidden="true"></i></button>
+              <button class="btn btn-volt" type="button">Find the hook</button>
+            </div>
+          </div>
+          <div class="field">
+            <label class="field-label" for="f-notes">Notes for Bamio</label>
+            <textarea class="textarea" id="f-notes" name="notes" autocomplete="off" placeholder="Keep it upbeat. Mention the free delivery…"></textarea>
+          </div>
+          <div class="field">
+            <label class="field-label" for="f-dis">Workspace</label>
+            <input class="input" id="f-dis" name="workspace" type="text" value="Personal" disabled>
+          </div>
+        </div>
+      </div>
+
+      <h3 class="sub">Choices</h3>
+      <div class="g3">
+        <div class="panel stack">
+          <p class="panel-title" style="margin:0">Checkbox and radio</p>
+          <label class="choice"><input class="check" type="checkbox" checked name="c1">Burn in captions</label>
+          <label class="choice"><input class="check" type="checkbox" name="c2">Add background music</label>
+          <label class="choice"><input class="check" type="checkbox" disabled name="c3">Remove watermark (Pro)</label>
+          <div class="stack" role="radiogroup" aria-label="Quality" style="gap:12px">
+            <label class="choice"><input class="radio" type="radio" name="q" checked>1080p</label>
+            <label class="choice"><input class="radio" type="radio" name="q">4K</label>
+          </div>
+        </div>
+        <div class="panel stack">
+          <p class="panel-title" style="margin:0">Switch and chips</p>
+          <label class="choice"><input class="switch" type="checkbox" role="switch" checked name="s1">Auto-captions</label>
+          <label class="choice"><input class="switch" type="checkbox" role="switch" name="s2">Beat-sync cuts</label>
+          <div class="row" style="gap:8px">
+            <button class="chip" type="button" aria-pressed="true"><i class="ph ph-check" aria-hidden="true"></i>Funny</button>
+            <button class="chip" type="button" aria-pressed="false"><i class="ph ph-check" aria-hidden="true"></i>Calm</button>
+            <button class="chip" type="button" aria-pressed="false"><i class="ph ph-check" aria-hidden="true"></i>Bold</button>
+          </div>
+        </div>
+        <div class="panel stack">
+          <p class="panel-title" style="margin:0">Segmented and tabs</p>
+          <div class="seg" role="group" aria-label="Aspect ratio">
+            <button type="button" aria-pressed="true">9:16</button>
+            <button type="button" aria-pressed="false">1:1</button>
+            <button type="button" aria-pressed="false">16:9</button>
+          </div>
+          <div class="tabs" role="tablist" aria-label="Project sections">
+            <button class="tab" role="tab" type="button" aria-selected="true">Story</button>
+            <button class="tab" role="tab" type="button" aria-selected="false" tabindex="-1">Shots</button>
+            <button class="tab" role="tab" type="button" aria-selected="false" tabindex="-1">Edit</button>
+          </div>
+        </div>
+      </div>
+
+      <h3 class="sub">Overlays</h3>
+      <div class="overlays">
+        <div class="panel demo-menu-wrap">
+          <div class="menu" role="menu" aria-label="Video actions">
+            <button class="menu-item" role="menuitem" type="button"><i class="ph ph-pencil-simple" aria-hidden="true"></i>Rename<span class="kbd">R</span></button>
+            <button class="menu-item" role="menuitem" type="button"><i class="ph ph-copy" aria-hidden="true"></i>Duplicate<span class="kbd">⌘&nbsp;D</span></button>
+            <button class="menu-item" role="menuitem" type="button"><i class="ph ph-link" aria-hidden="true"></i>Copy preview link</button>
+            <div class="menu-sep" role="separator"></div>
+            <button class="menu-item is-danger" role="menuitem" type="button"><i class="ph ph-trash" aria-hidden="true"></i>Delete</button>
+          </div>
+          <div class="stack">
+            <span class="tooltip" role="tooltip">Split clip at playhead <span class="kbd" style="border-color:transparent;color:inherit;opacity:.7">S</span></span>
+            <div class="toast is-success" role="status"><i class="ph-fill ph-check-circle" aria-hidden="true"></i><div><p class="toast-title">Video exported</p><p class="toast-body">cold-brew-launch.mp4, 42&nbsp;MB</p><div class="toast-actions"><button class="btn btn-secondary btn-sm" type="button">Show file</button></div></div><button class="btn btn-ghost btn-icon btn-sm" type="button" aria-label="Dismiss"><i class="ph ph-x" aria-hidden="true"></i></button></div>
+            <div class="toast is-error" role="alert"><i class="ph-fill ph-warning-circle" aria-hidden="true"></i><div><p class="toast-title">Upload failed</p><p class="toast-body">The file is over 4&nbsp;GB. Trim it or lower the quality, then try again.</p></div><button class="btn btn-ghost btn-icon btn-sm" type="button" aria-label="Dismiss"><i class="ph ph-x" aria-hidden="true"></i></button></div>
+          </div>
+        </div>
+        <div class="panel" style="display:grid;place-items:center;background:var(--surface-sunken)">
+          <div class="dialog" role="dialog" aria-modal="false" aria-labelledby="dlg-t" aria-describedby="dlg-b">
+            <h4 class="dialog-title" id="dlg-t">Delete “Cold brew launch”?</h4>
+            <p class="dialog-body" id="dlg-b">The video, its drafts and 3 exports go to trash. You can restore them for 30 days.</p>
+            <div class="dialog-actions"><button class="btn btn-ghost" type="button">Keep it</button><button class="btn btn-danger" type="button">Delete video</button></div>
+          </div>
+        </div>
+      </div>
+
+      <h3 class="sub">Content</h3>
+      <div class="panel stack">
+        <div class="row" style="gap:8px">
+          <span class="badge">Draft</span>
+          <span class="badge is-live"><i class="ph ph-circle-notch" aria-hidden="true"></i>Rendering 64%</span>
+          <span class="badge is-success"><i class="ph ph-check" aria-hidden="true"></i>Posted</span>
+          <span class="badge is-warning"><i class="ph ph-warning" aria-hidden="true"></i>Music not licensed</span>
+          <span class="badge is-error"><i class="ph ph-warning-circle" aria-hidden="true"></i>Export failed</span>
+          <span class="badge is-info">New</span>
+          <span class="avatar" aria-label="Mira Okafor" role="img">MO</span>
+          <span class="avatar avatar-lg"><img src="https://picsum.photos/id/64/88/88" width="88" height="88" alt="Tomás Reyes" loading="lazy"></span>
+        </div>
+        <div class="cards">
+          <a class="card-project" href="#components"><div class="thumb"><img src="https://picsum.photos/id/373/360/640" width="360" height="640" alt="" loading="lazy"><span class="dur">0:28</span></div><p class="card-title">Wave check, Saturday</p><p class="card-meta"><span class="badge is-success"><i class="ph ph-check" aria-hidden="true"></i>Posted</span>2 days ago</p></a>
+          <a class="card-project" href="#components"><div class="thumb"><img src="https://picsum.photos/id/281/360/640" width="360" height="640" alt="" loading="lazy"><span class="dur">0:10</span></div><p class="card-title">3 tricks in 10 seconds</p><p class="card-meta"><span class="badge is-live">Rendering 64%</span></p></a>
+          <a class="card-project" href="#components"><div class="thumb"><img src="https://picsum.photos/id/390/360/640" width="360" height="640" alt="" loading="lazy"><span class="dur">0:42</span></div><p class="card-title">We actually made it</p><p class="card-meta"><span class="badge">Draft</span>Edited 12 min ago</p></a>
+          <div class="sk-card" aria-hidden="true"><div class="skeleton"></div><div class="skeleton" style="height:16px;width:80%"></div><div class="skeleton" style="height:12px;width:50%"></div></div>
+        </div>
+        <div class="g2">
+          <div class="empty">
+            <span class="ai-mark" aria-hidden="true"></span>
+            <p class="empty-title">Nothing here yet.</p>
+            <p class="empty-body">Drop in an idea, a link or a rough clip and we’ll find the hook.</p>
+            <button class="btn btn-volt" type="button"><i class="ph ph-plus" aria-hidden="true"></i>Make a video</button>
+          </div>
+          <div class="panel" style="background:var(--surface-sunken);border:0;display:grid;align-content:center;gap:14px">
+            <div class="row" style="justify-content:space-between"><span class="t-label">Rendering “3 tricks in 10 seconds”</span><span class="t-mono t-secondary">64%</span></div>
+            <div class="progress" role="progressbar" aria-label="Render progress" aria-valuenow="64" aria-valuemin="0" aria-valuemax="100" style="--value:64%"><span></span></div>
+            <p class="t-caption t-tertiary" style="margin:0">About 40 seconds left. You can keep editing other videos.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Studio -->
+  <section class="sec" id="studio" aria-labelledby="studio-title">
+    <div class="wrap">
+      <div class="sec-head"><h2 class="t-heading-xl" id="studio-title">Studio</h2><p>The building blocks of every video surface. Always night, whatever the theme. Volt shows the playhead, the selection and AI suggestions.</p></div>
+      <div class="studio studio-wrap">
+        <div class="studio-side">
+          <div class="player">
+            <img src="https://picsum.photos/id/373/360/640" width="360" height="640" alt="Placeholder: a hand filming a breaking wave on a phone" loading="lazy">
+            <p class="caption">wait for <mark>the wave</mark></p>
+          </div>
+          <div class="suggest">
+            <span class="ai-mark" aria-hidden="true"></span>
+            <p><strong>Hook suggested by Bamio</strong>Open on the wave, then cut to the phone, so the payoff lands in the first second.</p>
+          </div>
+        </div>
+        <div class="studio-main">
+          <div class="studio-bar">
+            <div class="transport">
+              <button class="btn btn-ghost btn-icon" type="button" aria-label="Back 1 second"><i class="ph ph-skip-back" aria-hidden="true"></i></button>
+              <button class="btn btn-volt btn-play" type="button" aria-label="Play"><i class="ph-fill ph-play" aria-hidden="true"></i></button>
+              <button class="btn btn-ghost btn-icon" type="button" aria-label="Forward 1 second"><i class="ph ph-skip-forward" aria-hidden="true"></i></button>
+            </div>
+            <button class="btn btn-secondary btn-sm" type="button"><i class="ph ph-scissors" aria-hidden="true"></i>Split</button>
+            <button class="btn btn-secondary btn-sm" type="button"><i class="ph ph-subtitles" aria-hidden="true"></i>Captions</button>
+            <span class="timecode"><b>00:09.12</b> / 00:28.00</span>
+          </div>
+          <div class="timeline" role="group" aria-label="Timeline">
+            <div class="ruler" aria-hidden="true"><span>0:00</span><span>0:05</span><span>0:10</span><span>0:15</span><span>0:20</span><span>0:25</span></div>
+            <div class="track">
+              <button class="clip clip-video" type="button" style="--x:0%;--w:31%;background-image:url(https://picsum.photos/id/373/54/96)">Wave</button>
+              <button class="clip clip-video" type="button" aria-selected="true" style="--x:31.5%;--w:27%;background-image:url(https://picsum.photos/id/281/54/96)"><span class="ai-mark" aria-hidden="true"></span>Phone cut</button>
+              <button class="clip clip-video" type="button" style="--x:59%;--w:41%;background-image:url(https://picsum.photos/id/390/54/96)">Payoff</button>
+            </div>
+            <div class="track track-sm">
+              <button class="clip clip-caption" type="button" style="--x:2%;--w:26%">wait for the wave</button>
+              <button class="clip clip-caption" type="button" style="--x:33%;--w:24%">3, 2, 1…</button>
+              <button class="clip clip-caption" type="button" style="--x:61%;--w:36%">we actually made it</button>
+            </div>
+            <div class="track track-sm">
+              <button class="clip clip-audio" type="button" style="--x:0%;--w:100%"><i class="ph ph-music-notes" aria-hidden="true"></i>Sunny side, 128 bpm</button>
+            </div>
+            <span class="playhead" style="--x:33%" aria-hidden="true"></span>
+          </div>
+          <p class="t-caption t-tertiary" style="margin:0">The playhead handle is the brand’s 9:16 frame, upright. The selected clip gets a volt outline; clips Bamio made carry the AI mark.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Voice -->
+  <section class="sec" id="voice" aria-labelledby="voice-title">
+    <div class="wrap">
+      <div class="sec-head"><h2 class="t-heading-xl" id="voice-title">Voice</h2><p>Casual and quick. Second person, contractions, energy from verbs rather than exclamation marks. Errors say what happened and what to do next.</p></div>
+      <div class="panel table-scroll">
+        <table class="voice-table">
+          <thead><tr><th scope="col">Moment</th><th scope="col">Say</th><th scope="col">Not</th></tr></thead>
+          <tbody>
+            <tr><td>Main action</td><td>Make a video</td><td>Create New Video Project</td></tr>
+            <tr><td>Empty state</td><td>Nothing here yet. Drop in an idea and we’ll find the hook.</td><td>Oops! No projects found!!</td></tr>
+            <tr><td>AI result</td><td>Bamio wrote 3 hooks. Pick one or write your own.</td><td>Our AI magic generated amazing hooks for you!</td></tr>
+            <tr><td>Error</td><td>Export failed: the file is over 4&nbsp;GB. Trim it or lower the quality, then try again.</td><td>An error occurred.</td></tr>
+            <tr><td>In progress</td><td>Rendering… 64%</td><td>Please wait</td></tr>
+            <tr><td>Destructive</td><td>Delete “Cold brew launch”? You can restore it for 30 days.</td><td>Are you sure?</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <p><strong>Files.</strong> <code>design/system/tokens.css</code> holds every value; <code>design/system/components.css</code> holds the components. Later comps import both.</p>
+    <p style="margin-top:14px"><strong>Placeholders.</strong> Photos from Picsum (Unsplash License), numbers are sample data, fonts and icons load from CDNs for comps only.</p>
+  </div>
+</footer>
+
+<script>
+(() => {
+  const root = document.documentElement;
+  const buttons = document.querySelectorAll('[data-set-theme]');
+  const meta = document.querySelector('meta[name="theme-color"]');
+  const apply = (value) => {
+    if (value === 'system') delete root.dataset.theme; else root.dataset.theme = value;
+    buttons.forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.setTheme === value)));
+    meta.content = getComputedStyle(root).getPropertyValue('--bg').trim();
+  };
+  let saved = 'system';
+  try { saved = localStorage.getItem('bamio-theme') || 'system'; } catch (e) {}
+  apply(saved);
+  buttons.forEach((b) => b.addEventListener('click', () => {
+    apply(b.dataset.setTheme);
+    try { localStorage.setItem('bamio-theme', b.dataset.setTheme); } catch (e) {}
+  }));
+
+  const caption = document.querySelector('[data-caption-demo]');
+  document.querySelector('[data-replay]')?.addEventListener('click', () => {
+    caption.classList.remove('is-playing');
+    requestAnimationFrame(() => requestAnimationFrame(() => caption.classList.add('is-playing')));
+  });
+})();
+</script>
+</body>
+</html>

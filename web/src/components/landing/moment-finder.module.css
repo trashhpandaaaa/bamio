@@ -1,0 +1,86 @@
+/* Lays itself out by its own width (container queries). */
+.frame { container-type: inline-size; }
+.panel {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 340px); gap: 40px; align-items: center;
+  padding: 40px; border-radius: var(--r-xl); background: var(--surface); color: var(--text);
+  box-shadow: var(--shadow-3), inset 0 0 0 1px var(--line);
+}
+
+/* ---------- The transcript, with the picked moment on it ---------- */
+.transcript { margin: 0; min-width: 0; }
+.lines { margin: 0; padding: 0; list-style: none; }
+.line {
+  position: relative; display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; align-items: center; gap: 4px 16px;
+  padding: 11px 16px; border-left: 3px solid transparent;
+  transition: background-color var(--dur-slow) var(--ease-out), border-color var(--dur-slow) var(--ease-out), opacity var(--dur-scene) var(--ease-out);
+  transition-delay: calc(var(--i) * 90ms);
+}
+.time { font: var(--t-mono); color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+.text { position: relative; font: var(--t-body-lg); color: var(--text-secondary); }
+.line[data-role] .text { color: var(--text); font-weight: 600; }
+
+/* Found: the moment is a volt band from the hook to the payoff; the rest steps back. */
+.panel[data-found] :is(.line, .cut)[data-inside] { background: color-mix(in srgb, var(--volt) 9%, transparent); border-left-color: var(--volt); }
+.panel[data-found] .line[data-inside] .text { color: var(--text); }
+.panel[data-found] .line:not([data-inside]) { opacity: .45; transition-delay: 0ms; }
+.line[data-role="hook"] { border-top-right-radius: var(--r-sm); }
+.line[data-role="payoff"] { border-bottom-right-radius: var(--r-sm); }
+
+.tag {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: var(--r-pill); white-space: nowrap;
+  background: var(--volt-subtle); color: var(--text); font: var(--t-label-sm);
+  opacity: 0; transform: translateX(-6px);
+  transition: opacity var(--dur-slow) var(--ease-out), transform var(--dur-slow) var(--ease-out); transition-delay: calc(var(--i) * 90ms + 120ms);
+}
+.panel[data-found] .tag { opacity: 1; transform: none; }
+
+/* Where a fixed-length cut would have ended the clip: between two lines of one sentence. */
+.cut {
+  display: flex; align-items: center; gap: 10px; padding: 0 16px; border-left: 3px solid transparent;
+  font: var(--t-caption); color: var(--text-tertiary); text-align: center;
+  transition: background-color var(--dur-slow) var(--ease-out), border-color var(--dur-slow) var(--ease-out); transition-delay: calc(var(--i) * 90ms);
+}
+.cut::before, .cut::after { content: ""; flex: 1 1 24px; border-top: 1.5px dashed var(--text-tertiary); }
+.cut span { flex: 0 1 auto; }
+.short { display: none; }
+
+/* ---------- The clip it became ---------- */
+.result { display: grid; gap: 16px; justify-items: start; min-width: 0; }
+.phone {
+  position: relative; width: min(240px, 100%); aspect-ratio: 9 / 16; overflow: hidden; container-type: inline-size;
+  border-radius: var(--r-frame); background: var(--surface-sunken); box-shadow: 0 0 0 2px var(--volt), var(--shadow-3);
+  opacity: 0; transform: translateY(12px) scale(.97);
+  transition: opacity var(--dur-slow) var(--ease-out) 700ms, transform var(--dur-scene) var(--ease-pop) 700ms;
+}
+.panel[data-found] .phone { opacity: 1; transform: none; }
+.meta { display: grid; gap: 8px; }
+.title { margin: 0; font: var(--t-heading-sm); letter-spacing: -.01em; color: var(--text); }
+.facts { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; font: var(--t-mono); color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+.score {
+  display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: var(--r-pill);
+  background: var(--volt); color: var(--on-volt); font: 700 12px/1 var(--font-mono);
+}
+.score :global(.ai-mark) { background: transparent; box-shadow: inset 0 0 0 1.5px var(--ink); }
+.why { margin: 0; display: flex; gap: 8px; align-items: baseline; font: var(--t-body-sm); color: var(--text-secondary); max-width: 38ch; }
+.why b { color: var(--text); font-weight: 600; }
+
+@container (max-width: 860px) {
+  .panel { grid-template-columns: minmax(0, 1fr); padding: 28px; }
+  .result { grid-template-columns: minmax(0, 200px) minmax(0, 1fr); align-items: end; gap: 20px; }
+}
+@container (max-width: 560px) {
+  .panel { padding: 16px 12px; gap: 28px; border-radius: var(--r-lg); }
+  .line { grid-template-columns: 44px minmax(0, 1fr); padding: 9px 10px; gap: 6px 10px; }
+  .cut { padding: 2px 10px; }
+  .long { display: none; }
+  .short { display: inline; }
+  .text { font: var(--t-body); }
+  .line[data-role] .text { font-weight: 600; }
+  .tag { grid-column: 2; justify-self: start; }
+  .result { grid-template-columns: minmax(0, 1fr); justify-items: center; }
+  .meta { justify-items: center; text-align: center; }
+  .why { justify-content: center; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .line, .cut, .tag, .phone { transition: none; }
+}

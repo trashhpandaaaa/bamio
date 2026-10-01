@@ -1,7 +1,25 @@
 import { describe, expect, it } from "vitest";
-import { engineFor, indicScriptFixer, splitIntoWords, tokensToWords, wordsToPhrases } from "../../workers/transcribe-core.mjs";
+import {
+  engineFor,
+  engineForWindows,
+  EUROPEAN,
+  englishSpans,
+  indicScriptFixer,
+  languageForScript,
+  mainScript,
+  romanize,
+  scriptOf,
+  scriptOfLanguage,
+  scriptShare,
+  splitIntoWords,
+  tidyIndic,
+  tokensToWords,
+  wordAgreement,
+  wordsToPhrases,
+} from "../../workers/transcribe-core.mjs";
 import { buildAss } from "@/lib/clips/ass";
-import { languageName } from "@/lib/clips/languages";
+import { languageName, PARAKEET_LANGUAGES, usesMultilingualModel } from "@/lib/clips/languages";
+import { retranscribeReason, TRANSCRIBER_VERSION } from "@/lib/clips/schema";
 import { captionLines, displayText, joinWords, textEm, titleLines, wordGap } from "@/lib/clips/logic";
 import { assMarkup, captionFontCss, captionFontOrder, fontRuns, fontsNeeded } from "@/lib/server/caption-fonts";
 
@@ -56,6 +74,95 @@ describe("words in any language", () => {
       "omni",
       "omni",
     ]);
+  });
+
+  it("keeps the main script when detection names a language of another (Nepali heard as Malayalam)", () => {
+    expect(indicScriptFixer(["मलाई धेरै भिडियो हेर्न गाहरो पर्छ", "ക"], "ml")("നമസ്തേ")).toBe("नमस्ते");
+    expect(indicScriptFixer(["মলাই"], "ne")("মলাই")).toBe("মলাই");
+  });
+
+  it("tidies vowel signs no word has", () => {
+    expect(tidyIndic("तमान्ोुक")).toBe("तमानोक");
+    expect(tidyIndic("गर्देो")).toBe("गर्दे");
+    expect(tidyIndic("त्यो भिडियो")).toBe("त्यो भिडियो");
+    // Bengali ো written in two parts is one letter.
+    expect(tidyIndic("বো")).toBe("বো");
+    expect(indicScriptFixer(["त्यो"], "ne")("त्ो")).toBe("तो");
+  });
+
+  it("drops unknown-sound markers and vowel signs that would start a word", () => {
+    const words = tokensToWords(["प", "र", "<unk>", "य", "ो", " ", "ो", "ग", "ो"], [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8], 0, 1);
+    expect(texts(words)).toEqual(["परयो", "गो"]);
+  });
+
+  it("sends a video to one model from the language heard at several points", () => {
+    const w = (lang: string, weight = 29) => ({ lang, weight });
+    expect(engineForWindows([])).toEqual({ engine: "english", language: "en" });
+    // One stray guess doesn't make an English video multilingual.
+    expect(engineForWindows([w("en"), w("en"), w("en"), w("en"), w("cy")])).toEqual({ engine: "english", language: "en" });
+    // English with Nepali, heard as several Indian languages: the multilingual model, named by the most heard.
+    expect(engineForWindows([w("en"), w("en"), w("ne"), w("hi"), w("ne", 10)])).toEqual({ engine: "omni", language: "ne" });
+    // Portuguese with a Galician guess stays on the European model, which also knows English.
+    expect(engineForWindows([w("pt"), w("pt"), w("gl"), w("en"), w("pt")])).toEqual({ engine: "european", language: "pt" });
+    expect(engineForWindows([w("ml"), w("ml"), w("hi")])).toEqual({ engine: "omni", language: "ml" });
+  });
+
+  it("finds the script of a transcript and of a language", () => {
+    expect(scriptOf("क")).toBe("Devanagari");
+    expect(scriptOf("ि")).toBe("Devanagari");
+    expect(scriptOf("か")).toBe("Han");
+    expect(scriptOf("7")).toBeNull();
+    expect(scriptShare("hello नमस्ते", "Devanagari")).toBeCloseTo(6 / 11);
+    expect(scriptShare("123", "Latin")).toBe(1);
+    // A podcast mostly in English with Nepali parts is still Devanagari.
+    expect(mainScript(["so we sat down and talked about it for a long time", "धेरै भिडियो"])).toBe("Devanagari");
+    expect(mainScript(["hello there my friend how are you doing today", "न"])).toBe("Latin");
+    expect(mainScript(["", " "])).toBeNull();
+    expect([scriptOfLanguage("ne"), scriptOfLanguage("ur"), scriptOfLanguage("ja"), scriptOfLanguage("sw")]).toEqual(["Devanagari", "Arabic", "Han", null]);
+  });
+
+  it("names the language from the transcript's common words when detection disagrees", () => {
+    const nepali = ["मलाई धेरै भिडियो हेर्न गाहरो पर्छ", "त्यो भिडियोमा पनि छ", "हामी पनि गयौं अनि त्यो हो"];
+    const hindi = ["यह वीडियो बहुत अच्छा है", "और हम भी वहाँ थे", "क्या आप भी हैं"];
+    expect(languageForScript("ml", "Devanagari", nepali)).toBe("ne");
+    expect(languageForScript("hi", "Devanagari", nepali)).toBe("ne");
+    expect(languageForScript("hi", "Devanagari", hindi)).toBe("hi");
+    expect(languageForScript("ne", "Devanagari", hindi)).toBe("hi");
+    // Another script with no common words known: its main language.
+    expect(languageForScript("ta", "Devanagari", ["क ख"])).toBe("hi");
+    expect(languageForScript("sw", "Latin", ["habari yako"])).toBe("sw");
+  });
+
+  it("finds where the English model agrees, English runs among other words, and mixed-script spellings", () => {
+    const english = wordAgreement(["when", "we", "have", "hope", "you", "know"], ["When", "we", "have", "hope,", "you", "know."]);
+    expect(english.ratio).toBe(1);
+    expect(wordAgreement(["lakiate", "kantiwa"], ["Laguerte", "Catio."]).ratio).toBe(0);
+    // Written half in Devanagari, the model unsure of the language: close spellings count.
+    const mixed = wordAgreement(["gिve", "मे", "the", "गreen", "light", "पन", "तो"], ["give", "me", "the", "green", "light", "bunny"]);
+    expect(mixed.matched).toEqual([true, false, true, true, true, false, false]);
+    // A word wholly in Devanagari has to match exactly: the English model spells Nepali as English-like words.
+    expect(wordAgreement(["मिलार", "हुन्छ"], ["Milara", "hunch"]).ratio).toBe(0);
+    expect(romanize("प्रब्लेम")).toBe("prblem");
+    expect(romanize("mीtिnग")).toBe("miting");
+
+    const words = ["तब", "असम्भव", "when", "we", "x", "have", "hope", "पनि"].map((text, i) => ({ text, start: i, end: i + 0.9 }));
+    const matched = [false, false, true, true, false, true, true, false];
+    expect(englishSpans(words, matched)).toEqual([{ start: 2, end: 6.9 }]);
+    expect(englishSpans(words, [false, false, true, true, false, false, false, false])).toEqual([]);
+  });
+
+  it("offers to transcribe again where the transcriber has improved", () => {
+    const project = (over: object) =>
+      ({ hasTranscript: true, transcriptEngine: "device", spokenLanguage: "ne", source: { hasAudio: true }, ...over }) as Parameters<typeof retranscribeReason>[0];
+    expect(retranscribeReason(project({}))).toBe("languages");
+    expect(retranscribeReason(project({ transcriber: TRANSCRIBER_VERSION }))).toBeNull();
+    expect(retranscribeReason(project({ spokenLanguage: "en" }))).toBeNull();
+    expect(retranscribeReason(project({ spokenLanguage: "de" }))).toBeNull();
+    expect(retranscribeReason(project({ transcriptEngine: "gemini", transcriber: TRANSCRIBER_VERSION }))).toBe("timing");
+    expect(retranscribeReason(project({ hasTranscript: false }))).toBeNull();
+    // The app and the worker agree on what Parakeet transcribes.
+    expect([...PARAKEET_LANGUAGES].sort()).toEqual(["en", ...EUROPEAN].sort());
+    expect([usesMultilingualModel("ne"), usesMultilingualModel("en-GB"), usesMultilingualModel("auto")]).toEqual([true, false, false]);
   });
 
   it("names languages", () => {

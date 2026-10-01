@@ -5,7 +5,8 @@ import { LIMITS } from "@/lib/clips/schema";
  * A capture is "rewind" seconds before the moment it was requested plus "record" seconds
  * after it. Twitch streams with past broadcasts on can rewind to their start (through the
  * in-progress VOD); other streams can't rewind, but the live playlist's last ~30 s are
- * always included.
+ * always included. Following a stream captures as far back as it keeps (a Twitch VOD: its
+ * start) and keeps going until it ends, while the project is edited.
  */
 
 /** Roughly what a live playlist holds (Twitch, YouTube and Kick all keep about 30 s). */
@@ -34,6 +35,37 @@ export function liveCaptureProblem(rewindSec: number, recordSec: number, live: {
   if (rewindSec + recordSec < 10) return "Capture at least 10 seconds.";
   if (rewindSec + recordSec > LIMITS.maxMediaSec) return `Capture up to ${formatSpan(LIMITS.maxMediaSec)} at a time.`;
   return null;
+}
+
+/* ------------------------------ Following ------------------------------ */
+
+/** Following: transcribe new speech in pieces of up to 10 minutes, once a minute has come in. */
+export const FOLLOW_PIECE_SEC = { min: 60, max: 600 };
+/** Following: look for AI clips once this much new speech is transcribed (and when it ends). */
+export const FOLLOW_FIND_EVERY_SEC = 40 * 60;
+
+/**
+ * Which phrases of a piece transcribed from `from` to `to` (seconds in the video) to keep,
+ * and where the next piece starts. The end of a piece may cut a word, so unless it's the
+ * `last` piece, only phrases clear of its end are kept, up to a pause, and the next piece
+ * starts inside that pause. Always moves forward.
+ */
+export function commitPiece<T extends { start: number; end: number }>(phrases: T[], from: number, to: number, last: boolean): { keep: T[]; until: number } {
+  if (last) return { keep: phrases, until: to };
+  const clear = to - 3;
+  for (let i = phrases.length - 1; i >= 0; i--) {
+    const p = phrases[i]!;
+    const next = phrases[i + 1];
+    if (p.end > clear) continue;
+    if (!next) return { keep: phrases.slice(0, i + 1), until: Math.max(p.end, clear) };
+    if (next.start - p.end >= 0.3) return { keep: phrases.slice(0, i + 1), until: (p.end + next.start) / 2 };
+  }
+  // No speech at all: the piece was silence.
+  if (phrases.length === 0) return { keep: [], until: Math.max(from, clear) };
+  // Speech without a pause to cut at (rare: phrases end at pauses): keep all but the last phrase.
+  const keep = phrases.slice(0, -1);
+  const until = keep.at(-1)?.end ?? from;
+  return until > from + 1 ? { keep, until } : { keep: phrases, until: to };
 }
 
 /**

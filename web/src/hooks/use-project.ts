@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "@/lib/clips/api";
-import { isJobActive, type Project, type SystemStatus, type Transcript } from "@/lib/clips/schema";
+import { isFollowing, isJobActive, type Project, type SystemStatus, type Transcript } from "@/lib/clips/schema";
 
-/** True while the server is working on the project (import, analysis or an export). */
+/** True while the server is working on the project (import, analysis, an export, or a followed stream growing). */
 export function isBusy(project: Project): boolean {
-  return isJobActive(project.job.status) || project.clips.some((c) => c.export?.status === "queued" || c.export?.status === "rendering");
+  return (
+    isJobActive(project.job.status) || isFollowing(project) || project.clips.some((c) => c.export?.status === "queued" || c.export?.status === "rendering")
+  );
 }
 
 /**
@@ -73,8 +75,8 @@ export function useProjects() {
   return { projects: data, error, refresh, setProjects: set };
 }
 
-/** The transcript, reloaded whenever its revision changes. */
-export function useTranscript(id: string, enabled: boolean, rev: number) {
+/** The transcript, reloaded whenever its revision changes (`rev`: anything that changes with it, e.g. "3:1260.5" for a growing one). */
+export function useTranscript(id: string, enabled: boolean, rev: number | string) {
   const [transcript, setTranscript] = useState<Transcript | null>(null);
   useEffect(() => {
     if (!enabled) return;

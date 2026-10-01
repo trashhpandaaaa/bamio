@@ -68,6 +68,8 @@ export type RunOptions = {
    * kills it. The run then resolves normally if the tool exits cleanly.
    */
   stopSignal?: AbortSignal;
+  /** Extra environment variables for the process. */
+  env?: Record<string, string>;
 };
 
 const TAIL = 6000;
@@ -88,7 +90,13 @@ function runProcess(bin: string, args: string[], opts: RunOptions, name: string)
   if (opts.signal?.aborted) return Promise.reject(abortError());
 
   return new Promise((resolve, reject) => {
-    const child = spawn(bin, args, { cwd: opts.cwd, windowsHide: true, shell: false, stdio: [opts.stopSignal ? "pipe" : "ignore", "pipe", "pipe"] });
+    const child = spawn(bin, args, {
+      cwd: opts.cwd,
+      env: opts.env ? { ...process.env, ...opts.env } : undefined,
+      windowsHide: true,
+      shell: false,
+      stdio: [opts.stopSignal ? "pipe" : "ignore", "pipe", "pipe"],
+    });
     let stdout = "";
     let stderrTail = "";
     let settled = false;
