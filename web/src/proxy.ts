@@ -9,9 +9,13 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
 const isAppPage = createRouteMatcher(["/projects(.*)", "/new(.*)", "/profile(.*)", "/billing(.*)"]);
 
-export default clerkMiddleware(async (auth, req) => {
-  if (isAppPage(req)) await auth.protect();
-});
+export default clerkMiddleware(
+  async (auth, req) => {
+    if (isAppPage(req)) await auth.protect();
+  },
+  // Signed-out visitors go to Bamio's own sign-in page.
+  { signInUrl: "/sign-in", signUpUrl: "/sign-up" },
+);
 
 export const config = {
   matcher: [

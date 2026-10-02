@@ -1,36 +1,37 @@
-# Bamio on one machine with everything it needs: Postgres, MinIO (S3-compatible storage), the
-# web server and a media worker. From web/:
-#   cp .env.example .env      then fill in the Clerk keys, GEMINI_API_KEY (and Stripe, optionally)
-#   docker compose up --build
-# The app is on http://localhost:3000. More workers: docker compose up --scale worker=3
-# In production use a managed Postgres and S3/R2 instead (set DATABASE_URL and S3_* and drop
-# the postgres and minio services), and change the MinIO and Postgres passwords below.
-
-x-app: &app
-  build:
-    context: .
-    args:
-      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:?set it in .env}
-  env_file: .env
-  environment: &env
-    DATABASE_URL: postgres://bamio:bamio@postgres:5432/bamio
-    STORAGE_DRIVER: s3
-    S3_BUCKET: bamio
-    S3_ENDPOINT: http://minio:9000
-    # Browsers reach MinIO here; signed links are made for this address.
-    S3_PUBLIC_ENDPOINT: http://localhost:9000
-    S3_FORCE_PATH_STYLE: "1"
-    S3_REGION: us-east-1
-    S3_ACCESS_KEY_ID: bamio
-    S3_SECRET_ACCESS_KEY: change-this-minio-secret
-  restart: unless-stopped
+# Bamio on one server (a DigitalOcean Droplet, or any Linux machine with Docker): Caddy (HTTPS
+# for your domain, certificates renewed automatically), Postgres, and the app, which serves the
+# site and does the processing. Videos, exports and the speech models live on the server's disk
+# (the appdata volume). Step by step: DEPLOY.md. In short, from web/ on the server:
+#   cp .env.example .env      then fill in DOMAIN, POSTGRES_PASSWORD, the Clerk keys, GEMINI_API_KEY
+#   docker compose up -d --build
+# Update after a git pull: docker compose up -d --build
 
 services:
+  app:
+    build:
+      context: .
+      args:
+        # Built into the pages (it's public); everything secret is read at run time from .env.
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:?set it in .env}
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://bamio:${POSTGRES_PASSWORD:?set it in .env}@postgres:5432/bamio
+      BAMIO_APP_URL: https://${DOMAIN:?set it in .env}
+      STORAGE_DRIVER: local
+    volumes:
+      # /data/media (videos, exports), /data/work (work in progress), /data/models (speech models, fonts).
+      - appdata:/data
+    depends_on:
+      postgres: { condition: service_healthy }
+    # Running jobs are handed back to the queue on stop; give them time.
+    stop_grace_period: 30s
+    restart: unless-stopped
+
   postgres:
     image: postgres:18
     environment:
       POSTGRES_USER: bamio
-      POSTGRES_PASSWORD: bamio
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set it in .env}
       POSTGRES_DB: bamio
     volumes:
       - pgdata:/var/lib/postgresql
@@ -40,52 +41,21 @@ services:
       retries: 20
     restart: unless-stopped
 
-  minio:
-    image: minio/minio
-    command: server /data --console-address :9001
-    environment:
-      MINIO_ROOT_USER: bamio
-      MINIO_ROOT_PASSWORD: change-this-minio-secret
+  caddy:
+    image: caddy:2
     ports:
-      - "9000:9000"
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:?set it in .env}
     volumes:
-      - objects:/data
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy:/data
+    depends_on: [app]
     restart: unless-stopped
 
-  # Makes the bucket once.
-  minio-setup:
-    image: minio/mc
-    depends_on: [minio]
-    entrypoint: ["/bin/sh", "-c", "until mc alias set local http://minio:9000 bamio change-this-minio-secret; do sleep 1; done; mc mb --ignore-existing local/bamio"]
-
-  web:
-    <<: *app
-    environment:
-      <<: *env
-      # Only queues work; the worker service does it.
-      BAMIO_WORKER: "off"
-    ports:
-      - "3000:3000"
-    depends_on:
-      postgres: { condition: service_healthy }
-      minio-setup: { condition: service_completed_successfully }
-
-  worker:
-    <<: *app
-    # The speech models are fetched into the volume the first time (about 1.9 GB), then reused.
-    command: ["sh", "-c", "node scripts/setup-media.mjs && exec node dist/worker.mjs"]
-    volumes:
-      - models:/data/models
-      - work:/data/work
-    stop_grace_period: 30s
-    healthcheck:
-      disable: true
-    depends_on:
-      # The web server has brought the database up to date.
-      web: { condition: service_healthy }
-
 volumes:
+  appdata:
   pgdata:
-  objects:
-  models:
-  work:
+  caddy:

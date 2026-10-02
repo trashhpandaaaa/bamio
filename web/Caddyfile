@@ -1,0 +1,6 @@
+# HTTPS for Bamio (compose.yaml): Caddy gets and renews the certificate for DOMAIN from
+# Let's Encrypt, once the domain's DNS points at this server.
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy app:3000
+}

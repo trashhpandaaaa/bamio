@@ -35,8 +35,8 @@
   .brand { display: inline-flex; align-items: baseline; gap: 10px; text-decoration: none; color: var(--text); flex: none; }
   .wm { font: 800 27px/1 var(--font-sans); letter-spacing: -.05em; }
   .wm .i { position: relative; display: inline-block; }
-  /* The dot of the i is a pair of scissors (since 2026-09-30; same path as web/src/components/brand.tsx). */
-  .wm .tittle { position: absolute; left: 50%; top: -.17em; width: .5em; height: auto; aspect-ratio: 31.97 / 25.09; transform: translateX(-46%); overflow: visible; }
+  /* The dot of the i is a 9:16 frame tilted 12deg (same as web/src/app/globals.css). */
+  .wm .tittle { position: absolute; left: 50%; top: -.07em; width: .145em; height: .258em; border-radius: .05em; background: currentColor; transform: translateX(-50%) rotate(12deg); }
   .brand small { font: var(--t-caption); color: var(--text-tertiary); }
   .topnav { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; margin-left: auto; }
   .topnav::-webkit-scrollbar { display: none; }
@@ -186,7 +186,7 @@
 <header class="topbar">
   <div class="wrap">
     <a class="brand" href="#main" aria-label="Bamio design system, back to top">
-      <span class="wm" aria-hidden="true" translate="no">bam<span class="i">ı<svg class="tittle" viewBox="0 0 31.97 25.09" focusable="false"><path fill="currentColor" d="M0 8.33a5.8 5.8 0 1 0 11.6 0a5.8 5.8 0 1 0 -11.6 0ZM2.9 8.33a2.9 2.9 0 1 1 5.8 0a2.9 2.9 0 1 1 -5.8 0ZM2.33 19.29a5.8 5.8 0 1 0 11.6 0a5.8 5.8 0 1 0 -11.6 0ZM5.23 19.29a2.9 2.9 0 1 1 5.8 0a2.9 2.9 0 1 1 -5.8 0ZM9.22 11.74L16.35 14.18L31.51 18L31.97 16.67L18.12 9.07L10.6 7.77ZM12.74 17.84L19.08 13.6L28.64 1.02L27.68 0L15.39 9.66L9.87 14.78Z"/></svg></span>o</span>
+      <span class="wm" aria-hidden="true" translate="no">bam<span class="i">ı<span class="tittle"></span></span>o</span>
       <small>Design system v0.1</small>
     </a>
     <nav class="topnav" aria-label="Sections">
@@ -423,7 +423,7 @@
           <div class="icon-cell"><i class="ph-fill ph-star" aria-hidden="true"></i><code>star, fill</code></div>
           <div class="icon-cell"><span class="ai-mark" style="font-size:24px" aria-hidden="true"></span><code>ai-mark</code></div>
         </div>
-        <p class="panel-note">The last glyph is not an icon font character. It is Bamio’s 9:16 frame, tilted 12° (the wordmark’s i-dot until the scissors replaced it), and it labels work Bamio did, always next to a verb: “Hook suggested by Bamio”.</p>
+        <p class="panel-note">The last glyph is not an icon font character. It is Bamio’s 9:16 frame, tilted 12° (the wordmark’s i-dot), and it labels work Bamio did, always next to a verb: “Hook suggested by Bamio”.</p>
       </div>
     </div>
   </section>

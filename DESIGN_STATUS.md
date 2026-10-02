@@ -1,6 +1,6 @@
 # Bamio design status
 
-Last updated: 2026-10-01 (plans and payments with Stripe: pricing page, plan & billing page, AI minutes)
+Last updated: 2026-10-02 (emails through Resend; production architecture: Postgres, S3-compatible storage, a durable job queue with separate workers, Docker; the older logo back)
 
 ## Current phase
 
@@ -14,14 +14,14 @@ On 2026-09-27 the user said the only features needed are (1) **video clipping** 
 |---|---|
 | Landing (`/`) | Rebuilt 2026-09-30 with opus.pro as a structural reference (see Landing page after OpusClip): the link field is the hero, a demo of a stream turning into three captioned clips, "AI that finds the moment, not just a clip." (added at the user's request: how Bamio picks a moment), the how-it-works bento, a working mini caption editor, every-language and live-stream cards, FAQ, a closing panel with the link field, and a link bar that follows the page. |
 | Import (`/new`) | Paste a link (checked and previewed as you paste: title, channel, length, thumbnail) or upload a file (drag and drop, chunked upload with progress, speed and cancel). Optional part-of-video range (required over 3 hours). Settings: spoken language (detected automatically, or picked from a list), find clips with AI, clip length, format, captions and style; defaults come from the profile. |
-| Processing | Server job with a stepper: download (yt-dlp) or upload, prepare (remux or re-encode to browser-safe MP4, thumbnail), transcribe on the device in any language (sherpa-onnx, a time for every word; see Every language below), find clips (Gemini on the transcript). Survives leaving the page; a server restart marks it failed (or ready with a warning if only AI steps were cut off) with Try again. |
+| Processing | A durable background job with a stepper: download (yt-dlp) or upload, prepare (remux or re-encode to browser-safe MP4, thumbnail), transcribe on the device in any language (sherpa-onnx, a time for every word; see Every language below), find clips (Gemini on the transcript). Survives leaving the page and a worker crash: another worker takes the job over within about 30 s (see Production architecture). |
 | Project (`/projects/[id]`) | Source player with a scrub bar that shows the clips; mark a clip with I / O or typed times; AI clips with score, reason and title; best-first or in-order; preview, export, download and delete per clip; "Find more clips" with a length choice; rename and delete project. |
 | Clip editor (`/projects/[id]/clips/[clipId]`) | Studio surface. Live preview at 9:16, 1:1 or 16:9; fill (crop with drag-to-reframe and a focus slider) or fit (blurred fill); captions drawn like the export (pop, clean, boxed; lower third or middle); editable caption words; title overlay; trim bar over a filmstrip with draggable, keyboard-operable handles; autosave; previous / next clip; "Use this look for all clips"; export with progress, Watch and Download; marks an export out of date after later edits. |
 | Export | Server-side ffmpeg: cut, crop or fit, ASS captions and title burned in (Bricolage for Latin, a Noto font for every other script, complex shaping, right to left), H.264 / AAC 1080p MP4 with fast start. |
 | Profile | Clerk profile plus "Clip defaults" (spoken language, find clips, clip length, format, captions, caption style). |
 | Pricing (`/pricing`) | Starter, Pro (most popular) and Team, monthly or every 3 months ("Save $6 compared to $36 monthly"...); included features, then a folded "Coming soon" list per plan; buy with Stripe Checkout, switch plans in Stripe's portal; billing questions. Public. |
 | Plan & billing (`/billing`) | The plan and its renewal, AI minutes left this month, projects kept, Manage billing (Stripe portal). In the account menu when plans are on. |
-| Storage | On the server's disk per Clerk user (`web/.data/`, or `BAMIO_DATA_DIR`). |
+| Data and storage | Projects, transcripts, jobs, billing and usage in Postgres; media (sources, thumbnails, frames, exports, a followed stream's segments) in a local folder or S3 / R2 / MinIO, per Clerk user and project. |
 
 ### Caption timing (2026-09-28)
 
@@ -90,6 +90,52 @@ Decisions:
 - **libass findings:** with the `subtitles` filter it used simple shaping, so Devanagari conjuncts broke (नमस्ते drawn with a visible virama); the export now uses `ass=...:shaping=complex`. This libass build has no Unicode line breaking (`wrap_unicode` unsupported), so lines without spaces never wrap: caption lines in those scripts are cut to fit the frame (pop 11 em, clean and boxed 16 em) and long titles are broken into lines at word boundaries. Arabic and other right-to-left scripts lay out correctly; the preview uses `dir="auto"`.
 - Gemini now only picks clips (and is told the spoken language, and that the transcript may have no punctuation). `BAMIO_LOCAL_TRANSCRIBE=0` still sends transcription to Gemini. Projects transcribed by Gemini before (any language) show "Transcribe again".
 - **Windows Smart App Control** blocked the speech engine's unsigned DLLs (`sherpa-onnx-c-api.dll`) for a while today, from 18:11 ("An Application Control policy has blocked this file"; Code Integrity events 3033 and 3077), then allowed them again, like it once did to Next's compiler. Transcription now fails with a message that says so. The WebAssembly build of sherpa-onnx (npm `sherpa-onnx`) works without native DLLs, but single-threaded (0.9x real time), so it's not used.
+
+### Production architecture (2026-10-02)
+
+The user pasted a production-readiness checklist (keys, Postgres, S3/R2, Redis and BullMQ, workers, durable jobs, storage, import reliability, editor, AI, billing and abuse, observability, deploy, legal, QA, launch gates) and chose to start with the architecture: Postgres, object storage with signed links, a durable queue with separate media workers, and a Dockerfile. Keys were checked first: none are in git (`.env*` is ignored; `.env.example` has placeholders only).
+
+- **Postgres** (`web/src/lib/server/db.ts`, postgres.js; migrations in `web/db/migrations/`, applied in order under an advisory lock): `projects` (one zod-validated jsonb document per project, as before), `transcripts`, `billing_accounts`, `usage_entries` (keyed, so a retried import counts once), `jobs`. `mutateProject` changes a project inside a transaction with its row locked (`FOR NO KEY UPDATE`, so transcript writes don't deadlock with it), and can queue a job in the same transaction. Creating a project checks the plan's project limit under an advisory lock per user. `DATABASE_URL` is required in production; development uses `npm run db:local` (a Postgres in `web/.pg` on port 54329, started detached from the terminal so Ctrl+C in another command can't kill it). The user's 5 projects, 5 transcripts and 2 billing records were copied in from the JSON files (`scripts/db-import-disk.mjs`; the files are left in place).
+- **Storage** (`storage.ts`): one interface, two drivers. Local keeps the old folder layout under `BAMIO_DATA_DIR`; S3 works with AWS, R2 and MinIO. Keys are `users/<user>/projects/<project>/...` from `mediaKeys` and checked against a pattern. The browser gets media from signed links (`serve` redirects), signed with the time floored to the hour so a link stays the same for an hour and the browser cache works; `S3_PUBLIC_ENDPOINT` signs for the address browsers use when it differs (Docker). Uploads still arrive in 8 MB chunks and go to S3 as a multipart upload (part n = offset / 8 MB + 1; the parts' etags are kept on the project). Work in progress is in a local scratch folder per project (`BAMIO_WORK_DIR`); only finished files are published.
+- **Followed streams with S3** (`live-media.ts`): the capturing worker uploads each new segment, then the playlist. Readers on other machines get a closed snapshot whose segment links are signed URLs; ffmpeg needs `-protocol_whitelist file,http,https,tcp,tls,crypto` for such a playlist, which `bin.ts` adds to any `snap-*.m3u8` input. The editor's playlist goes through the server (`proxy`), its segments are signed links.
+- **The job queue** (`queue.ts`): a `jobs` row per import, analysis, transcription, export, follow and finish-follow. One active job per project, kind and clip (a partial unique index makes queuing idempotent). Workers claim with `FOR UPDATE SKIP LOCKED` in priority order (Pro and Team first, replacing the in-memory priority queue in `limiter.ts`), at most 2 running per user per pool, and hold a 30 s lease renewed every 10 s. An expired lease means the worker died: another worker claims the job (attempt + 1). Retries wait 30 s, then 2 min, 8 min... (up to 30 min); errors that retrying can't fix (bad input, `HttpError` under 500, time limits) fail at once. Live captures get one attempt (the moment has passed). Cancel and stop are flags seen at the next heartbeat. NOTIFY wakes idle workers at once; they also poll every 3 s. Finished jobs are pruned after 30 days.
+- **Workers** (`worker.ts`): pools for imports (2 at once), exports (2) and streams (4), set with `BAMIO_*_SLOTS`. Each kind has a time limit (import 8 h, find clips and transcribe again 6 h, export 2 h, follow its maximum plus 2 h). On SIGTERM a worker stops claiming, aborts its jobs and hands them back without counting an attempt. The web server runs a worker itself (`instrumentation.ts`) unless `BAMIO_WORKER=off`; then `node dist/worker.mjs` (esbuild bundle, `npm run build:worker`) runs on any machine with the same environment. Job handlers were made safe to run again: an import that finds its video already prepared goes straight to transcription, and a followed stream resumed by another worker finishes what was captured.
+- **Health and deploy:** `GET /api/health` (public, nothing about users) reports the database, storage, media tools and the queue (waiting, running, oldest wait) with 200 or 503. A database that can't be reached gives a 503 "can't reach its database" everywhere. `web/Dockerfile` (one image for both roles: Node 24 slim, tini, a non-root user, migrations on start, a health check) and `web/compose.yaml` (Postgres 18, MinIO and its bucket, a web server that only queues, a worker; `--scale worker=N`).
+- **Decision: a Postgres queue instead of Redis and BullMQ.** Same guarantees for this load (durable, leased, retried, prioritised, cancellable), one less service to run and back up, and a job is queued in the same transaction as the project change that asks for it, so neither can exist without the other. `queue.ts` is small, so it can be swapped if volume ever needs it. Redis and Docker weren't available on this machine either.
+
+### Hosting: one DigitalOcean Droplet (2026-10-02)
+
+The user first deployed to Cloudflare Workers (OpenNext); the build failed bundling the AWS SDK, and Workers can't run Bamio anyway (no ffmpeg, yt-dlp or native speech engine, no long-running jobs, no disk). The user can't leave their PC on, and chose DigitalOcean. Decision: one Droplet with Docker Compose (`web/compose.yaml`): Caddy for HTTPS (`web/Caddyfile`, `DOMAIN` in `.env`), Postgres 18, and the app serving the site and running jobs, with media on the Droplet's disk (local storage; MinIO dropped from the compose file). Step by step in `web/DEPLOY.md` (Droplet size, DNS, Docker, swap, firewall, `.env`, models, Clerk production keys, Stripe webhook, Resend, updates, backups). Also: Clerk's sign-in and sign-up URLs are now set in code (`layout.tsx`, `proxy.ts`), since a Docker build only gets the publishable key and `NEXT_PUBLIC_` values are baked in at build time. Not yet run on a Droplet: the image has never been built (no Docker here).
+
+### Emails through Resend (2026-10-02)
+
+The user asked to "use resend api for email to notify users that they've been subscribed and other informations". Built:
+
+- **What's sent** (`web/src/lib/email/templates.ts`): plan started ("Welcome to Bamio Pro"), plan changed, plan ending on a date (after cancelling) and continuing (cancellation undone), payment failed, plan ended; AI minutes at 80% and used up (once each per month and plan); a video or followed stream ready (with its 3 best AI clips and a link), and an import failed. Subjects and copy in Bamio's voice; HTML in the paper and night colours (inline styles, since mail apps ignore CSS variables; a test checks them against `tokens.css`), a plain-text copy, readable at 360 px. Screenshots and text in `web/qa/emails/`.
+- **Turning emails off:** Profile → Notifications (`/profile/notifications`): "When a video is ready, or an import fails" and "When I've used most of my AI minutes" (the second only when plans are on), stored on the Clerk user (`unsafeMetadata.bamioNotifications`) beside the clip defaults. Plan and payment emails always go out.
+- **How it works** (`web/src/lib/server/email.ts`, the only reader of `RESEND_API_KEY`): an outbox table (`emails`, migration 0003) with one row per user and key; plan emails are queued in the transaction that saves the plan (`updateBilling` got a `then` hook), so a webhook delivered twice, the billing page reading Stripe again, or a retried import never sends twice. Which plan change sends what is one pure function (`subscriptionNotices` in `billing.ts`). The mailer runs beside the job worker (web server or worker processes), is woken by NOTIFY, looks the user up in Clerk when it sends (primary address, settings), and sends with Resend's idempotency key; it retries when Resend or Clerk can't be reached (5 more tries over about 4.5 hours) and gives up on a refusal. Clerk test users (`+clerk_test` addresses) are never emailed.
+- **Modes:** sent with `RESEND_API_KEY` + `EMAIL_FROM` (+ `BAMIO_APP_URL` in production, for links); `BAMIO_EMAIL=preview` writes and logs emails without sending (test servers use it, so a Resend key in `web/.env` never reaches a test user); `BAMIO_EMAIL=off` queues nothing. `/api/system/status` and `/api/health` say whether emails are on. `npm run email:check -- you@example.com` sends one test email.
+- **Decisions:** no receipts (Stripe's own receipts are better: invoice numbers, tax); Stripe's failed-payment emails should be switched off so customers don't get two. Emails in English. No welcome email on sign-up (Clerk sends its own sign-up emails; a Clerk webhook would be needed). The "ready" email goes out for every import, even when the user watched it finish; it can be turned off.
+
+### Verification (2026-10-02, emails)
+
+- `npm run check`: 156 unit tests (16 new: every template renders, links point at `BAMIO_APP_URL`, no em dashes, escaping of video and clip titles, settings links only on emails that can be turned off, colours match the tokens; plan changes to emails, including a whole subscription's life through `saveSubscription` sending started, ending and ended once each; minutes at 80% and used up once each; the outbox sending once with an idempotency key, skipping turned-off emails and missing addresses and Clerk test users, retrying and giving up, taking over a stuck send, preview and off modes). `npm run build` and the worker bundle pass.
+- End-to-end: the main test now checks that an upload's "Your clips are ready" email is written once (previewed) for the project.
+- Emails rendered and screenshotted in light, dark and at 360 px (`web/qa/emails/`).
+- Not verified: a real send through Resend (no key here, and the user's own address wasn't used). Run `npm run email:check -- <your address>` once the key and domain are set.
+
+### The older logo back (2026-10-02)
+
+The user asked to change the logo back to the older one, "with a rectangle rather than scissors". The i-dot of the wordmark is the 9:16 frame tilted 12° again, and so is the app icon (ink on volt), restored as they were before 2026-09-30 (`components/brand.tsx`, `app/globals.css`, `app/icon.svg`; `design/system/index.html` too). The Phosphor scissors icon stays where it labels clipping (Clip defaults, empty project lists): that’s a UI icon, not the logo.
+
+### Real footage in the landing demos (2026-10-01, later)
+
+The user asked for "real famous podcast and streaming clips" on the landing page. Famous creators' clips weren't used: their footage is copyrighted, and their faces on a paid product's page read as an endorsement (takedown and right-of-publicity risk). The user chose free stock footage instead.
+
+- **Source:** Mixkit (Pexels and Pixabay refuse automated access from here; their APIs need a key). Mixkit Stock Video Free License: commercial use, no credit required (the landing footer credits it). #2948 "People recording a podcast in a studio" (two hosts with headphones and mics, one each side) and #43526 "Man playing an online video game on his computer" (a face cam). Gaming footage showing a recognizable game on screen was skipped (the game is someone else's copyright).
+- **Files:** `web/scripts/landing-footage.mjs` downloads the 720p originals (in 1 MB ranges: Mixkit's CDN stalls on whole files here) and makes `web/public/landing/`: 960x540 silent loops (WebM VP9 about 0.5 MB and 0.2 MB, MP4 fallback), stills at a few seconds in, and a 10-frame filmstrip sprite. The loop cuts straight back to its start: a dissolve showed the two hosts twice.
+- **Where:** the hero is now a podcast (YouTube, "Podcast, episode 112", three podcast-style clips, the filmstrip under it from the real frames); the moment finder and the live card use the face cam (they tell a stream's story); the caption studio and the language card use the podcast. 9:16 crops are made the same way as before (a window centred on each host, kept inside the frame), so the reframing story still shows.
+- **Behaviour** (`components/landing/footage.tsx`): a still until the demo is on screen, then the loop plays from that still's second; videos off screen are removed; only the playing clip of the hero plays; reduced motion or data saving keeps stills. The drawn scene (`scene.tsx`) is gone.
 
 ### Plans and payments (2026-10-01)
 
@@ -167,7 +213,7 @@ The band draws once when the section comes into view (at once with reduced motio
 - **Motion.** The demo's story plays once when it comes into view. Captions and the language cycle loop only while on screen, with pause buttons. With reduced motion, everything shows its finished state and the editor doesn't autoplay.
 - **Footer fix.** The old line "Transcripts and clip picks by Google Gemini" had been wrong since on-device transcription. It now says Bamio transcribes and Google Gemini picks the clips.
 
-**Scissors in the wordmark:**
+**Scissors in the wordmark** (reverted 2026-10-02: the user asked for the older logo, the tilted 9:16 frame, back; the wordmark, app icon, design system page and docs use the frame again):
 - The shape: two handle rings and two tapered blades, horizontal, with the blades forward and tilted 12° up (the angle the 9:16 frame had).
 - Why this angle: upright scissors looked like a face at 27 px (the rings read as eyes), and diagonal ones blurred. Horizontal reads as ✂ down to 16 px.
 - Implementation: one SVG path (`SCISSORS_PATH` in `components/brand.tsx`) in currentColor, 0.5 em wide over a dotless ı.
@@ -228,6 +274,14 @@ The user asked: "make the live stream video work without recording as well, add 
 - **Findings:** ffprobe-static is 4.0.2 and resolves a playlist's segment names against a backslash path wrongly ("Error when loading first segment"); snapshots use forward slashes. Tasks are now registered before they start: a project read in between saw the new follow as abandoned and began "finishing" it in parallel.
 - **Limits:** a dropped connection ends following (what was captured is kept; start a new follow to carry on); following keeps source quality, about 2.7 GB an hour at 1080p60; after a server restart, what was captured is finished the next time the project is opened.
 
+### Verification (2026-10-02, production architecture)
+
+- `npm run check`: typecheck, lint, 140 unit tests in 12 files, run against a real Postgres (a separate `bamio_test` database, emptied and migrated before each run; the tests start the local database if it's down). New tests: storage on both drivers, with S3 through the s3rver emulator (publish, read, stat and download; serving with ranges, download names and the HLS proxy; uploads in parts; removing one object or a whole project; refusing unsafe keys). The queue (one live job per project, kind and clip; priority, then age; per-user caps; a stopped worker's job taken over; retries with growing waits; cancel and stop; jobs deleted with their project). The worker (slots, retries and permanent failures, time limits, cancel and stop, lease takeover, handing jobs back on shutdown). `npm run build` passes.
+- End-to-end (default suite: upload, transcription on the device, mock AI clips, editing, a real export checked with ffprobe, deleting): passes three ways. With the web server running jobs itself. With `BAMIO_WORKER=off` and a separate `dist/worker.mjs`. And with `STORAGE_DRIVER=s3` against s3rver, where the upload, source, thumbnail, 14 filmstrip frames and the export all went to the bucket and were all removed with the project. `E2E_BILLING=1` passes with local storage and with S3. The responsive pages check passes (35 of 35).
+- Crash test: worker A was killed (process ended) while transcribing an import; worker B claimed the job after its lease ran out (31 s), as attempt 2, skipped preparing (the video was already in storage) and finished with its clip.
+- Not verified: the Docker image and Compose stack (Docker isn't installed here), real AWS S3 or R2 (only the s3rver emulator), following a live stream on the new architecture (the live-stream tests need live channels), and two web servers at once.
+- Fixed along the way: `next build` ran out of memory on this machine (0xC0000409, "Zone Allocation failed"); `experimental.memoryBasedWorkersCount` sizes its workers to free memory. Imports failed when the scratch folder didn't exist yet. A graceful stop aborted the wrong job's controller.
+
 ### Verification (2026-10-01, plans and payments)
 
 - `npm run check`: typecheck, lint, 115 unit tests (16 new: prices and savings as given, lookup keys, usage months incl. short months, the priority queue, subscription records, webhook signatures, plan gates with billing off and on). `npm run build` passes.
@@ -235,6 +289,8 @@ The user asked: "make the live stream video work without recording as well, add 
 - Responsive: the pages (landing, pricing, import, projects, plan & billing, clip defaults) pass at 320 to 1440.
 - Not verified: a real Stripe account (no key here). `stripe:setup`'s calls were type-checked against the SDK, not run.
 - During this pass Windows Smart App Control blocked the speech engine's DLL again, so the default suite's clipping test and the responsive project/editor check (both need transcription) couldn't pass; the import itself ran.
+- Later the same day a Stripe key appeared in `web/.env` (the user's). Test servers now run with `BAMIO_BILLING=off` (or, for `E2E_BILLING`, a fake key that overrides it), so tests never reach a real Stripe account and the suite imports without a plan.
+- Landing footage: the landing spec checks the hero's footage plays and that reduced motion gets stills only; landing, pricing, screens and the responsive pages check pass; `E2E_BILLING` passes. One `next build` crashed in a worker (0xC0000409) while generating static pages; the next three builds passed, so it looks environmental.
 
 ### Verification (2026-09-30, landing page and wordmark)
 
@@ -283,7 +339,8 @@ The user asked: "make the live stream video work without recording as well, add 
 
 | Decision | Why |
 |---|---|
-| Server-side processing inside the Next.js process, with an in-memory queue (2 imports, 2 exports, 3 frame grabs at a time) and the job state in each project's JSON | Downloads and ffmpeg need a real server; no extra infrastructure. Needs a long-running Node host, not serverless. |
+| Postgres for data and as the job queue (leases, retries, priority, NOTIFY); jobs run by worker pools in the web server or in separate worker processes (2 imports, 2 exports, 4 streams per process) | Durable work that survives crashes and scales out, without Redis: one less service, and jobs are queued in the same transaction as the change that asks for them. Needs long-running Node processes, not serverless. |
+| Media in storage behind one interface: a local folder or S3 / R2 / MinIO, signed links stable per hour, work in progress in local scratch | Web servers and workers on different machines share media; the browser fetches large files from the store, not through Node. |
 | yt-dlp for links (sha256-verified download via `npm run setup:media`), ffmpeg and ffprobe from npm packages; each can be overridden by env | Supports YouTube, Twitch, Kick and 1,000+ sites; nothing to install by hand. |
 | Prefer H.264 / AAC up to 1080p when downloading; remux when possible, re-encode otherwise | Fast import, browser-playable source, good enough for 1080p exports. |
 | Uploads in 8 MB chunks, resumable | Next.js buffers request bodies that pass through `proxy.ts` (10 MB limit); chunks also survive dropped connections. |
@@ -291,11 +348,11 @@ The user asked: "make the live stream video work without recording as well, add 
 | Caption fonts per script (Noto, downloaded and checked), chosen per character from recorded coverage, the same way in the preview and the export | Bricolage only has Latin; without this, other scripts render as boxes in the export or in a different font in the preview. |
 | One caption spec shared by the preview (DOM) and the export (ASS): sizes, outlines, margins, the font's 1.56 em line height | What you see is what you export. |
 | An export is marked out of date by a signature of the clip's times, look and transcript revision | Clear when a download no longer matches the edit. |
-| Safety: signed-in user on every API route, per-user folders with validated ids, cross-site writes refused, per-user rate limits, http(s) links only with private and loopback addresses refused (also after DNS lookup), an "only import videos you own or have permission to use" notice, basic security headers | The server downloads URLs and runs tools for users. |
+| Safety: signed-in user on every API route (except Stripe's signed webhook and the public health check), per-user keys with validated ids, cross-site writes refused, per-user rate limits, http(s) links only with private and loopback addresses refused (also after DNS lookup), an "only import videos you own or have permission to use" notice, basic security headers | The server downloads URLs and runs tools for users. |
 
 ### Open questions for the user
 
-1. **Hosting.** Processing needs a long-running server with disk space (for example a VPS, Railway, Render or Fly.io), not Vercel serverless. Where should it run?
+1. **Hosting.** Decided 2026-10-02: one DigitalOcean Droplet (see Hosting above). Earlier note: Bamio now runs as containers: web servers, media workers (CPU for transcription), a Postgres and an S3-compatible bucket. Not Vercel serverless. Which providers (for example Fly.io, Railway, Render or a VPS for the app; Neon, Supabase or RDS for Postgres; Cloudflare R2 or S3 for media)?
 2. **Storage limits.** Projects stay until deleted (100 per user, 4 GB per upload, 3 hours per video). Should old projects expire automatically?
 3. **Rights.** The app shows a permission notice. Is that enough for how you plan to offer it?
 4. **Plans.** Choices made on the user's behalf, to confirm: coming-soon features are labelled rather than hidden; 3-month plans are subscriptions renewing every 3 months; AI on existing videos needs a plan but uses no minutes; plans keep 50 / 150 / 400 projects ("basic / extended / increased storage"); no free tier or trial; prices in USD, Stripe Tax off. Starter users also get clip scores and AI titles today (listed under Pro).
@@ -305,12 +362,19 @@ The user asked: "make the live stream video work without recording as well, add 
 1. Payments: add a Stripe test key, run `npm run stripe:setup`, `stripe listen`, and buy, upgrade and cancel with test cards; then the live key and the production webhook (`npm run stripe:setup -- --webhook https://...`). Then build the coming-soon features in order of what sells (likely 4K export, silence and filler removal, face tracking / smart reframing, custom caption styling), removing each `soon` flag as it ships.
 2. Imports: YouTube sometimes answers a part's byte range with 403 (twice now, the second time with the connection throttled to 23 KB/s), and the fallback then downloads the whole file. Find out whether the ranges need fresh URLs (retry the lookup once) and give a clearer message when YouTube throttles.
 3. Transcription of mixed languages: English said inside a sentence of another language and written in that script ("आइ बलिभ") could be checked against English too (compare romanized words, as `wordAgreement` does for mixed-script words), and long speech parts could be split at the language switch instead of going wholly to one model.
-4. Landing page: real footage for the demos (licensed clip frames, or generated ones) in place of the drawn podcast set.
+4. Landing page: the demos have real (stock) footage now; next, a short real clip of Bamio's own export (captions burned in) somewhere on the page, and creators' clips only with their written permission.
 5. Following live streams: carry on after a dropped connection (append to the same playlist), and choose a lower quality for very long streams.
-6. Decide hosting and add a deploy guide (Dockerfile with ffmpeg and yt-dlp, a persistent volume for `.data`).
-7. Possible upgrades: punctuation and capitals for languages Omnilingual writes without them (a punctuation model, or Omnilingual's LLM variant when sherpa-onnx supports it), speaker-aware auto-reframe (face tracking), batch export as a zip, more caption styles and fonts, keyword highlights, background music, direct posting to TikTok and YouTube.
-8. Keep yt-dlp current (`npm run setup:media`); sites change often.
-9. Responsive checks are automated now (`E2E_RESPONSIVE=1`); still to do: a look at real projects (long titles, many clips, live streams) in both themes with a live Gemini key.
+6. Production, the rest of the checklist (the architecture is done; see Production architecture):
+   - Deploy to the Droplet following `web/DEPLOY.md` (first real Docker build); later, for more capacity, R2 for media and separate worker Droplets.
+   - Observability: error tracking (Sentry), structured logs, metrics and alerts on the health route's queue depth and failed jobs.
+   - CI (check, build, e2e on every push), a staging environment, Postgres backups with point-in-time recovery, bucket versioning.
+   - Clean-up: scratch folders left by failed jobs, projects past a retention period, per-user storage quotas.
+   - Rate limits shared across web servers (in Postgres or Redis); today they're per process.
+   - Account deletion (Clerk's user-deleted webhook removes the user's projects, media, billing record and emails), and the legal pages (terms, privacy, takedown).
+7. Emails: verify the sending domain in Resend, set `RESEND_API_KEY`, `EMAIL_FROM` and `BAMIO_APP_URL`, run `npm run email:check`, then buy a test plan to see the welcome email arrive. Switch off Stripe's failed-payment emails. Later: a welcome email on sign-up (Clerk webhook), and a one-click unsubscribe header if Bamio ever sends marketing email.
+8. Possible upgrades: punctuation and capitals for languages Omnilingual writes without them (a punctuation model, or Omnilingual's LLM variant when sherpa-onnx supports it), speaker-aware auto-reframe (face tracking), batch export as a zip, more caption styles and fonts, keyword highlights, background music, direct posting to TikTok and YouTube.
+9. Keep yt-dlp current (`npm run setup:media`); sites change often.
+10. Responsive checks are automated now (`E2E_RESPONSIVE=1`); still to do: a look at real projects (long titles, many clips, live streams) in both themes with a live Gemini key.
 
 ## Previous engineering phase (v0.1, superseded 2026-09-27)
 
@@ -385,7 +449,7 @@ Built in `web/` (see Current phase above). Run `cd web && npm run dev`.
 
 - **Name:** Bamio. "Bam" = impact, the clap of a slate, the first second. "-io" echoes studio, audio, radio. Lean on the studio meaning, not the tech ".io" one. (The folder on disk is still called `Bamie`.)
 - **What Bamio is (since 2026-09-27):** a clipping and editing tool that turns long videos (YouTube, Twitch, Kick, other sites, uploads) into vertical shorts with AI-picked moments and word-by-word captions. (Originally an AI idea-to-video studio.)
-- **Direction: Hook.** Short-form is won in the first second. Creator-native energy, light paper marketing, volt accent, Bricolage Grotesque, lowercase wordmark whose i-dot is a pair of scissors, blades forward and tilted 12° up (a 9:16 frame tilted 12° until 2026-09-30), pill controls, casual second-person voice. Tagline: "Make the first second count."
+- **Direction: Hook.** Short-form is won in the first second. Creator-native energy, light paper marketing, volt accent, Bricolage Grotesque, lowercase wordmark whose i-dot is a 9:16 frame tilted 12° (scissors from 2026-09-30 to 2026-10-02, then back to the frame at the user’s request), pill controls, casual second-person voice. Tagline: "Make the first second count."
 - **Audience (assumed, needs the user's confirmation):** solo creators and social teams first, agencies and brand teams second.
 - **Non-negotiables:** video surfaces are neutral dark; 9:16 is the native canvas; one accent, locked; no AI clichés (no purple glow, no sparkles); sentence case, concrete verbs, no em dashes; WCAG AA everywhere.
 - Phase A's full reasoning, the rejected directions and the comparison are in `design/phase-a-brand/index.html`.
@@ -420,7 +484,7 @@ Later comps link `../system/tokens.css` and `../system/components.css` and add o
 | **Focus:** one style everywhere, 2px outline in `--focus` (ink on paper, volt on night) with 2px offset. | Consistent and 3:1 or more in both themes. |
 | **Motion:** 80, 140, 220, 360, 560ms; ease-out to enter, ease-in to leave; `--ease-pop` overshoot only for caption words and confirmations. Reduced motion collapses durations to 1ms. | "Quick and springy, never floaty." |
 | **Icons:** Phosphor, regular weight (20px in controls, 24px alone); fill weight marks active states. No hand-drawn icons. | Taste skill ranks Phosphor first. |
-| **AI mark:** Bamio's 9:16 frame, tilted 12° (the wordmark's i-dot before the scissors), labels AI work, always next to a verb ("Hook suggested by Bamio"). No sparkle icon. | Ownable and honest. |
+| **AI mark:** Bamio's 9:16 frame, tilted 12° (the wordmark's i-dot), labels AI work, always next to a verb ("Hook suggested by Bamio"). No sparkle icon. | Ownable and honest. |
 | **Playhead handle is an upright 9:16 frame.** Selected clips get a volt outline. Captions highlight the spoken word in volt. | Brings the brand motif into the editor. |
 
 ### QA fixes made during Phase B
@@ -440,5 +504,5 @@ Later comps link `../system/tokens.css` and `../system/components.css` and add o
 ## Other open issues
 
 - No trademark, domain or app-store name search has been done for "Bamio" or the wordmark.
-- The standalone icon (tilted frame alone) could read as a generic phone shape. Resolved 2026-09-30: the app icon is now the scissors, ink on volt.
+- The standalone icon (tilted frame alone, ink on volt) could read as a generic phone shape. It was the scissors from 2026-09-30; on 2026-10-02 the user asked for the frame back, in the wordmark and the icon.
 - Bricolage in dense panels: now used in the clip editor inspector and reads fine at 12 to 14px; keep an eye on it.

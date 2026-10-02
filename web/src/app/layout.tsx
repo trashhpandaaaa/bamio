@@ -45,6 +45,9 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <ClerkProvider
           appearance={clerkAppearance}
           localization={clerkLocalization}
+          // Bamio's own pages (not left to NEXT_PUBLIC_ settings, which a Docker build doesn't see).
+          signInUrl="/sign-in"
+          signUpUrl="/sign-up"
           signInFallbackRedirectUrl="/projects"
           signUpFallbackRedirectUrl="/projects"
           afterSignOutUrl="/"

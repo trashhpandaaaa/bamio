@@ -55,7 +55,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 
 /* ---------- AI mark ----------
-   Bamio’s 9:16 frame, tilted 12° (the wordmark’s i-dot before the scissors). Labels work Bamio did.
+   The tilted 9:16 frame from the wordmark. Labels work Bamio did.
    Always paired with a verb ("Hook suggested by Bamio"). Never a sparkle. */
 .ai-mark {
   display: inline-block; flex: none; vertical-align: -.08em;
