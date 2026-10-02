@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { ApiError } from "@google/genai";
@@ -6,8 +6,24 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { clipTarget, findHighlights, mockTranscribe, tidySegments } from "@/lib/ai/server/clips-ai";
 import { shouldFallBack, toAiError } from "@/lib/ai/server/gemini";
 import { projectSchema } from "@/lib/clips/schema";
+import { db } from "@/lib/server/db";
+import { enqueue } from "@/lib/server/queue";
+import { storage } from "@/lib/server/storage";
 import { attachmentName, HttpError, isCrossSite, readJson, takeRateLimit } from "@/lib/server/http";
-import { blankProject, createProject, getProject, listProjects, mutateProject, paths, projectDir, readProject, running } from "@/lib/server/store";
+import {
+  blankProject,
+  countProjects,
+  createProject,
+  deleteProject,
+  getProject,
+  listProjects,
+  mutateProject,
+  mediaKeys,
+  projectDir,
+  readProject,
+  readTranscript,
+  writeTranscript,
+} from "@/lib/server/store";
 import { readClipDefaults } from "@/lib/profile/defaults";
 import { z } from "zod";
 
@@ -137,26 +153,63 @@ describe("project store", () => {
     const p = make();
     await createProject(user, p);
     expect((await listProjects(user)).map((x) => x.id)).toContain(p.id);
-    // Twenty concurrent renames must all land in order, none lost.
+    // Twenty concurrent renames must all land in order, none lost (each locks the row).
     await Promise.all(Array.from({ length: 20 }, (_, i) => mutateProject(user, p.id, (cur) => ({ ...cur, title: `${cur.title}.${i}` }))));
     const saved = await getProject(user, p.id);
     expect(saved.title.split(".")).toHaveLength(21);
-    expect(JSON.parse(await readFile(paths(user, p.id).project, "utf8")).title).toBe(saved.title);
-    // Another user can't see it.
+    const [row] = await db()<{ title: string; updated_at: string }[]>`select data->>'title' as title, updated_at from projects where id = ${p.id}`;
+    expect(row).toMatchObject({ title: saved.title });
+    expect(Number(row!.updated_at)).toBe(saved.updatedAt);
+    // Another user can't see, change or delete it.
     expect(await readProject("user_other", p.id)).toBeNull();
+    await expect(mutateProject("user_other", p.id, (cur) => cur)).rejects.toMatchObject({ status: 404 });
+    await deleteProject("user_other", p.id);
+    expect(await readProject(user, p.id)).not.toBeNull();
   });
 
-  it("reports work cut off by a restart", async () => {
+  it("keeps transcripts with their project, and deletes both with its media", async () => {
     const p = make();
     await createProject(user, p);
-    expect(running.imports.has(p.id)).toBe(false);
+    const thumb = path.join(dir, "thumb-src.jpg");
+    await writeFile(thumb, "jpg");
+    await storage().publish(mediaKeys(user, p.id).thumb, thumb, "image/jpeg");
+    const transcript = { language: "en", segments: [{ start: 0, end: 1.5, text: "hello there", words: [{ start: 0, end: 0.6 }, { start: 0.7, end: 1.5 }] }] };
+    await writeTranscript(user, p.id, transcript);
+    expect(await readTranscript(user, p.id)).toEqual(transcript);
+    expect(await readTranscript("user_other", p.id)).toBeNull();
+    await expect(writeTranscript("user_other", p.id, transcript)).rejects.toMatchObject({ status: 404 });
+    await deleteProject(user, p.id);
+    expect(await readProject(user, p.id)).toBeNull();
+    const [left] = await db()`select 1 from transcripts where project_id = ${p.id}`;
+    expect(left).toBeUndefined();
+    expect(await storage().stat(mediaKeys(user, p.id).thumb)).toBeNull();
+  });
+
+  it("refuses a project past the user's limit", async () => {
+    const owner = "user_limit";
+    await createProject(owner, make(), 2);
+    await createProject(owner, make(), 2);
+    await expect(createProject(owner, make(), 2)).rejects.toMatchObject({ status: 409, code: "too_many" });
+    expect(await countProjects(owner)).toBe(2);
+  });
+
+  it("reports work with no job behind it as cut off, but not work that is queued", async () => {
+    const p = make();
+    await createProject(user, p);
+    const write = (project: object) => db()`update projects set data = ${db().json(JSON.parse(JSON.stringify(project)))} where id = ${p.id}`;
+    // Just queued: its job is about to be (a moment's grace).
+    expect((await getProject(user, p.id)).job).toMatchObject({ status: "queued" });
+    // Queued two minutes ago and no job: cut off.
+    const old = Date.now() - 120_000;
+    await write({ ...p, job: { ...p.job, updatedAt: old } });
     expect((await getProject(user, p.id)).job).toMatchObject({ status: "failed" });
+    // With a job queued, it's waiting, not stalled.
+    await enqueue({ kind: "import", userId: user, projectId: p.id });
+    expect((await getProject(user, p.id)).job).toMatchObject({ status: "queued" });
+    await db()`delete from jobs where project_id = ${p.id}`;
 
     // Once the video is prepared, a cut-off analysis leaves the project usable.
-    await writeFile(
-      paths(user, p.id).project,
-      JSON.stringify({ ...p, job: { ...p.job, status: "transcribing" }, source: { ...p.source, width: 1280, height: 720, durationSec: 60 } }),
-    );
+    await write({ ...p, job: { ...p.job, status: "transcribing", updatedAt: old }, source: { ...p.source, width: 1280, height: 720, durationSec: 60 } });
     expect((await getProject(user, p.id)).job).toMatchObject({ status: "ready", warning: expect.stringContaining("Find clips") });
   });
 

@@ -2,7 +2,8 @@ import { createUploadSchema, LIMITS, UPLOAD_CHUNK_BYTES } from "@/lib/clips/sche
 import { assertCanProcess, projectLimit } from "@/lib/server/billing";
 import { readJson, userRoute } from "@/lib/server/http";
 import { assertDiskSpace, plannedStages } from "@/lib/server/jobs";
-import { blankProject, createProject } from "@/lib/server/store";
+import { storage } from "@/lib/server/storage";
+import { blankProject, createProject, mediaKeys } from "@/lib/server/store";
 
 /**
  * Start a file upload. The browser then sends the file in chunks to
@@ -26,8 +27,15 @@ export const POST = userRoute(
       job: { status: "uploading", message: "Uploading" },
       upload: { fileName: input.fileName, size: input.size, received: 0 },
     });
-    const project = { ...draft, job: { ...draft.job, stages: plannedStages(draft) } };
-    await createProject(userId, project, await projectLimit(userId));
+    // The file goes to storage in parts, one per chunk the browser sends.
+    const uploadId = await storage().startUpload(mediaKeys(userId, draft.id).upload);
+    const project = { ...draft, upload: { ...draft.upload!, uploadId, parts: [] }, job: { ...draft.job, stages: plannedStages(draft) } };
+    try {
+      await createProject(userId, project, await projectLimit(userId));
+    } catch (err) {
+      await storage().abortUpload(mediaKeys(userId, draft.id).upload, uploadId);
+      throw err;
+    }
     return Response.json({ project, chunkBytes: UPLOAD_CHUNK_BYTES }, { status: 201 });
   },
   { rate: { bucket: "create", limit: 15, windowMs: 10 * 60_000 } },

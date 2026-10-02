@@ -1,14 +1,14 @@
 import { clipEditSchema, updateProjectSchema } from "@/lib/clips/schema";
 import { HttpError, readJson, userRoute } from "@/lib/server/http";
 import { resumeFollow, stopProject } from "@/lib/server/jobs";
-import { deleteProjectFiles, getProject, mutateProject } from "@/lib/server/store";
+import { deleteProject, getProject, mutateProject } from "@/lib/server/store";
 
 type Params = { id: string };
 
 export const GET = userRoute<Params>(async (_req, { userId, params }) => {
   const project = await getProject(userId, params.id);
   // A followed stream cut off by a restart gets its video finished.
-  resumeFollow(userId, project);
+  await resumeFollow(userId, project);
   return Response.json(project);
 });
 
@@ -36,6 +36,6 @@ export const PATCH = userRoute<Params>(async (req, { userId, params }) => {
 export const DELETE = userRoute<Params>(async (_req, { userId, params }) => {
   await getProject(userId, params.id);
   await stopProject(params.id);
-  await deleteProjectFiles(userId, params.id);
+  await deleteProject(userId, params.id);
   return new Response(null, { status: 204 });
 });

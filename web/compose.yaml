@@ -1,0 +1,91 @@
+# Bamio on one machine with everything it needs: Postgres, MinIO (S3-compatible storage), the
+# web server and a media worker. From web/:
+#   cp .env.example .env      then fill in the Clerk keys, GEMINI_API_KEY (and Stripe, optionally)
+#   docker compose up --build
+# The app is on http://localhost:3000. More workers: docker compose up --scale worker=3
+# In production use a managed Postgres and S3/R2 instead (set DATABASE_URL and S3_* and drop
+# the postgres and minio services), and change the MinIO and Postgres passwords below.
+
+x-app: &app
+  build:
+    context: .
+    args:
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:?set it in .env}
+  env_file: .env
+  environment: &env
+    DATABASE_URL: postgres://bamio:bamio@postgres:5432/bamio
+    STORAGE_DRIVER: s3
+    S3_BUCKET: bamio
+    S3_ENDPOINT: http://minio:9000
+    # Browsers reach MinIO here; signed links are made for this address.
+    S3_PUBLIC_ENDPOINT: http://localhost:9000
+    S3_FORCE_PATH_STYLE: "1"
+    S3_REGION: us-east-1
+    S3_ACCESS_KEY_ID: bamio
+    S3_SECRET_ACCESS_KEY: change-this-minio-secret
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: bamio
+      POSTGRES_PASSWORD: bamio
+      POSTGRES_DB: bamio
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bamio"]
+      interval: 5s
+      retries: 20
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: bamio
+      MINIO_ROOT_PASSWORD: change-this-minio-secret
+    ports:
+      - "9000:9000"
+    volumes:
+      - objects:/data
+    restart: unless-stopped
+
+  # Makes the bucket once.
+  minio-setup:
+    image: minio/mc
+    depends_on: [minio]
+    entrypoint: ["/bin/sh", "-c", "until mc alias set local http://minio:9000 bamio change-this-minio-secret; do sleep 1; done; mc mb --ignore-existing local/bamio"]
+
+  web:
+    <<: *app
+    environment:
+      <<: *env
+      # Only queues work; the worker service does it.
+      BAMIO_WORKER: "off"
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres: { condition: service_healthy }
+      minio-setup: { condition: service_completed_successfully }
+
+  worker:
+    <<: *app
+    # The speech models are fetched into the volume the first time (about 1.9 GB), then reused.
+    command: ["sh", "-c", "node scripts/setup-media.mjs && exec node dist/worker.mjs"]
+    volumes:
+      - models:/data/models
+      - work:/data/work
+    stop_grace_period: 30s
+    healthcheck:
+      disable: true
+    depends_on:
+      # The web server has brought the database up to date.
+      web: { condition: service_healthy }
+
+volumes:
+  pgdata:
+  objects:
+  models:
+  work:

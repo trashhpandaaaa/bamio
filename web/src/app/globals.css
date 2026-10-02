@@ -12,10 +12,13 @@ a { color: inherit; }
 .link { color: var(--text); text-decoration: underline; text-decoration-thickness: 1.5px; text-underline-offset: 3px; }
 .link:hover { text-decoration-color: var(--text-tertiary); }
 
-/* Wordmark: lowercase bamio, the dot of the i is a pair of scissors (see components/brand.tsx). */
+/* Wordmark: lowercase bamio, the dot of the i is a 9:16 frame tilted 12deg. */
 .wordmark { display: inline-flex; flex: none; white-space: nowrap; font: 800 27px/1 var(--font-sans); letter-spacing: -0.05em; color: var(--text); text-decoration: none; }
 .wordmark .i { position: relative; display: inline-block; }
-.wordmark .tittle { position: absolute; left: 50%; top: -0.17em; width: 0.5em; height: auto; aspect-ratio: 31.97 / 25.09; transform: translateX(-46%); overflow: visible; }
+.wordmark .tittle {
+  position: absolute; left: 50%; top: -0.07em; width: 0.145em; height: 0.258em;
+  border-radius: 0.05em; background: currentColor; transform: translateX(-50%) rotate(12deg);
+}
 
 /* Sections ease in as they scroll into view, where the browser has scroll-driven animations
    (no script, nothing runs with reduced motion; elsewhere they simply show). */

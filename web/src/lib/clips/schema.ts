@@ -188,7 +188,16 @@ export const projectSchema = z.object({
   transcribedSec: z.number().min(0).optional(),
   clipsFoundSec: z.number().min(0).optional(),
   /** Bytes expected and received while a file upload is in progress. */
-  upload: z.object({ fileName: z.string().max(260), size: z.number().int().min(1), received: z.number().int().min(0) }).optional(),
+  upload: z
+    .object({
+      fileName: z.string().max(260),
+      size: z.number().int().min(1),
+      received: z.number().int().min(0),
+      /** Storage's id for the upload in parts, and the parts in so far (S3 needs their ETags to finish it). */
+      uploadId: z.string().max(1024).optional(),
+      parts: z.array(z.object({ n: z.number().int().min(1).max(10_000), etag: z.string().max(200) })).max(10_000).optional(),
+    })
+    .optional(),
   clips: z.array(clipSchema).max(LIMITS.maxClips),
 });
 

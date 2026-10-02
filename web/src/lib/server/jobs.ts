@@ -1,5 +1,4 @@
 import "server-only";
-import { existsSync } from "node:fs";
 import { mkdir, readFile, rm, statfs } from "node:fs/promises";
 import { clipTarget, findHighlights, transcribeChunk, tidySegments } from "@/lib/ai/server/clips-ai";
 import { aiConfigured } from "@/lib/ai/server/gemini";
@@ -11,42 +10,30 @@ import { assertCanProcess, hasUsage, queuePriority, recordUsage, secondsLeft } f
 import { assMarkup, ensureFont, fontsNeeded } from "@/lib/server/caption-fonts";
 import { HttpError } from "@/lib/server/http";
 import { limiter, type Limiter } from "@/lib/server/limiter";
+import { activeJobs, enqueue, requestCancel, requestStop, waitForIdle, type JobKind } from "@/lib/server/queue";
+import type { KindSpec, Pool } from "@/lib/server/worker";
 import { downloadUrl, extractAudioChunks, extractFrame, prepareSource, probe, renderClip } from "@/lib/server/media";
 import { relocateAiClips } from "@/lib/clips/relocate";
 import { commitPiece, FOLLOW_FIND_EVERY_SEC, FOLLOW_PIECE_SEC } from "@/lib/clips/live";
-import { followLive, liveCapturedSec, livePlaylistSnapshot, recordLive, sleep, type FollowEnd } from "@/lib/server/live";
+import { followLive, recordLive, sleep, type FollowEnd } from "@/lib/server/live";
+import { clearLive, liveCaptured, liveDir, liveSnapshot, syncLive } from "@/lib/server/live-media";
+import { storage } from "@/lib/server/storage";
 import { localTranscriptionOn, transcribeLocal } from "@/lib/server/transcribe";
-import {
-  clipFile,
-  dataRoot,
-  exportKey,
-  getProject,
-  isPrepared,
-  mutateProject,
-  paths,
-  readTranscript,
-  running,
-  writeTranscript,
-  type RunningTask,
-} from "@/lib/server/store";
+import { dataRoot, getProject, isPrepared, mediaKeys, mutateProject, readTranscript, scratch, workRoot, writeTranscript } from "@/lib/server/store";
 import { newId } from "@/lib/ids";
 
 /*
- * Background work, run inside the Next.js server process: imports (download or
- * upload, prepare, transcribe, find clips) and exports. Progress is written to the
- * project file, which the browser polls. Plans with priority processing go first in
- * every queue (see billing.ts).
+ * Background work: imports (download or upload, prepare, transcribe, find clips), analysis,
+ * exports and followed streams. Starting work queues a job (queue.ts); workers run it
+ * (worker.ts: in the web server, or their own processes) with the handlers at the end of this
+ * file. Progress is written to the project, which the browser polls. Plans with priority
+ * processing go first (billing.ts).
  */
 
-/** live: transcribing followed streams, one piece at a time across projects. */
-type Limiters = { imports: Limiter; exports: Limiter; frames: Limiter; live: Limiter };
-const limits: Limiters = ((globalThis as { __bamioLimits?: Limiters }).__bamioLimits ??= {
-  imports: limiter(2),
-  exports: limiter(2),
-  frames: limiter(3),
-  live: limiter(1),
-});
-limits.live ??= limiter(1); // limiters created before following existed
+/** In this process: short frame grabs (web), and transcribing followed streams one piece at a time (workers). */
+type Limiters = { frames: Limiter; live: Limiter };
+const limits: Limiters = ((globalThis as { __bamioLimits?: Limiters }).__bamioLimits ??= { frames: limiter(3), live: limiter(1) });
+limits.live ??= limiter(1);
 
 /** Run a short ffmpeg frame grab without flooding the machine. */
 export const withFrameLimit: Limiter = (task) => limits.frames(task);
@@ -82,50 +69,32 @@ function jobWriter(userId: string, projectId: string) {
   return { set, progress };
 }
 
-/* ------------------------------ Imports ------------------------------ */
+/* ------------------------------ Starting work ------------------------------ */
 
-function track(map: Map<string, RunningTask>, key: string, work: (signal: AbortSignal) => Promise<void>) {
-  const controller = new AbortController();
-  // Registered before the work starts: its first read of the project must see it running.
-  const task: RunningTask = { controller, done: Promise.resolve() };
-  map.set(key, task);
-  task.done = work(controller.signal).finally(() => {
-    if (map.get(key) === task) map.delete(key);
-  });
-  void task.done.catch(() => undefined);
-}
+const minutes = (ms: number) => Math.max(1, Math.round(ms / 60_000));
 
-/** Start (or restart) processing a project. Does nothing if it is already running. */
-export function startImport(userId: string, projectId: string) {
-  if (running.imports.has(projectId)) return;
-  track(running.imports, projectId, async (signal) => limits.imports(() => runImport(userId, projectId, signal), await queuePriority(userId)));
+/**
+ * Process a project (download or recording, preparing, transcribing, finding clips): queued
+ * for a worker; nothing new if it's already queued or running. `retries`: false for live
+ * captures, whose moment has passed by the time a retry would run.
+ */
+export async function startImport(userId: string, projectId: string, opts: { retries?: boolean } = {}) {
+  await enqueue({ kind: "import", userId, projectId, priority: await queuePriority(userId), maxAttempts: opts.retries === false ? 1 : 3 });
 }
 
 /** Transcribe (if needed) and find clips on a project that is already imported. */
 export async function startAnalysis(userId: string, projectId: string, clipLength: ClipLength): Promise<Project> {
-  if (running.imports.has(projectId)) throw new HttpError(409, "busy", "This project is still processing.");
-  // Queued before the task is registered, so the change and the registry entry land together.
-  const queued = mutateProject(userId, projectId, (p) => {
-    if (p.job.status !== "ready" || !isPrepared(p)) throw new HttpError(409, "not_ready", "Wait for the video to finish processing.");
-    const stages = plannedStages(p, { findClips: true });
-    return { ...p, clipLength, findClips: true, job: { status: "queued", progress: 0, message: "Waiting to start", updatedAt: Date.now(), stages } };
-  });
-  track(running.imports, projectId, async (signal) => {
-    const job = jobWriter(userId, projectId);
-    try {
-      await queued;
-    } catch {
-      return;
-    }
-    try {
-      const warning = await limits.imports(() => analyze(userId, projectId, signal, { findClips: true }), await queuePriority(userId));
-      await job.set("ready", 1, "Ready", { warning });
-    } catch (err) {
-      if (signal.aborted) return;
-      await job.set("ready", 1, "Ready", { warning: `Finding clips failed: ${errorText(err)}` }).catch(() => undefined);
-    }
-  });
-  return queued;
+  const priority = await queuePriority(userId);
+  return mutateProject(
+    userId,
+    projectId,
+    (p) => {
+      if (p.job.status !== "ready" || !isPrepared(p)) throw new HttpError(409, "not_ready", "Wait for the video to finish processing.");
+      const stages = plannedStages(p, { findClips: true });
+      return { ...p, clipLength, findClips: true, job: { status: "queued", progress: 0, message: "Waiting to start", updatedAt: Date.now(), stages } };
+    },
+    { then: (tx) => enqueue({ kind: "analyze", userId, projectId, priority, maxAttempts: 2 }, tx) },
+  );
 }
 
 /**
@@ -135,53 +104,69 @@ export async function startAnalysis(userId: string, projectId: string, clipLengt
  * captions follow the new transcript.
  */
 export async function startRetranscribe(userId: string, projectId: string): Promise<Project> {
-  if (running.imports.has(projectId)) throw new HttpError(409, "busy", "This project is still processing.");
-  const queued = mutateProject(userId, projectId, (p) => {
-    if (p.job.status !== "ready" || !isPrepared(p)) throw new HttpError(409, "not_ready", "Wait for the video to finish processing.");
-    if (!p.source.hasAudio) throw new HttpError(409, "no_audio", "This video has no sound to transcribe.");
-    if (isFollowing(p)) throw new HttpError(409, "following", "The stream is still being followed. Its captions are made as it goes.");
-    return { ...p, job: { status: "queued", progress: 0, message: "Waiting to start", updatedAt: Date.now(), stages: ["transcribing"] } };
-  });
-  track(running.imports, projectId, async (signal) => {
-    const job = jobWriter(userId, projectId);
-    try {
-      await queued;
-    } catch {
-      return;
-    }
-    try {
-      let moved = 0;
-      await limits.imports(async () => {
-        await job.set("transcribing", 0, "Transcribing on this device");
-        const files = paths(userId, projectId);
-        const before = await readTranscript(userId, projectId);
-        const { language } = await getProject(userId, projectId);
-        const transcript = await transcribeLocal(files.source, files.transcribe, language, signal, (v, message) => job.progress("transcribing", v, message));
-        await mutateProject(userId, projectId, async (cur) => {
-          await writeTranscript(userId, projectId, transcript);
-          // AI clips were placed with the old transcript's times; put them where their words are.
-          const relocated = before ? relocateAiClips(cur.clips, before.segments, transcript.segments, cur.source.durationSec) : { clips: cur.clips, moved: 0 };
-          moved = relocated.moved;
-          return {
-            ...cur,
-            clips: relocated.clips,
-            hasTranscript: true,
-            transcriptEngine: "device",
-            transcriber: TRANSCRIBER_VERSION,
-            captionTiming: "synced",
-            spokenLanguage: transcript.language,
-            transcriptRev: cur.transcriptRev + 1,
-          };
-        });
-      }, await queuePriority(userId));
-      const note = moved > 0 ? `Transcribed again. ${moved} AI ${moved === 1 ? "clip was" : "clips were"} moved to where their words are spoken.` : undefined;
-      await job.set("ready", 1, "Ready", { warning: note });
-    } catch (err) {
-      if (signal.aborted) return;
-      await job.set("ready", 1, "Ready", { warning: `Transcribing again failed: ${errorText(err)}` }).catch(() => undefined);
-    }
-  });
-  return queued;
+  const priority = await queuePriority(userId);
+  return mutateProject(
+    userId,
+    projectId,
+    (p) => {
+      if (p.job.status !== "ready" || !isPrepared(p)) throw new HttpError(409, "not_ready", "Wait for the video to finish processing.");
+      if (!p.source.hasAudio) throw new HttpError(409, "no_audio", "This video has no sound to transcribe.");
+      if (isFollowing(p)) throw new HttpError(409, "following", "The stream is still being followed. Its captions are made as it goes.");
+      return { ...p, job: { status: "queued", progress: 0, message: "Waiting to start", updatedAt: Date.now(), stages: ["transcribing"] } };
+    },
+    { then: (tx) => enqueue({ kind: "retranscribe", userId, projectId, priority, maxAttempts: 2 }, tx) },
+  );
+}
+
+/** Ask a capture (or a followed stream) to end now, keeping what was recorded. */
+export async function stopRecording(projectId: string): Promise<boolean> {
+  return (await requestStop(projectId)) > 0;
+}
+
+/* ------------------------------ Analysis ------------------------------ */
+
+async function runAnalysis(userId: string, projectId: string, signal: AbortSignal) {
+  const job = jobWriter(userId, projectId);
+  try {
+    const warning = await analyze(userId, projectId, signal, { findClips: true });
+    await job.set("ready", 1, "Ready", { warning });
+  } catch (err) {
+    if (signal.aborted || isAbortError(err)) throw err;
+    await job.set("ready", 1, "Ready", { warning: `Finding clips failed: ${errorText(err)}` });
+  }
+}
+
+async function runRetranscribe(userId: string, projectId: string, signal: AbortSignal) {
+  const job = jobWriter(userId, projectId);
+  try {
+    await job.set("transcribing", 0, "Transcribing on this device");
+    const before = await readTranscript(userId, projectId);
+    const { language } = await getProject(userId, projectId);
+    const source = await storage().readable(mediaKeys(userId, projectId).source);
+    const transcript = await transcribeLocal(source, scratch(projectId).transcribe, language, signal, (v, message) => job.progress("transcribing", v, message));
+    let moved = 0;
+    await mutateProject(userId, projectId, async (cur) => {
+      await writeTranscript(userId, projectId, transcript);
+      // AI clips were placed with the old transcript's times; put them where their words are.
+      const relocated = before ? relocateAiClips(cur.clips, before.segments, transcript.segments, cur.source.durationSec) : { clips: cur.clips, moved: 0 };
+      moved = relocated.moved;
+      return {
+        ...cur,
+        clips: relocated.clips,
+        hasTranscript: true,
+        transcriptEngine: "device",
+        transcriber: TRANSCRIBER_VERSION,
+        captionTiming: "synced",
+        spokenLanguage: transcript.language,
+        transcriptRev: cur.transcriptRev + 1,
+      };
+    });
+    const note = moved > 0 ? `Transcribed again. ${moved} AI ${moved === 1 ? "clip was" : "clips were"} moved to where their words are spoken.` : undefined;
+    await job.set("ready", 1, "Ready", { warning: note });
+  } catch (err) {
+    if (signal.aborted || isAbortError(err)) throw err;
+    await job.set("ready", 1, "Ready", { warning: `Transcribing again failed: ${errorText(err)}` });
+  }
 }
 
 async function saveTranscript(userId: string, projectId: string, transcript: Transcript, engine: "device" | "gemini") {
@@ -199,23 +184,26 @@ async function saveTranscript(userId: string, projectId: string, transcript: Tra
   });
 }
 
-async function runImport(userId: string, projectId: string, signal: AbortSignal) {
+/** Errors are the worker's to handle: it tries again later, or marks the import failed (importFailed). */
+async function runImport(userId: string, projectId: string, signal: AbortSignal, stopSignal: AbortSignal) {
   const job = jobWriter(userId, projectId);
-  const p = paths(userId, projectId);
-  try {
+  const keys = mediaKeys(userId, projectId);
+  const work = scratch(projectId);
+  {
     signal.throwIfAborted();
     let project = await getProject(userId, projectId);
 
-    if (!isPrepared(project) || !existsSync(p.source)) {
+    if (!isPrepared(project) || !(await storage().stat(keys.source))) {
+      // The work happens in this machine's scratch folder; what's kept goes to storage.
+      await mkdir(work.dir, { recursive: true });
       let original: string;
+      let uploaded = false;
       if (project.source.live) {
         await job.set("recording", 0, "Starting the recording");
-        const stop = new AbortController();
-        running.stops.set(projectId, stop);
-        try {
-          const recorded = await recordLive(project.source, p.download, {
+        {
+          const recorded = await recordLive(project.source, work.download, {
             signal,
-            stopSignal: stop.signal,
+            stopSignal,
             onProgress: (value, message) => job.progress("recording", value, message),
           });
           original = recorded.file;
@@ -223,19 +211,18 @@ async function runImport(userId: string, projectId: string, signal: AbortSignal)
             const vodRange = recorded.vodRange;
             await mutateProject(userId, projectId, (cur) => ({ ...cur, source: { ...cur.source, live: cur.source.live ? { ...cur.source.live, vodRange } : undefined } }));
           }
-        } finally {
-          if (running.stops.get(projectId) === stop) running.stops.delete(projectId);
         }
       } else if (project.source.kind === "url") {
         await job.set("downloading", 0, "Downloading the video");
-        original = await downloadUrl(project.source.url ?? "", p.download, {
+        original = await downloadUrl(project.source.url ?? "", work.download, {
           range: project.source.range,
           signal,
           onProgress: (value) => value !== null && job.progress("downloading", value, "Downloading the video"),
         });
       } else {
-        original = p.upload;
-        if (!existsSync(original)) throw new HttpError(409, "upload_missing", "The uploaded file is gone. Upload it again.");
+        if (!(await storage().stat(keys.upload))) throw new HttpError(409, "upload_missing", "The uploaded file is gone. Upload it again.");
+        original = await storage().readable(keys.upload);
+        uploaded = true;
       }
 
       await job.set("preparing", 0, "Preparing the video");
@@ -249,17 +236,20 @@ async function runImport(userId: string, projectId: string, signal: AbortSignal)
       if (!(await hasUsage(userId, projectId))) {
         await assertCanProcess(userId, { sec: info.durationSec, source: project.source.live ? "capture" : project.source.kind === "url" ? "link" : "upload" });
       }
-      await prepareSource(original, p.source, info, {
+      await prepareSource(original, work.prepared, info, {
         live: Boolean(project.source.live),
         signal,
         onProgress: (v) => job.progress("preparing", v, "Preparing the video"),
       });
       // Measure the prepared file itself (a remuxed live recording can differ slightly from the capture).
-      const prepared = await probe(p.source, signal);
+      const prepared = await probe(work.prepared, signal);
       await recordUsage(userId, projectId, prepared.durationSec);
-      await extractFrame(p.source, p.thumb, Math.min(prepared.durationSec * 0.1, 8), 640, signal).catch(() => undefined);
-      await rm(original, { force: true });
-      await rm(p.download, { recursive: true, force: true });
+      await extractFrame(work.prepared, work.thumb, Math.min(prepared.durationSec * 0.1, 8), 640, signal)
+        .then(() => storage().publish(keys.thumb, work.thumb, "image/jpeg"))
+        .catch(() => undefined);
+      await storage().publish(keys.source, work.prepared, "video/mp4");
+      if (uploaded) await storage().remove(keys.upload);
+      await rm(work.dir, { recursive: true, force: true });
       project = await mutateProject(userId, projectId, (cur) => ({
         ...cur,
         upload: undefined,
@@ -269,13 +259,18 @@ async function runImport(userId: string, projectId: string, signal: AbortSignal)
 
     const warning = await analyze(userId, projectId, signal, { findClips: project.findClips });
     await job.set("ready", 1, "Ready", { warning });
-  } catch (err) {
-    if (signal.aborted || isAbortError(err)) return;
-    if (!(err instanceof HttpError)) console.error("[bamio/jobs] import failed", err);
-    // Plan problems (402) keep their code, so the page can offer the plans.
-    const errorCode = err instanceof HttpError && err.status === 402 ? err.code : undefined;
-    await job.set("failed", 0, "Import failed", { error: errorText(err), errorCode }).catch(() => undefined);
   }
+}
+
+async function importFailed(userId: string, projectId: string, err: unknown) {
+  if (!(err instanceof HttpError)) console.error("[bamio/jobs] import failed", err);
+  // Plan problems (402) keep their code, so the page can offer the plans.
+  const errorCode = err instanceof HttpError && err.status === 402 ? err.code : undefined;
+  await jobWriter(userId, projectId).set("failed", 0, "Import failed", { error: errorText(err), errorCode });
+}
+
+async function importRetrying(userId: string, projectId: string, err: unknown, delayMs: number) {
+  await jobWriter(userId, projectId).set("queued", 0, `Something went wrong (${errorText(err).replace(/\.$/, "")}). Trying again in ${minutes(delayMs)} min.`);
 }
 
 /**
@@ -303,8 +298,8 @@ async function analyze(userId: string, projectId: string, signal: AbortSignal, o
       let transcript: Transcript;
       if (local) {
         await job.set("transcribing", 0, "Transcribing on this device");
-        const files = paths(userId, projectId);
-        transcript = await transcribeLocal(files.source, files.transcribe, project.language, signal, (v, message) => job.progress("transcribing", v, message));
+        const source = await storage().readable(mediaKeys(userId, projectId).source);
+        transcript = await transcribeLocal(source, scratch(projectId).transcribe, project.language, signal, (v, message) => job.progress("transcribing", v, message));
       } else {
         await job.set("transcribing", 0, "Transcribing with Gemini");
         transcript = await transcribe(userId, projectId, project.source.durationSec, signal, (v) => job.progress("transcribing", v, "Transcribing with Gemini"));
@@ -377,9 +372,9 @@ async function findClipsStep(userId: string, projectId: string, segments: Segmen
 const CHUNK_SEC = 300;
 
 async function transcribe(userId: string, projectId: string, durationSec: number, signal: AbortSignal, onProgress: (p: number) => void) {
-  const dir = paths(userId, projectId).audio;
+  const dir = scratch(projectId).audio;
   try {
-    const chunks = await extractAudioChunks(paths(userId, projectId).source, dir, CHUNK_SEC, signal);
+    const chunks = await extractAudioChunks(await storage().readable(mediaKeys(userId, projectId).source), dir, CHUNK_SEC, signal);
     let done = 0;
     let language: string | undefined;
     const pieces: Segment[][] = new Array(chunks.length);
@@ -410,32 +405,35 @@ async function transcribe(userId: string, projectId: string, durationSec: number
  * up to date while it grows. When the stream ends (or the user stops, or 12 hours are
  * captured), the rest is transcribed and everything becomes one MP4 like any other video.
  */
-export function startFollow(userId: string, projectId: string) {
-  if (running.follows.has(projectId)) return;
-  track(running.follows, projectId, (signal) => followProject(userId, projectId, signal));
+export async function startFollow(userId: string, projectId: string) {
+  await enqueue({ kind: "follow", userId, projectId, priority: await queuePriority(userId), maxAttempts: 3 });
 }
 
 const finishTried = new Map<string, number>();
 
 /**
- * After a restart (or a failed finish), a followed stream that was cut off still gets
- * finished when its project is next opened (at most once a minute).
+ * A followed stream left "finishing" (its follow job failed for good, or it predates the job
+ * queue) gets finished when its project is next opened (at most once a minute).
  */
-export function resumeFollow(userId: string, project: Project) {
-  if (project.source.live?.follow?.status !== "finishing" || running.follows.has(project.id)) return;
+export async function resumeFollow(userId: string, project: Project) {
+  if (project.source.live?.follow?.status !== "finishing") return;
   if (Date.now() - (finishTried.get(project.id) ?? 0) < 60_000) return;
   finishTried.set(project.id, Date.now());
-  track(running.follows, project.id, (signal) => finishFollow(userId, project.id, signal));
+  const active = (await activeJobs([project.id])).get(project.id);
+  if (active?.kinds.has("follow") || active?.kinds.has("finish-follow")) return;
+  await enqueue({ kind: "finish-follow", userId, projectId: project.id, priority: await queuePriority(userId), maxAttempts: 3 });
 }
 
 /** Seconds kept clear of the live edge (its last segment may still be arriving). */
 const LIVE_EDGE_SEC = 8;
 
-/** Run `task` on the project's video: source.mp4, or while a stream is followed a closed snapshot of its playlist. */
+/**
+ * Run `task` on the project's video, as something ffmpeg can open: source.mp4 (a file, or a
+ * signed link to it), or while a stream is followed a closed snapshot of its playlist.
+ */
 export async function withSourceFile<T>(userId: string, project: Project, task: (file: string) => Promise<T>): Promise<T> {
-  const files = paths(userId, project.id);
-  if (!isFollowing(project)) return task(files.source);
-  const snap = await livePlaylistSnapshot(files.live);
+  if (!isFollowing(project)) return task(await storage().readable(mediaKeys(userId, project.id).source));
+  const snap = await liveSnapshot(userId, project.id);
   try {
     return await task(snap.file);
   } finally {
@@ -443,11 +441,29 @@ export async function withSourceFile<T>(userId: string, project: Project, task: 
   }
 }
 
-async function followProject(userId: string, projectId: string, signal: AbortSignal) {
+/**
+ * `resumed`: a worker that was following this stream stopped (crash, deploy). What it had
+ * captured is finished into a video; reconnecting to the stream isn't attempted.
+ */
+async function followProject(userId: string, projectId: string, signal: AbortSignal, stopSignal: AbortSignal, resumed: boolean) {
+  if (resumed && isPrepared(await getProject(userId, projectId))) {
+    await mutateProject(userId, projectId, (cur) => {
+      const live = cur.source.live;
+      if (!live?.follow) return cur;
+      return { ...cur, source: { ...cur.source, live: { ...live, follow: { ...live.follow, status: "finishing", endReason: "restart", endedAt: Date.now() } } } };
+    });
+    await finishFollow(userId, projectId, signal);
+    return;
+  }
   const job = jobWriter(userId, projectId);
-  const files = paths(userId, projectId);
+  const dir = liveDir(userId, projectId);
+  const work = scratch(projectId);
+  const keys = mediaKeys(userId, projectId);
+  // With object storage, what's captured is copied up as it grows (players and other machines read it there).
+  const sync = () => syncLive(userId, projectId).catch((err: unknown) => console.error("[bamio/live] copying the stream to storage failed", err));
+  // Ends the capture: asked by the user (stopSignal), or when the plan's minutes run out (followWork).
   const stop = new AbortController();
-  running.stops.set(projectId, stop);
+  stopSignal.addEventListener("abort", () => stop.abort(), { once: true });
   let ended: FollowEnd | null = null;
   let failure: unknown = null;
   let capture: Promise<void> | null = null;
@@ -455,9 +471,10 @@ async function followProject(userId: string, projectId: string, signal: AbortSig
     const project = await getProject(userId, projectId);
     const follow = project.source.live?.follow;
     if (!follow) return;
-    await rm(files.live, { recursive: true, force: true });
+    await clearLive(userId, projectId);
+    await mkdir(work.dir, { recursive: true });
     await job.set("recording", 0, "Connecting to the stream");
-    capture = followLive(project.source, files.live, { backSec: follow.backSec, signal, stopSignal: stop.signal }).then(
+    capture = followLive(project.source, dir, { backSec: follow.backSec, signal, stopSignal: stop.signal }).then(
       (reason) => {
         ended = reason;
       },
@@ -469,8 +486,9 @@ async function followProject(userId: string, projectId: string, signal: AbortSig
 
     // Editable once a few segments are in.
     const connectBy = Date.now() + 5 * 60_000;
-    while (ended === null && (await liveCapturedSec(files.live)) < 12 && Date.now() < connectBy) await sleep(1000, signal);
-    if ((await liveCapturedSec(files.live)) <= 0) {
+    while (ended === null && (await liveCaptured(userId, projectId)) < 12 && Date.now() < connectBy) await sleep(1000, signal);
+    await sync();
+    if ((await liveCaptured(userId, projectId)) <= 0) {
       stop.abort();
       await capture;
       if (isAbortError(failure)) throw failure;
@@ -478,7 +496,9 @@ async function followProject(userId: string, projectId: string, signal: AbortSig
     }
     await withSourceFile(userId, project, async (file) => {
       const info = await probe(file, signal);
-      await extractFrame(file, files.thumb, Math.min(info.durationSec * 0.1, 8), 640, signal).catch(() => undefined);
+      await extractFrame(file, work.thumb, Math.min(info.durationSec * 0.1, 8), 640, signal)
+        .then(() => storage().publish(keys.thumb, work.thumb, "image/jpeg"))
+        .catch(() => undefined);
       await mutateProject(userId, projectId, (cur) => ({
         ...cur,
         source: { ...cur.source, width: info.width, height: info.height, hasAudio: info.hasAudio, durationSec: info.durationSec },
@@ -488,18 +508,19 @@ async function followProject(userId: string, projectId: string, signal: AbortSig
 
     // While it grows: its length, then captions and AI clips for the new part (after a
     // failure, captions pause for two minutes and the project says why).
-    let work: Promise<void> | null = null;
+    let captions: Promise<void> | null = null;
     let pausedUntil = 0;
     let known = 0;
     while (ended === null) {
       await sleep(5000, signal);
-      const captured = await liveCapturedSec(files.live);
+      await sync();
+      const captured = await liveCaptured(userId, projectId);
       if (captured - known >= 1) {
         known = captured;
         await mutateProject(userId, projectId, (cur) => ({ ...cur, source: { ...cur.source, durationSec: captured } }));
       }
-      if (!work && Date.now() >= pausedUntil) {
-        work = followWork(userId, projectId, false, signal)
+      if (!captions && Date.now() >= pausedUntil) {
+        captions = followWork(userId, projectId, false, signal, () => stop.abort())
           .then(() => clearCaptionsPaused(userId, projectId))
           .catch(async (err: unknown) => {
             if (signal.aborted || isAbortError(err)) return;
@@ -510,12 +531,13 @@ async function followProject(userId: string, projectId: string, signal: AbortSig
             );
           })
           .finally(() => {
-            work = null;
+            captions = null;
           });
       }
     }
     await capture;
-    await work;
+    await sync();
+    await captions;
   } catch (err) {
     stop.abort();
     if (signal.aborted) return;
@@ -529,8 +551,6 @@ async function followProject(userId: string, projectId: string, signal: AbortSig
     }
     console.error("[bamio/live] following failed", err);
     ended = "error";
-  } finally {
-    if (running.stops.get(projectId) === stop) running.stops.delete(projectId);
   }
   await mutateProject(userId, projectId, (cur) => {
     const live = cur.source.live;
@@ -553,8 +573,8 @@ async function clearCaptionsPaused(userId: string, projectId: string) {
  * caught up with the live edge; with `final`, to the very end. Each piece counts against
  * the plan's AI minutes; when they run out, following stops (what was captured is kept).
  */
-async function followWork(userId: string, projectId: string, final: boolean, signal: AbortSignal) {
-  const files = paths(userId, projectId);
+async function followWork(userId: string, projectId: string, final: boolean, signal: AbortSignal, stopFollowing: () => void = () => undefined) {
+  const transcribeDir = `${scratch(projectId).transcribe}-live`;
   for (;;) {
     const project = await getProject(userId, projectId);
     if (!project.source.hasAudio || !localTranscriptionOn()) return;
@@ -562,7 +582,7 @@ async function followWork(userId: string, projectId: string, final: boolean, sig
     const edge = project.source.durationSec - (final ? 0 : LIVE_EDGE_SEC);
     if (edge - from < (final ? 0.5 : FOLLOW_PIECE_SEC.min)) break;
     if ((await secondsLeft(userId)) <= 0) {
-      running.stops.get(projectId)?.abort();
+      stopFollowing();
       await mutateProject(userId, projectId, (cur) => ({ ...cur, job: { ...cur.job, warning: MINUTES_OUT } }));
       break;
     }
@@ -570,7 +590,7 @@ async function followWork(userId: string, projectId: string, final: boolean, sig
     const piece = await limits.live(
       () =>
         withSourceFile(userId, project, (file) =>
-          transcribeLocal(file, `${files.transcribe}-live`, project.spokenLanguage ?? project.language, signal, () => undefined, { start: from, end: to }),
+          transcribeLocal(file, transcribeDir, project.spokenLanguage ?? project.language, signal, () => undefined, { start: from, end: to }),
         ),
       await queuePriority(userId),
     );
@@ -607,7 +627,7 @@ async function followWork(userId: string, projectId: string, final: boolean, sig
 
 /** A follow that never produced usable video: failed (Try again starts over). */
 async function failFollow(userId: string, projectId: string, error: string) {
-  await rm(paths(userId, projectId).live, { recursive: true, force: true }).catch(() => undefined);
+  await clearLive(userId, projectId).catch(() => undefined);
   await mutateProject(userId, projectId, (cur) => {
     const live = cur.source.live;
     return {
@@ -620,13 +640,15 @@ async function failFollow(userId: string, projectId: string, error: string) {
 
 /** The end of following: the last captions and clips, then one MP4 in place of the HLS. */
 async function finishFollow(userId: string, projectId: string, signal: AbortSignal) {
-  const files = paths(userId, projectId);
-  if (!isPrepared(await getProject(userId, projectId)) || (await liveCapturedSec(files.live)) <= 0) {
+  const keys = mediaKeys(userId, projectId);
+  const work = scratch(projectId);
+  if (!isPrepared(await getProject(userId, projectId)) || (await liveCaptured(userId, projectId)) <= 0) {
     await failFollow(userId, projectId, "Bamio couldn’t record that stream. It may have ended or be restricted.");
     return;
   }
   try {
-    const captured = await liveCapturedSec(files.live);
+    await mkdir(work.dir, { recursive: true });
+    const captured = await liveCaptured(userId, projectId);
     if (captured > 0) await mutateProject(userId, projectId, (cur) => ({ ...cur, source: { ...cur.source, durationSec: captured } }));
     let warning: string | undefined;
     try {
@@ -639,9 +661,10 @@ async function finishFollow(userId: string, projectId: string, signal: AbortSign
     const project = await getProject(userId, projectId);
     await withSourceFile(userId, project, async (file) => {
       const info = await probe(file, signal);
-      await prepareSource(file, files.source, info, { live: true, signal });
+      await prepareSource(file, work.prepared, info, { live: true, signal });
     });
-    const prepared = await probe(files.source, signal);
+    const prepared = await probe(work.prepared, signal);
+    await storage().publish(keys.source, work.prepared, "video/mp4");
     await mutateProject(userId, projectId, (cur) => {
       const live = cur.source.live;
       const note = cur.job.warning?.startsWith(CAPTIONS_PAUSED) ? undefined : cur.job.warning;
@@ -658,7 +681,8 @@ async function finishFollow(userId: string, projectId: string, signal: AbortSign
         job: { ...cur.job, warning: warning ?? note, updatedAt: Date.now() },
       };
     });
-    await rm(files.live, { recursive: true, force: true });
+    await clearLive(userId, projectId);
+    await rm(work.dir, { recursive: true, force: true });
   } catch (err) {
     if (signal.aborted || isAbortError(err)) return;
     console.error("[bamio/live] finishing failed", err);
@@ -673,117 +697,157 @@ async function finishFollow(userId: string, projectId: string, signal: AbortSign
 
 /** Queue an export of one clip. The clip's export state tracks progress. */
 export async function startExport(userId: string, projectId: string, clipId: string): Promise<Project> {
-  const key = exportKey(projectId, clipId);
-  if (running.exports.has(key)) throw new HttpError(409, "busy", "This clip is already exporting.");
   const version = Date.now();
-  const project = await mutateProject(userId, projectId, (p) => {
-    if (p.job.status !== "ready") throw new HttpError(409, "not_ready", "Wait for the video to finish processing.");
-    const clip = p.clips.find((c) => c.id === clipId);
-    if (!clip) throw new HttpError(404, "not_found", "That clip doesn’t exist.");
-    const signature = exportSignature(clip, p.transcriptRev);
-    return { ...p, clips: p.clips.map((c) => (c.id === clipId ? { ...c, export: { status: "queued", progress: 0, version, signature } } : c)) };
-  });
-
-  track(running.exports, key, async (signal) =>
-    limits.exports(async () => {
-      const setExport = (state: Partial<NonNullable<Clip["export"]>>) =>
-        mutateProject(userId, projectId, (p) => ({
-          ...p,
-          clips: p.clips.map((c) => (c.id === clipId && c.export?.version === version ? { ...c, export: { ...c.export, ...state } } : c)),
-        }));
-      let last = 0;
-      try {
-        signal.throwIfAborted();
-        const current = await getProject(userId, projectId);
-        const clip = current.clips.find((c) => c.id === clipId);
-        if (!clip) return;
-        // The render uses the clip as it is now, which may be newer than when it was queued.
-        await setExport({ status: "rendering", progress: 0, signature: exportSignature(clip, current.transcriptRev) });
-        const transcript = clip.edit.captions && current.hasTranscript ? await readTranscript(userId, projectId) : null;
-        const lines = transcript ? captionLines(transcript.segments, clip.start, clip.end, clip.edit.captionStyle) : [];
-        const title = overlayTitle(clip);
-        const duration = clip.end - clip.start;
-        // Other scripts get their own fonts (downloaded the first time they're needed).
-        const language = transcript?.language ?? current.spokenLanguage;
-        const fonts = await Promise.all(fontsNeeded([...lines.flatMap((l) => l.words.map((w) => w.text)), title], language).map(ensureFont));
-        const ass =
-          lines.length > 0 || title
-            ? buildAss({
-                lines,
-                aspect: clip.edit.aspect,
-                style: clip.edit.captionStyle,
-                position: clip.edit.captionPosition,
-                durationSec: duration,
-                title,
-                markup: (text, size) => assMarkup(text, size, language),
-              })
-            : null;
-        // A followed stream renders from its video so far.
-        const bytes = await withSourceFile(userId, current, (input) =>
-          renderClip(
-            {
-              input,
-              output: clipFile(userId, projectId, clipId, "export"),
-              workDir: clipFile(userId, projectId, clipId, "work"),
-              start: clip.start,
-              duration,
-              srcW: current.source.width,
-              srcH: current.source.height,
-              hasAudio: current.source.hasAudio,
-              edit: clip.edit,
-              ass,
-              fonts,
-            },
-            {
-              signal,
-              onProgress: (v) => {
-                const now = Date.now();
-                if (now - last < 750) return;
-                last = now;
-                void setExport({ progress: v }).catch(() => undefined);
-              },
-            },
-          ),
-        );
-        await setExport({ status: "done", progress: 1, bytes, at: Date.now(), error: undefined });
-      } catch (err) {
-        if (signal.aborted || isAbortError(err)) return;
-        if (!(err instanceof HttpError)) console.error("[bamio/jobs] export failed", err);
-        await setExport({ status: "failed", error: errorText(err) }).catch(() => undefined);
-      }
-    }, await queuePriority(userId)),
+  const priority = await queuePriority(userId);
+  return mutateProject(
+    userId,
+    projectId,
+    (p) => {
+      if (p.job.status !== "ready") throw new HttpError(409, "not_ready", "Wait for the video to finish processing.");
+      const clip = p.clips.find((c) => c.id === clipId);
+      if (!clip) throw new HttpError(404, "not_found", "That clip doesn’t exist.");
+      if (clip.export?.status === "queued" || clip.export?.status === "rendering") throw new HttpError(409, "busy", "This clip is already exporting.");
+      const signature = exportSignature(clip, p.transcriptRev);
+      return { ...p, clips: p.clips.map((c) => (c.id === clipId ? { ...c, export: { status: "queued", progress: 0, version, signature } } : c)) };
+    },
+    { then: (tx) => enqueue({ kind: "export", userId, projectId, clipId, payload: { version }, priority, maxAttempts: 2 }, tx) },
   );
-  return project;
+}
+
+/** Changes this export's state (not a newer export of the same clip). */
+const exportWriter = (userId: string, projectId: string, clipId: string, version: number) => (state: Partial<NonNullable<Clip["export"]>>) =>
+  mutateProject(userId, projectId, (p) => ({
+    ...p,
+    clips: p.clips.map((c) => (c.id === clipId && c.export?.version === version ? { ...c, export: { ...c.export, ...state } } : c)),
+  }));
+
+async function runExport(userId: string, projectId: string, clipId: string, version: number, signal: AbortSignal) {
+  const setExport = exportWriter(userId, projectId, clipId, version);
+  let last = 0;
+  signal.throwIfAborted();
+  const current = await getProject(userId, projectId);
+  const clip = current.clips.find((c) => c.id === clipId);
+  if (!clip || clip.export?.version !== version) return; // deleted, or exported again since
+  // The render uses the clip as it is now, which may be newer than when it was queued.
+  await setExport({ status: "rendering", progress: 0, signature: exportSignature(clip, current.transcriptRev) });
+  const transcript = clip.edit.captions && current.hasTranscript ? await readTranscript(userId, projectId) : null;
+  const lines = transcript ? captionLines(transcript.segments, clip.start, clip.end, clip.edit.captionStyle) : [];
+  const title = overlayTitle(clip);
+  const duration = clip.end - clip.start;
+  // Other scripts get their own fonts (downloaded the first time they're needed).
+  const language = transcript?.language ?? current.spokenLanguage;
+  const fonts = await Promise.all(fontsNeeded([...lines.flatMap((l) => l.words.map((w) => w.text)), title], language).map(ensureFont));
+  const ass =
+    lines.length > 0 || title
+      ? buildAss({
+          lines,
+          aspect: clip.edit.aspect,
+          style: clip.edit.captionStyle,
+          position: clip.edit.captionPosition,
+          durationSec: duration,
+          title,
+          markup: (text, size) => assMarkup(text, size, language),
+        })
+      : null;
+  const target = mediaKeys(userId, projectId).export(clipId);
+  const render = scratch(projectId).render(clipId);
+  // A followed stream renders from its video so far.
+  await withSourceFile(userId, current, (input) =>
+    renderClip(
+      {
+        input,
+        output: render.output,
+        workDir: render.workDir,
+        start: clip.start,
+        duration,
+        srcW: current.source.width,
+        srcH: current.source.height,
+        hasAudio: current.source.hasAudio,
+        edit: clip.edit,
+        ass,
+        fonts,
+      },
+      {
+        signal,
+        onProgress: (v) => {
+          const now = Date.now();
+          if (now - last < 750) return;
+          last = now;
+          void setExport({ progress: v }).catch(() => undefined);
+        },
+      },
+    ),
+  );
+  const bytes = await storage().publish(target, render.output, "video/mp4");
+  await setExport({ status: "done", progress: 1, bytes, at: Date.now(), error: undefined });
 }
 
 /* ------------------------------ Stopping ------------------------------ */
 
-/** Stop an export and wait (briefly) for ffmpeg to let go of its files. */
+/** Stop an export and wait (briefly) for its worker to let go of its files. */
 export async function stopExport(projectId: string, clipId: string) {
-  const task = running.exports.get(exportKey(projectId, clipId));
-  if (!task) return;
-  task.controller.abort();
-  await Promise.race([task.done.catch(() => undefined), new Promise((r) => setTimeout(r, 5000))]);
+  if ((await requestCancel(projectId, { kind: "export", clipId })) > 0) await waitForIdle(projectId, 5_000, { kind: "export", clipId });
 }
 
-/** Stop everything running for a project (before deleting it). */
+/** Stop everything running for a project (before deleting it), and wait briefly for it to stop. */
 export async function stopProject(projectId: string) {
-  const tasks = [running.imports.get(projectId), running.follows.get(projectId), ...[...running.exports].filter(([k]) => k.startsWith(`${projectId}:`)).map(([, t]) => t)].filter(
-    (t): t is RunningTask => Boolean(t),
-  );
-  tasks.forEach((t) => t.controller.abort());
-  await Promise.race([Promise.allSettled(tasks.map((t) => t.done)), new Promise((r) => setTimeout(r, 5000))]);
+  if ((await requestCancel(projectId)) > 0) await waitForIdle(projectId, 5_000);
 }
 
-/** Refuse new work when the disk is nearly full. */
+/** Refuse new work when the disk is nearly full: the scratch folder's, and the data folder's when media are kept there. */
 export async function assertDiskSpace(bytesNeeded: number) {
-  try {
-    await mkdir(dataRoot(), { recursive: true });
-    const fs = await statfs(dataRoot());
-    const free = Number(fs.bavail) * Number(fs.bsize);
-    if (free < bytesNeeded + 512 * 1024 * 1024) throw new HttpError(507, "no_space", "The server is running out of disk space. Delete some projects first.");
-  } catch (err) {
-    if (err instanceof HttpError) throw err;
-    // statfs can fail on unusual file systems; don't block the user on it.
+  for (const root of storage().name === "local" ? [workRoot(), dataRoot()] : [workRoot()]) {
+    try {
+      await mkdir(root, { recursive: true });
+      const fs = await statfs(root);
+      const free = Number(fs.bavail) * Number(fs.bsize);
+      if (free < bytesNeeded + 512 * 1024 * 1024) throw new HttpError(507, "no_space", "The server is running out of disk space. Delete some projects first.");
+    } catch (err) {
+      if (err instanceof HttpError) throw err;
+      // statfs can fail on unusual file systems; don't block the user on it.
+    }
   }
 }
+
+/* ------------------------------ Workers ------------------------------ */
+
+const HOUR = 3600_000;
+const slots = (name: string, fallback: number) => Math.max(1, Number(process.env[name]) || fallback);
+
+/** What a worker does with each kind of job (worker.ts runs them). */
+export const jobSpecs: Record<JobKind, KindSpec> = {
+  import: {
+    run: (job, { signal, stopSignal }) => runImport(job.userId, job.projectId, signal, stopSignal),
+    failed: (job, err) => importFailed(job.userId, job.projectId, err),
+    retrying: (job, err, delayMs) => importRetrying(job.userId, job.projectId, err, delayMs),
+    timeoutMs: 8 * HOUR,
+  },
+  analyze: { run: (job, { signal }) => runAnalysis(job.userId, job.projectId, signal), timeoutMs: 6 * HOUR },
+  retranscribe: { run: (job, { signal }) => runRetranscribe(job.userId, job.projectId, signal), timeoutMs: 6 * HOUR },
+  export: {
+    run: (job, { signal }) => runExport(job.userId, job.projectId, job.clipId ?? "", Number(job.payload.version), signal),
+    failed: async (job, err) => {
+      if (!(err instanceof HttpError)) console.error("[bamio/jobs] export failed", err);
+      await exportWriter(job.userId, job.projectId, job.clipId ?? "", Number(job.payload.version))({ status: "failed", error: errorText(err) });
+    },
+    retrying: (job) => exportWriter(job.userId, job.projectId, job.clipId ?? "", Number(job.payload.version))({ status: "queued", progress: 0 }).then(() => undefined),
+    timeoutMs: 2 * HOUR,
+  },
+  follow: {
+    run: (job, { signal, stopSignal }) => followProject(job.userId, job.projectId, signal, stopSignal, job.attempts > 1),
+    failed: (job, err) => failFollow(job.userId, job.projectId, errorText(err)),
+    timeoutMs: (LIMITS.maxFollowSec + 2 * 3600) * 1000,
+  },
+  "finish-follow": { run: (job, { signal }) => finishFollow(job.userId, job.projectId, signal), timeoutMs: 6 * HOUR },
+};
+
+/**
+ * Slots per worker process: imports and analysis (each uses several CPU threads to
+ * transcribe), exports, followed streams (mostly waiting on the network). One user takes at
+ * most two of a kind at once.
+ */
+export const jobPools = (): Pool[] => [
+  { name: "imports", kinds: ["import", "analyze", "retranscribe"], concurrency: slots("BAMIO_IMPORT_SLOTS", 2), perUserMax: 2 },
+  { name: "exports", kinds: ["export"], concurrency: slots("BAMIO_EXPORT_SLOTS", 2), perUserMax: 2 },
+  { name: "streams", kinds: ["follow", "finish-follow"], concurrency: slots("BAMIO_STREAM_SLOTS", 4), perUserMax: 2 },
+];

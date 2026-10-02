@@ -1,10 +1,11 @@
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { createClerkClient } from "@clerk/backend";
 import { clerkSetup } from "@clerk/testing/playwright";
 import { loadEnvConfig } from "@next/env";
+import postgres from "postgres";
 import { ensureModels, modelChoice, modelKey } from "../../workers/speech-models.mjs";
 import { E2E_EMAIL, E2E_USERNAME, SAMPLE_VIDEO } from "./auth";
 
@@ -16,9 +17,12 @@ import { E2E_EMAIL, E2E_USERNAME, SAMPLE_VIDEO } from "./auth";
  * 4. Generates the sample video the upload tests use (40 s, 1280x720, with speech), and makes
  *    sure the on-device speech models it needs are downloaded (English is transcribed for
  *    real, even with mock AI).
+ * 5. Starts the local database (npm run db:local) if the test server would use it and it isn't
+ *    running; it's stopped again after the tests.
  */
 export default async function globalSetup() {
   loadEnvConfig(process.cwd());
+  const stopDatabase = await ensureLocalDatabase();
   makeSampleVideo();
   // English, and Whisper to detect the language (new imports detect it by default).
   await ensureModels(process.env.BAMIO_MODELS_DIR || path.join(process.cwd(), ".models"), [modelKey("english", modelChoice()), "lid"]);
@@ -35,7 +39,7 @@ export default async function globalSetup() {
 
   const clerk = createClerkClient({ secretKey });
   const { data } = await clerk.users.getUserList({ emailAddress: [E2E_EMAIL] });
-  if (data.length > 0) return;
+  if (data.length > 0) return stopDatabase;
 
   // Instances differ in which fields they require or accept (username, password, names). Try the fullest
   // user first, then fall back to email only, and report Clerk's reasons if all fail.
@@ -48,13 +52,25 @@ export default async function globalSetup() {
   for (const params of attempts) {
     try {
       await clerk.users.createUser(params);
-      return;
+      return stopDatabase;
     } catch (err) {
       const errors = (err as { errors?: { code?: string; message?: string; longMessage?: string }[] }).errors ?? [];
       reasons.push(errors.map((e) => `${e.code}: ${e.longMessage ?? e.message}`).join("; ") || String(err));
     }
   }
   throw new Error(`Could not create the e2e test user:\n- ${reasons.join("\n- ")}`);
+}
+
+/** The local development database, started if it's the one in use and not running. Returns how to stop it again. */
+async function ensureLocalDatabase(): Promise<() => void> {
+  if (process.env.DATABASE_URL) return () => undefined;
+  const probe = postgres("postgres://postgres@127.0.0.1:54329/bamio", { onnotice: () => undefined, max: 1, connect_timeout: 3 });
+  const up = await probe`select 1`.then(() => true, () => false);
+  await probe.end({ timeout: 1 });
+  if (up) return () => undefined;
+  const dbLocal = (...args: string[]) => execFileSync(process.execPath, [path.join("scripts", "db-local.mjs"), ...args], { stdio: "inherit" });
+  dbLocal();
+  return () => dbLocal("stop");
 }
 
 /**

@@ -1,9 +1,9 @@
-import { rm } from "node:fs/promises";
 import { clipRangeError } from "@/lib/clips/logic";
 import { clipEditSchema, updateClipSchema } from "@/lib/clips/schema";
 import { HttpError, readJson, userRoute } from "@/lib/server/http";
 import { stopExport } from "@/lib/server/jobs";
-import { clipFile, getProject, mutateProject } from "@/lib/server/store";
+import { storage } from "@/lib/server/storage";
+import { getProject, mediaKeys, mutateProject } from "@/lib/server/store";
 
 type Params = { id: string; clipId: string };
 
@@ -31,6 +31,6 @@ export const DELETE = userRoute<Params>(async (_req, { userId, params }) => {
   if (!current.clips.some((c) => c.id === params.clipId)) throw new HttpError(404, "not_found", "That clip doesn’t exist.");
   await stopExport(current.id, params.clipId);
   const project = await mutateProject(userId, params.id, (p) => ({ ...p, clips: p.clips.filter((c) => c.id !== params.clipId) }));
-  await rm(clipFile(userId, project.id, params.clipId, "export"), { force: true, maxRetries: 3, retryDelay: 200 });
+  await storage().remove(mediaKeys(userId, project.id).export(params.clipId));
   return Response.json(project);
 });

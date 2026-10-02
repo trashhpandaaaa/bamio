@@ -50,3 +50,8 @@ next-env.d.ts
 /.bin/
 /.data/
 /.models/
+# The worker bundle (npm run build:worker)
+/dist/
+# The local development database (npm run db:local), and media workers' scratch space
+/.pg/
+/.work/

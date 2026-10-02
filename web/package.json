@@ -13,9 +13,16 @@
     "check": "npm run typecheck && npm run lint && npm run test",
     "ai:check": "node scripts/check-ai.mjs",
     "setup:media": "node scripts/setup-media.mjs",
-    "stripe:setup": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/setup-stripe.mjs"
+    "stripe:setup": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/setup-stripe.mjs",
+    "db:local": "node scripts/db-local.mjs",
+    "db:migrate": "node scripts/db-migrate.mjs",
+    "build:worker": "node scripts/build-worker.mjs",
+    "worker": "node dist/worker.mjs"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1144.0",
+    "@aws-sdk/lib-storage": "^3.1144.0",
+    "@aws-sdk/s3-request-presigner": "^3.1144.0",
     "@clerk/nextjs": "^7.9.7",
     "@google/genai": "^2.24.0",
     "@phosphor-icons/react": "^2.1.10",
@@ -23,6 +30,7 @@
     "ffprobe-static": "^3.1.0",
     "hls.js": "^1.7.3",
     "next": "16.3.6",
+    "postgres": "^3.4.9",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "server-only": "^0.0.1",
@@ -36,8 +44,10 @@
     "@types/node": "^24.19.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "esbuild": "^0.28.2",
     "eslint": "^9",
     "eslint-config-next": "16.3.6",
+    "s3rver": "^3.7.1",
     "typescript": "^5",
     "vitest": "^5.0.2"
   },

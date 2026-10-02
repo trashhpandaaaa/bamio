@@ -2,7 +2,7 @@
 
 Bamio turns long videos into vertical shorts. Paste a YouTube, Twitch or Kick link (or any site yt-dlp supports), or upload a file. Bamio transcribes it, finds the moments that work as standalone clips, and lets you trim, reframe (9:16, 1:1, 16:9), caption word by word and export 1080p MP4s.
 
-Built with Next.js 16 (App Router), React 19, TypeScript, Clerk (sign-in), on-device speech recognition in any language with word timing (via sherpa-onnx: NVIDIA Parakeet, Meta Omnilingual ASR, Whisper for detecting the language, Silero VAD), Google Gemini (clip finding), yt-dlp (link import) and ffmpeg (processing and export). The visual design comes from `../design/` (direction: Hook).
+Built with Next.js 16 (App Router), React 19, TypeScript, Postgres (data and the job queue), local or S3-compatible storage (videos), Clerk (sign-in), on-device speech recognition in any language with word timing (via sherpa-onnx: NVIDIA Parakeet, Meta Omnilingual ASR, Whisper for detecting the language, Silero VAD), Google Gemini (clip finding), yt-dlp (link import) and ffmpeg (processing and export). The visual design comes from `../design/` (direction: Hook).
 
 ## Quick start
 
@@ -10,9 +10,12 @@ Built with Next.js 16 (App Router), React 19, TypeScript, Clerk (sign-in), on-de
 cd web
 npm install
 npm run setup:media     # yt-dlp into web/.bin, speech models and caption fonts into web/.models (~1.9 GB), all checksum verified
+npm run db:local        # a Postgres for development in web/.pg (needs Postgres 16+ installed), on 127.0.0.1:54329
 npm run ai:check        # confirms the Gemini key and models work
-npm run dev             # http://localhost:3000
+npm run dev             # http://localhost:3000 (it also runs the background jobs)
 ```
+
+Upgrading from the version that kept projects as JSON files: `node scripts/db-import-disk.mjs` copies them (and billing and usage) into the database; the media files stay where they are.
 
 `web/.env` needs the Clerk keys (written by `clerk init`) and `GEMINI_API_KEY` (get one at https://aistudio.google.com/apikey). See `.env.example` for every option.
 
@@ -33,7 +36,11 @@ BAMIO_AI_MOCK=1 npm run dev
 | `BAMIO_TEXT_MODEL` | `gemini-3.8-flash` | Used for clip finding (and for transcription with `BAMIO_LOCAL_TRANSCRIBE=0`). |
 | `BAMIO_TEXT_FALLBACK_MODEL` | `gemini-3.5-flash-lite` | Tried once when the main model is busy, rate limited or missing. `none` turns it off. |
 | `BAMIO_AI_MOCK` | off | `1` = fake AI, for demos and end-to-end tests. |
-| `BAMIO_DATA_DIR` | `web/.data` | Where projects, transcripts and exports are stored. |
+| `DATABASE_URL` | the local one in development | Postgres 16+: projects, transcripts, jobs, billing, usage. Required in production. `DATABASE_POOL_SIZE` (10) per process. |
+| `STORAGE_DRIVER` | `local` (`s3` with `S3_BUCKET`) | Where videos, thumbnails, frames and exports are kept: files under `BAMIO_DATA_DIR`, or an S3-compatible store (`S3_BUCKET`, `S3_REGION`, `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE=1` for MinIO, `S3_PUBLIC_ENDPOINT` when browsers reach it elsewhere). |
+| `BAMIO_DATA_DIR` | `web/.data` | Local storage's folder. |
+| `BAMIO_WORK_DIR` | `web/.work` | Scratch space for work in progress (downloads, prepared videos, renders). |
+| `BAMIO_WORKER` | on | The web server also runs background jobs. `off`: it only queues them, for worker processes (`npm run worker`). `BAMIO_IMPORT_SLOTS` (2), `BAMIO_EXPORT_SLOTS` (2), `BAMIO_STREAM_SLOTS` (4): jobs at once per process. |
 | `BAMIO_MODELS_DIR` | `web/.models` | Where the speech models and caption fonts are kept. |
 | `BAMIO_LOCAL_TRANSCRIBE` | on | `0` transcribes with Gemini instead (not recommended: timing is far less accurate). |
 | `BAMIO_FOLLOW_MAX_BACK_SEC` | 21600 (6 h) | How far back following a live stream may start. |
@@ -53,12 +60,12 @@ Without `STRIPE_SECRET_KEY`, `/pricing` shows the plans but can't sell them, and
 - **Importing needs a working plan** (paid, or Stripe still retrying a failed payment). Each import uses its length in AI minutes (a part uses only the part; a followed stream uses what gets captioned, and following stops when the minutes run out). Minutes renew every month on the day the plan started, also on 3-month plans; unused ones don't roll over. Finding more clips, editing and exporting use none, but AI on an existing video still needs a plan. Plans also keep 50 / 150 / 400 projects, and Pro and Team go first in every processing queue.
 - **Buying** is Stripe Checkout (`/pricing`); **changing plan, card, invoices and cancelling** are Stripe's billing portal (Plan & billing in the account menu, `/billing`). Upgrades start at once and charge the difference; smaller plans and switching from 3 months to monthly start at the end of the period paid for; cancelling keeps the plan to the end of the period.
 - **Setup:** add `STRIPE_SECRET_KEY` (test key first), run `npm run stripe:setup` (creates the products, the six prices under lookup keys like `bamio_pro_quarter`, and the portal settings; safe to re-run, and a changed price in `plans.ts` replaces the old one), then send Stripe's events to `/api/billing/webhook`: locally `stripe listen --forward-to localhost:3000/api/billing/webhook` and put the `whsec_...` it prints in `STRIPE_WEBHOOK_SECRET`; in production `npm run stripe:setup -- --webhook https://your.domain`. Restart the server.
-- **State** is kept per user beside their projects: `billing.json` (Stripe customer and subscription) and `usage.json` (one entry per import or stream piece, so a retried import counts once). Webhooks keep it current; the server also reads it from Stripe when it may be stale (a renewal due, half an hour old) and when `/billing` opens, so plans keep working where webhooks can't reach the server.
+- **State** is kept in the database: `billing_accounts` (Stripe customer and subscription, per user) and `usage_entries` (one row per import or stream piece, keyed, so a retried import counts once). Webhooks keep it current; the server also reads it from Stripe when it may be stale (a renewal due, half an hour old) and when `/billing` opens, so plans keep working where webhooks can't reach the server.
 
 ## How it works
 
 1. **Import** (`/new`): paste a link (Bamio shows the title, channel and length as you paste) or drop a file. Choose part of a long video, the spoken language (detected automatically unless you pick one), whether to find clips with AI, clip length, format and caption style. For a live stream, **follow the stream** (the default): Bamio captures it from as far back as it keeps (Twitch: the start of the stream; YouTube: its rewind history; Kick: from now) and keeps adding to it until the stream ends, you stop, or 12 hours are captured. The project opens as soon as the first seconds are in, and you can clip, edit and export while it grows; captions and AI clips follow along, and when it ends it becomes a normal video. Or **capture a part**: how far back to start and how long to keep recording.
-2. **Processing** runs on the server and continues if you leave the page: download or upload, prepare a browser-playable MP4, transcribe on this device (any language, with a time for every word), then find clips with Gemini. Progress shows as steps.
+2. **Processing** runs as background jobs and continues if you leave the page (or a worker restarts): download or upload, prepare a browser-playable MP4, transcribe on this device (any language, with a time for every word), then find clips with Gemini. Progress shows as steps.
 3. **Project** (`/projects/[id]`): watch the source, see AI clips with a score and the reason they were picked, or mark your own with I and O. Export or download each clip.
 4. **Clip editor** (`/projects/[id]/clips/[clipId]`): trim on a filmstrip, pick the format, drag the picture to reframe (or fit it over a blurred fill), choose caption style and position, fix caption words, add a title. Changes save automatically. Export renders on the server and the preview matches the file.
 
@@ -88,15 +95,25 @@ src/
       billing, billing/checkout,     the user's plan (?fresh=1 reads Stripe first), a Checkout page,
       billing/portal                 a billing-portal page (optionally on switching to a plan)
       billing/webhook                Stripe's events (no session: checked by signature)
+      health                         database, storage and media tools, queue depth (public; 200 or 503)
+  instrumentation.ts                 runs the job worker inside the web server (unless BAMIO_WORKER=off)
+  worker/main.ts                     a worker process on its own (bundled to dist/worker.mjs)
   lib/
     billing/plans.ts                 the plans: prices, minutes, projects, priority, features ("coming soon" flags)
     clips/                           shared by browser and server: schemas (zod), time and caption
                                      maths, crop maths, ASS captions, ffmpeg arguments, URL checks, API client
-    server/                          server only: auth and HTTP helpers, disk store, media tools
-                                     (yt-dlp, ffprobe, ffmpeg), background jobs and their priority queues
-                                     (limiter.ts), file streaming, caption fonts per script
-                                     (caption-fonts.ts + .json), plans and payments (billing.ts, the only
-                                     reader of the Stripe keys)
+    server/                          server only: auth and HTTP helpers, media tools (yt-dlp, ffprobe,
+                                     ffmpeg), caption fonts per script (caption-fonts.ts + .json), plans
+                                     and payments (billing.ts, the only reader of the Stripe keys), and:
+      db.ts                          the Postgres client
+      store.ts                       projects, transcripts, billing and usage in the database; media keys
+                                     and scratch folders per project; id checks
+      storage.ts                     media files: a local folder or S3-compatible (signed links, multipart uploads)
+      live-media.ts                  a followed stream's growing HLS, kept in storage as it grows
+      queue.ts                       the job queue (a Postgres table): enqueue, claim, lease, retry, cancel
+      worker.ts                      runs queued jobs in pools, renews their leases, hands them back on stop
+      jobs.ts                        what each job does (import, find clips, transcribe again, export,
+                                     follow a stream), and starting or stopping them
     ai/server/                       Gemini client (retries, fallback model), transcription and clip finding
 workers/transcribe.mjs               on-device transcription in any language (sherpa-onnx: Whisper tiny detects the language,
                                      Silero VAD finds speech, Parakeet or Omnilingual transcribes), run as a child process
@@ -108,20 +125,25 @@ workers/speech-models.mjs            downloads and checks the speech models
                                      (stock footage from public/landing/, footage.tsx; captions use the export's
                                      spec from lib/clips/ass.ts)
   components/site/                   the marketing pages' top bar, footer and FAQ list (landing, pricing)
-  components/brand.tsx               the wordmark (its i-dot is a pair of scissors) and the AI mark
+  components/brand.tsx               the wordmark (its i-dot is a 9:16 frame tilted 12°) and the AI mark
   hooks/use-project.ts               polling while the server is busy (or a stream is followed)
   hooks/use-source-video.ts          plays source.mp4, or a followed stream's growing HLS with hls.js
 assets/fonts/                        Bricolage Grotesque ExtraBold, burned into captions (OFL); Noto fonts for
                                      other scripts are downloaded into web/.models/fonts
+db/migrate.mjs, db/migrations/      the database's tables, as numbered SQL files applied in order
 scripts/                             setup-media.mjs (yt-dlp, models, fonts), check-ai.mjs, setup-stripe.mjs,
-                                     landing-footage.mjs (the landing page's demo footage)
+                                     landing-footage.mjs (the landing page's demo footage), db-local.mjs,
+                                     db-migrate.mjs, db-import-disk.mjs, build-worker.mjs
+Dockerfile, compose.yaml             one image for the web server and the worker; a stack with Postgres and MinIO
 public/landing/                      the demo footage: podcast and stream loops (WebM, MP4), stills, a filmstrip
 ```
 
 Key decisions:
 
-- **Processing runs in the Next.js server process** with a small in-memory queue; job state is saved in each project's JSON, so the browser polls it. A restart marks unfinished work as failed with a Try again button. This needs a long-running Node server (a VPS or container), **not serverless hosting**.
-- **Storage is the server's disk**, one folder per Clerk user and project. Ids are validated so no path can leave the data folder; every route checks the signed-in user.
+- **Data is in Postgres** (`db/migrations`): a project (with its clips and job states) is one validated JSON document per row, changed inside a transaction with the row locked (`mutateProject`), so several servers can share it. Transcripts, billing and usage have their own tables.
+- **Media is in storage** (`storage.ts`), under `users/<user>/projects/<project>/`: the server's disk by default, or S3, R2 or MinIO. With S3 the browser gets the video, frames and exports from short-lived signed links (stable for an hour, so the browser can cache them); a followed stream's playlist goes through the server, and its segments are signed links. Work in progress (downloads, renders) happens in a local scratch folder (`BAMIO_WORK_DIR`), and only finished files are stored. Ids are validated so no key or path can leave a project; every route checks the signed-in user.
+- **Jobs are durable** (`queue.ts`, `worker.ts`): every import, analysis, export and followed stream is a row in a `jobs` table. Workers claim jobs (`FOR UPDATE SKIP LOCKED`, plan priority first, at most 2 running per user per pool) and hold a lease they renew every 10 s. If a worker dies, the lease runs out after 30 s and another worker takes the job over; an import resumes from what's done (a prepared video isn't prepared again). A job that fails on the network or in the tools is tried up to 3 times (waiting 30 s, then 2 minutes); bad input and time limits aren't retried, and neither is a live capture (the stream has moved on). Stop and cancel are flags the running worker sees within seconds. A worker that's stopped (SIGTERM) takes nothing new and hands its jobs back. New jobs wake workers at once (LISTEN/NOTIFY), with polling as a fallback. A Postgres queue was chosen over Redis and BullMQ: there's one less service to run, and a job is queued in the same transaction as the project change that asks for it. `queue.ts` is small enough to swap out if the volume ever needs it.
+- **The web server can be the worker** (the default: one process, for development or a small server), or it can only queue jobs (`BAMIO_WORKER=off`) beside any number of worker processes (`node dist/worker.mjs`) on other machines. Either way it needs long-running Node processes (a VPS or containers), **not serverless hosting**.
 - **Uploads go in 8 MB chunks**, because Next.js buffers request bodies that pass through `proxy.ts` (10 MB). Chunks are resumable.
 - **Model output is untrusted.** Every Gemini answer is validated with zod and cleaned (times clamped and ordered, clips snapped to phrase edges, overlaps removed).
 - **Every language is transcribed on the device.** Gemini's audio timestamps drift badly on long audio (minutes off after 20 minutes of a podcast in our tests, with whole minutes of speech left out) and the free tier allows few requests a day, so Gemini is only used once per video, to pick clips. `workers/transcribe.mjs` runs in its own Node process:
@@ -145,26 +167,39 @@ Key decisions:
 |---|---|
 | `npm run dev` | Dev server |
 | `npm run build` / `npm start` | Production build and server |
-| `npm run check` | Typecheck (with route types) + lint + unit tests |
-| `npm test` | Unit tests (Vitest): time and caption maths, timed words and phrases in any script, caption fonts, crop, clip clean-up, ASS output, ffmpeg arguments, URL safety, byte ranges, store (locking, restarts), HTTP helpers, AI helpers, live capture rules, plans and billing (prices, usage months, minutes and project limits, webhook signatures), queue priority |
+| `npm run check` | Typecheck (with route types) + lint + unit tests (they start the local database if it isn't running, and use a separate `bamio_test` database) |
+| `npm test` | Unit tests (Vitest): time and caption maths, timed words and phrases in any script, caption fonts, crop, clip clean-up, ASS output, ffmpeg arguments, URL safety, byte ranges, store (Postgres: locking, stalled work), storage (local, and S3 through the s3rver emulator), the job queue and worker (claims, priority, leases, retries, a crashed worker's job taken over, cancel and stop), HTTP helpers, AI helpers, live capture rules, plans and billing (prices, usage months, minutes and project limits, webhook signatures), queue priority |
 | `npm run test:e2e` | End-to-end tests (Playwright on installed Microsoft Edge, mock AI). Reuses a server on port 3100 or starts `next dev` there. Makes a test video with ffmpeg and a committed speech track, uploads it, transcribes it on the device, finds clips (mock AI), edits, exports and checks the MP4 with ffprobe. |
 | `npm run setup:media` | Downloads or updates yt-dlp (re-run when a site stops working), and the speech models and caption fonts for every language (`BAMIO_PREFETCH=english` for English only; anything skipped downloads on first use) |
 | `npm run ai:check` | Checks the Gemini key, JSON output and audio input on the main and fallback models |
 | `node scripts/landing-footage.mjs` | Remakes the landing page's demo footage in `public/landing/` from two Mixkit stock videos (downloads the originals into `qa/footage-src/`) |
+| `npm run db:local` | Starts the development Postgres in `web/.pg` (`-- stop`, `-- status`), and creates and updates the `bamio` and `bamio_test` databases. Needs Postgres 16+ installed (found on PATH, in `PG_BIN` or the usual install folders) |
+| `npm run db:migrate` | Brings `DATABASE_URL`'s database up to date (the Docker image does this when it starts) |
+| `node scripts/db-import-disk.mjs` | Copies projects, transcripts, billing and usage from the old JSON files in `BAMIO_DATA_DIR` into the database (safe to re-run) |
+| `npm run build:worker` / `npm run worker` | Bundles the worker into `dist/worker.mjs` / runs it (it stops gracefully on Ctrl+C or SIGTERM) |
 | `npm run stripe:setup` | Creates or updates the plans in Stripe (products, prices by lookup key, billing-portal settings); `-- --webhook https://your.domain` also adds the webhook endpoint. Needs Node 22.18+ (it reads `plans.ts` directly) |
 
-Opt-in tests (`E2E_PERF=1` times an import of 20 minutes of a podcast step by step, the pages and an export; the live-stream ones also follow each stream, clip and edit while it grows, then stop; a test server started with `BAMIO_FOLLOW_MAX_BACK_SEC=300` keeps them short): `E2E_LIVE=1` imports part of a real YouTube video; `E2E_LANGUAGES=1` (or `hi,ja,ar,es`) imports real Hindi, Japanese, Arabic and Spanish videos, checks the detected language, the script and the caption fonts, and exports (preview and export frames go to `qa/languages/`); `E2E_LIVE_TWITCH` / `E2E_LIVE_YOUTUBE` / `E2E_LIVE_KICK` capture from live channels; `E2E_LIVE_AI=1 E2E_PORT=<port>` runs real Gemini transcription against a server started without mock AI; `E2E_SCREENSHOTS=1` saves screenshots to `qa/screens/`; `E2E_RESPONSIVE=1` checks every screen (landing, pricing, import, projects, plan & billing, clip defaults, then a project and the clip editor from the uploaded sample video) at 320, 390, 768, 1024 and 1440 wide for sideways scroll, anything past the screen edge and tap targets under 24px (screenshots and `report-*.json` in `qa/responsive/`); `E2E_BILLING=1`, against a test server with a fake Stripe key (`STRIPE_SECRET_KEY=sk_test_e2e_fake`, which overrides a real one in `web/.env`, so nothing reaches your Stripe account; Playwright sets it on a server it starts), gives the test user a plan by writing its billing files and checks the gates: no plan, minutes counted, out of minutes, a subscriber's buttons on `/pricing` (screenshots in `qa/billing/`).
+Opt-in tests (`E2E_PERF=1` times an import of 20 minutes of a podcast step by step, the pages and an export; the live-stream ones also follow each stream, clip and edit while it grows, then stop; a test server started with `BAMIO_FOLLOW_MAX_BACK_SEC=300` keeps them short): `E2E_LIVE=1` imports part of a real YouTube video; `E2E_LANGUAGES=1` (or `hi,ja,ar,es`) imports real Hindi, Japanese, Arabic and Spanish videos, checks the detected language, the script and the caption fonts, and exports (preview and export frames go to `qa/languages/`); `E2E_LIVE_TWITCH` / `E2E_LIVE_YOUTUBE` / `E2E_LIVE_KICK` capture from live channels; `E2E_LIVE_AI=1 E2E_PORT=<port>` runs real Gemini transcription against a server started without mock AI; `E2E_SCREENSHOTS=1` saves screenshots to `qa/screens/`; `E2E_RESPONSIVE=1` checks every screen (landing, pricing, import, projects, plan & billing, clip defaults, then a project and the clip editor from the uploaded sample video) at 320, 390, 768, 1024 and 1440 wide for sideways scroll, anything past the screen edge and tap targets under 24px (screenshots and `report-*.json` in `qa/responsive/`); `E2E_BILLING=1`, against a test server with a fake Stripe key (`STRIPE_SECRET_KEY=sk_test_e2e_fake`, which overrides a real one in `web/.env`, so nothing reaches your Stripe account; Playwright sets it on a server it starts), gives the test user a plan by writing its billing record into the server's database (`DATABASE_URL`, or the local one) and checks the gates: no plan, minutes counted, out of minutes, a subscriber's buttons on `/pricing` (screenshots in `qa/billing/`).
 
-Tip: Next.js allows one `next dev` per project. If one is already running on port 3000, run the tests against a production build instead: `npm run build`, then `BAMIO_AI_MOCK=1 BAMIO_BILLING=off npx next start -p 3100` (plans off, even with a Stripe key in `web/.env`: the tests import without a plan), then `npm run test:e2e`.
+Tip: Next.js allows one `next dev` per project. If one is already running on port 3000, run the tests against a production build instead: `npm run build`, then `DATABASE_URL=postgres://postgres@127.0.0.1:54329/bamio BAMIO_AI_MOCK=1 BAMIO_BILLING=off npx next start -p 3100` (`next start` runs as production, which needs `DATABASE_URL`) (plans off, even with a Stripe key in `web/.env`: the tests import without a plan), then `npm run test:e2e`.
 
 ## Limitations
 
 - **Only import videos you own or have permission to use.** Some sites block downloads, need a sign-in, or limit by region; Bamio explains what went wrong, and uploading the file always works.
 - **Live streams** (YouTube, Twitch, Kick and other HLS live sources) are followed or captured on the server. Following keeps the video at its source quality (about 2.7 GB an hour at 1080p60) until the stream ends, and a dropped connection ends it (start following again to carry on in a new project). How far back a capture can start depends on the stream: Twitch goes back to the start of the stream (through its in-progress VOD, when the streamer keeps past broadcasts); YouTube goes back as far as the stream's rewind (DVR) history, often an hour; Kick and other short live playlists only keep about 30 s, which every capture includes. Twitch captures from the live picture (no VOD) can include Twitch's ads.
 - **Limits:** 3 hours per video (import part of a longer one), 4 GB per upload, 60 clips per project, 100 projects per user (with plans on: 50, 150 or 400), clips from 3 seconds to 3 minutes.
-- **Plans:** most Pro and Team extras (4K, B-roll, face tracking, brands, teams, scheduling, API...) aren't built yet and are listed as coming soon. Minutes are counted per server (`usage.json`), so run one server per data folder. Prices are in US dollars; Stripe Tax isn't switched on.
+- **Plans:** most Pro and Team extras (4K, B-roll, face tracking, brands, teams, scheduling, API...) aren't built yet and are listed as coming soon. Prices are in US dollars; Stripe Tax isn't switched on.
 - **Transcription needs CPU:** per 10 minutes of video on a 6-core laptop, about 40 seconds for English and European languages and about 3 minutes for other languages (`BAMIO_SPEECH_MODEL=fast`: about half). For everyday use, run the production server (`npm run build`, then `npm start`): pages open much faster than with `npm run dev`, which compiles each page on first visit. The models (about 1.9 GB for every language) download with `npm run setup:media`, or the first time a language needs them.
 - **Captions in languages other than English and the European ones are lowercase, without punctuation** (that's how Omnilingual writes), and accuracy varies by language: excellent for widely spoken languages, rougher for some (Nepali and Bengali agreed with YouTube's own captions only 70 to 80% of the time). Captions can be fixed word by word in the editor.
 - **Credits:** NVIDIA Parakeet (CC-BY-4.0: credit NVIDIA if you ship the app), Meta Omnilingual ASR (Apache-2.0), OpenAI Whisper (MIT), Silero VAD (MIT), Noto and Bricolage Grotesque fonts (OFL). The landing page's demo footage is Mixkit stock video under the Mixkit Stock Video Free License (commercial use allowed, no credit required; the footer credits it anyway): #2948 "People recording a podcast in a studio" and #43526 "Man playing an online video game on his computer". Don't put clips of real creators there without their permission.
 - **Windows Smart App Control** can refuse the speech engine's unsigned DLLs for a while (it happened twice here, then allowed them again). Transcription then fails with a message saying so; try again later.
-- **One server process.** The queue and rate limits live in memory, so run one instance (or add a shared queue before scaling out).
+- **Rate limits are per process** (in memory): behind several web servers each one allows the full rate. Jobs, data and media are shared.
+
+## Deploying
+
+Bamio needs Postgres 16+, storage (a disk, or S3 / R2 / MinIO) and long-running Node processes. Workers need CPU for transcription and memory for the speech models.
+
+- **Docker** (`Dockerfile`, `compose.yaml`; not yet tried on a real Docker host): `docker compose up --build` from `web/` runs Postgres, MinIO, a web server that only queues work, and a worker (`--scale worker=3` for more). The image builds the app and the worker, runs as a normal user, brings the database up to date when the web server starts, and reports health from `/api/health`. Workers download the speech models into a volume the first time. The Clerk publishable key is a build argument (it's public); everything secret is given at run time. In production use a managed Postgres and S3 or R2, and change the passwords in `compose.yaml`.
+- **Without Docker:** `npm ci`, `npm run setup:media`, `npm run build`, `npm run db:migrate`, then `npm start` (the web server, which also runs jobs unless `BAMIO_WORKER=off`). Optionally run `npm run build:worker` and `node dist/worker.mjs` on worker machines (same environment, same storage).
+- **Health:** `GET /api/health` answers 200 when the database and storage answer (503 otherwise; "degraded" when ffmpeg or yt-dlp is missing), with the queue's depth (jobs waiting, running, and the oldest wait).
+- **With S3:** browsers fetch media from the store directly. A followed stream's segments are fetched by hls.js, so the bucket's CORS must allow the site's origin for `GET` and `HEAD`. Uploads still go through the web server in 8 MB parts (a multipart upload to the store).

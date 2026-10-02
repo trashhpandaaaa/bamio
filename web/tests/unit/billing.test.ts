@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import Stripe from "stripe";
@@ -19,6 +19,7 @@ import {
   verifyWebhook,
   type SubscriptionRecord,
 } from "@/lib/server/billing";
+import { db } from "@/lib/server/db";
 import { limiter } from "@/lib/server/limiter";
 
 const utc = (s: string) => Date.parse(`${s}Z`);
@@ -206,8 +207,9 @@ describe("plan limits", () => {
   async function givePlan(userId: string, plan: "starter" | "pro" | "team", over: Partial<SubscriptionRecord> = {}) {
     const now = Date.now();
     const subscription: SubscriptionRecord = { id: `sub_${userId}`, status: "active", plan, interval: "month", anchor: now - 86400_000, periodEnd: now + 29 * 86400_000, cancelAt: null, checkedAt: now, ...over };
-    await mkdir(path.join(dir, "users", userId), { recursive: true });
-    await writeFile(path.join(dir, "users", userId, "billing.json"), JSON.stringify({ customerId: `cus_${userId}`, subscription }));
+    const data = { customerId: `cus_${userId}`, subscription };
+    await db()`insert into billing_accounts (user_id, data, updated_at) values (${userId}, ${db().json(data)}, ${now})
+      on conflict (user_id) do update set data = excluded.data`;
   }
 
   it("limit nothing with billing off", async () => {

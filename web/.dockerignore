@@ -1,0 +1,15 @@
+# Built in the image, or runtime data that never belongs in it.
+node_modules
+.next
+dist
+.data
+.models
+.bin
+.pg
+.work
+qa
+test-results
+playwright-report
+# Secrets come in at run time.
+.env*
+!.env.example

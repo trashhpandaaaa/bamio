@@ -4,7 +4,7 @@
  *    against the release's SHA2-256SUMS. Re-run any time to update (sites change often).
  * 2. Downloads the on-device speech models for every language (see workers/speech-models.mjs:
  *    about 1.9 GB, or 1 GB with BAMIO_SPEECH_MODEL=fast; BAMIO_PREFETCH=english for English
- *    only) and the caption fonts for every script (about 30 MB), checksum verified, into
+ *    only, none for none) and the caption fonts for every script (about 30 MB), checksum verified, into
  *    web/.models/ (or BAMIO_MODELS_DIR), so no import waits for a download. Anything
  *    skipped here is downloaded the first time it's needed.
  *   npm run setup:media
@@ -46,6 +46,9 @@ await writeFile(`${target}.download`, binary);
 await rename(`${target}.download`, target);
 if (platform() !== "win32") await chmod(target, 0o755);
 console.log(`✓ yt-dlp saved to ${target} (sha256 verified)`);
+
+// BAMIO_PREFETCH=none: yt-dlp only (a Docker image fetches the models into its volume on first start instead).
+if (process.env.BAMIO_PREFETCH === "none") process.exit(0);
 
 const modelsDir = process.env.BAMIO_MODELS_DIR || fileURLToPath(new URL("../.models/", import.meta.url));
 const only = process.env.BAMIO_PREFETCH === "english" ? "english" : "all";

@@ -16,11 +16,11 @@ import {
   type PlanId,
 } from "@/lib/billing/plans";
 import { HttpError } from "@/lib/server/http";
-import { isUserId, listProjects, MAX_PROJECTS_PER_USER, readAccountFile, updateAccountFile } from "@/lib/server/store";
+import { addUsage, countProjects, hasUsage as usageCounted, isUserId, MAX_PROJECTS_PER_USER, readBilling, updateBilling, usageBetween } from "@/lib/server/store";
 
 /*
  * Plans and payments: Stripe Checkout to buy a plan, the Stripe customer portal to change
- * it (plan, card, invoices, cancelling), and webhooks to keep billing.json current. This is
+ * it (plan, card, invoices, cancelling), and webhooks to keep the billing record (billing_accounts in Postgres) current. This is
  * the only module that reads STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET.
  *
  * Without STRIPE_SECRET_KEY billing is off: there are no plans to buy and nothing is limited.
@@ -75,9 +75,6 @@ export type SubscriptionRecord = z.infer<typeof subscriptionSchema>;
 const billingSchema = z.object({ customerId: z.string().optional(), subscription: subscriptionSchema.optional() });
 type BillingRecord = z.infer<typeof billingSchema>;
 
-/** AI processing used, keyed by what was processed (an import, or a piece of a followed stream) so nothing counts twice. */
-const usageSchema = z.object({ entries: z.array(z.object({ key: z.string(), sec: z.number().nonnegative(), at: z.number() })) });
-const KEEP_USAGE_MS = 400 * 24 * 3600_000;
 
 /** Which plan a Stripe price is: by its lookup key, or by the metadata `npm run stripe:setup` puts on every price (kept when a price is replaced). */
 export function planOfPrice(price: Pick<Stripe.Price, "lookup_key" | "metadata"> | null | undefined) {
@@ -111,7 +108,7 @@ export const isWorking = (sub: SubscriptionRecord | undefined, now = Date.now())
 async function saveSubscription(userId: string, sub: Stripe.Subscription): Promise<BillingRecord> {
   const record = subscriptionRecord(sub);
   const customerId = typeof sub.customer === "string" ? sub.customer : sub.customer.id;
-  return updateAccountFile(userId, "billing", billingSchema, (current) => {
+  return updateBilling(userId, billingSchema, (current) => {
     const billing = current ?? {};
     if (!record || (billing.customerId && billing.customerId !== customerId)) return billing;
     const kept = billing.subscription;
@@ -132,13 +129,13 @@ async function readFromStripe(userId: string, customerId: string): Promise<Billi
   } catch (err) {
     // The customer was deleted in Stripe (test data cleared): start over.
     if (!isMissing(err, "customer")) throw err;
-    return updateAccountFile(userId, "billing", billingSchema, () => ({}));
+    return updateBilling(userId, billingSchema, () => ({}));
   }
   const ours = list.data.filter((s) => subscriptionRecord(s)).sort((a, b) => b.created - a.created);
   const best = ours.find((s) => isWorking(subscriptionRecord(s)!)) ?? ours[0];
   if (best) return saveSubscription(userId, best);
   // None left in Stripe: a subscription kept here no longer counts.
-  return updateAccountFile(userId, "billing", billingSchema, (current) =>
+  return updateBilling(userId, billingSchema, (current) =>
     current?.subscription ? { ...current, subscription: { ...current.subscription, status: "canceled", checkedAt: Date.now() } } : (current ?? {}),
   );
 }
@@ -150,7 +147,7 @@ async function readFromStripe(userId: string, customerId: string): Promise<Billi
  * reach the server.
  */
 async function billingRecord(userId: string, opts: { fresh?: boolean } = {}): Promise<BillingRecord> {
-  const billing = (await readAccountFile(userId, "billing", billingSchema)) ?? {};
+  const billing = (await readBilling(userId, billingSchema)) ?? {};
   const { customerId, subscription: sub } = billing;
   const now = Date.now();
   if (!billingEnabled() || !customerId) return billing;
@@ -182,15 +179,14 @@ async function allowance(userId: string, billing?: BillingRecord): Promise<Allow
   const sub = (billing ?? (await billingRecord(userId))).subscription;
   if (!isWorking(sub)) return null;
   const window = usageWindow(sub.anchor, Date.now());
-  const usage = await readAccountFile(userId, "usage", usageSchema);
-  const usedSec = (usage?.entries ?? []).filter((e) => e.at >= window.start && e.at < window.end).reduce((sum, e) => sum + e.sec, 0);
+  const usedSec = await usageBetween(userId, window.start, window.end);
   const plan = PLANS[sub.plan];
   return { plan, usedSec, allowanceSec: plan.minutes * 60, resetsAt: window.end };
 }
 
 /** What the pages show: plan, renewal, minutes used, projects. `fresh`: read the plan from Stripe first. */
 export async function billingState(userId: string, opts: { fresh?: boolean } = {}): Promise<BillingState> {
-  const count = (await listProjects(userId)).length;
+  const count = await countProjects(userId);
   if (!billingEnabled()) {
     return { enabled: false, active: false, plan: null, interval: null, status: null, periodEnd: null, ending: false, usage: null, projects: { count, limit: MAX_PROJECTS_PER_USER }, canManage: false };
   }
@@ -257,19 +253,13 @@ export async function secondsLeft(userId: string): Promise<number> {
 /** Count AI processing against this month's minutes, once per `key` (a project's import, or a piece of a followed stream). */
 export async function recordUsage(userId: string, key: string, sec: number): Promise<void> {
   if (!billingEnabled() || !(sec > 0)) return;
-  const now = Date.now();
-  await updateAccountFile(userId, "usage", usageSchema, (current) => {
-    const entries = (current?.entries ?? []).filter((e) => now - e.at < KEEP_USAGE_MS);
-    if (entries.some((e) => e.key === key)) return { entries };
-    return { entries: [...entries, { key, sec: Math.round(sec * 10) / 10, at: now }] };
-  });
+  await addUsage(userId, key, Math.round(sec * 10) / 10);
 }
 
 /** True once `key` has been counted (an import being retried). */
 export async function hasUsage(userId: string, key: string): Promise<boolean> {
   if (!billingEnabled()) return false;
-  const usage = await readAccountFile(userId, "usage", usageSchema);
-  return Boolean(usage?.entries.some((e) => e.key === key));
+  return usageCounted(userId, key);
 }
 
 /** Place in the processing queues: plans with priority processing go first. */
@@ -315,7 +305,7 @@ async function priceId(plan: PlanId, interval: Interval): Promise<string> {
 
 /** The user's Stripe customer, made on their first checkout (under the billing file's lock, so only one is made). */
 async function customerFor(userId: string, email: string | undefined): Promise<string> {
-  const billing = await updateAccountFile(userId, "billing", billingSchema, async (current) => {
+  const billing = await updateBilling(userId, billingSchema, async (current) => {
     if (current?.customerId) return current;
     const customer = await stripe().customers.create({ email, metadata: { bamio_user: userId } });
     return { ...current, customerId: customer.id };
@@ -349,7 +339,7 @@ export async function createCheckout(userId: string, input: { plan: PlanId; inte
     } catch (err) {
       // The saved customer was deleted in Stripe (test data cleared): start over with a new one.
       if (!isMissing(err, "customer")) throw err;
-      await updateAccountFile(userId, "billing", billingSchema, () => ({}));
+      await updateBilling(userId, billingSchema, () => ({}));
       session = await open();
     }
     if (!session.url) throw new HttpError(502, "stripe", "Stripe didn’t return a checkout page. Try again.");
@@ -422,7 +412,7 @@ export function verifyWebhook(payload: string, signature: string | null): Stripe
   }
 }
 
-/** Keep billing.json in step with Stripe. Subscriptions are read fresh from Stripe, so events arriving out of order don't matter. */
+/** Keep the billing record in step with Stripe. Subscriptions are read fresh from Stripe, so events arriving out of order don't matter. */
 export async function handleWebhook(event: Stripe.Event): Promise<void> {
   try {
     switch (event.type) {

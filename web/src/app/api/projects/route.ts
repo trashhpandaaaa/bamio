@@ -56,8 +56,9 @@ export const POST = userRoute(
       // Following: connecting is the only step; captions and clips come while it grows.
       const project = { ...draft, job: { ...draft.job, stages: follow ? (["recording"] as const).slice() : plannedStages(draft) } };
       await createProject(userId, project, await projectLimit(userId));
-      if (follow) startFollow(userId, project.id);
-      else startImport(userId, project.id);
+      // A capture's moment has passed by the time a retry would run: no retries.
+      if (follow) await startFollow(userId, project.id);
+      else await startImport(userId, project.id, { retries: false });
       return Response.json(project, { status: 201 });
     }
 
@@ -89,7 +90,7 @@ export const POST = userRoute(
     });
     const project = { ...draft, job: { ...draft.job, stages: plannedStages(draft) } };
     await createProject(userId, project, await projectLimit(userId));
-    startImport(userId, project.id);
+    await startImport(userId, project.id);
     return Response.json(project, { status: 201 });
   },
   { rate: { bucket: "create", limit: 15, windowMs: 10 * 60_000 } },

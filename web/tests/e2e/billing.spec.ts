@@ -1,12 +1,12 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
-import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
+import postgres from "postgres";
 import { SAMPLE_VIDEO, signIn } from "./auth";
 
 /*
  * Plans switched on: importing needs a plan, and uses its AI minutes. Gives the e2e user a
- * plan by writing its billing files the way checkout and webhooks would (read from Stripe
- * just now, so the server doesn't ask Stripe again), and removes them afterwards. Opt-in, with
+ * plan by writing its billing record the way checkout and webhooks would (read from Stripe
+ * just now, so the server doesn't ask Stripe again), and removes it afterwards (in the test
+ * server's database: DATABASE_URL, or the local one). Opt-in, with
  * the test server started with a fake Stripe key (it overrides a real one in web/.env, so no
  * request reaches a real Stripe account; Stripe refuses the fake key, and the test expects that):
  *   STRIPE_SECRET_KEY=sk_test_e2e_fake BAMIO_AI_MOCK=1 npx next start -p 3100
@@ -15,22 +15,21 @@ import { SAMPLE_VIDEO, signIn } from "./auth";
  */
 test.skip(!process.env.E2E_BILLING, "Set E2E_BILLING=1, with the test server started with STRIPE_SECRET_KEY set.");
 
-const dataRoot = () => path.resolve(process.env.BAMIO_DATA_DIR || path.join(process.cwd(), ".data"));
+const sql = postgres(process.env.DATABASE_URL || "postgres://postgres@127.0.0.1:54329/bamio", { onnotice: () => undefined, max: 2 });
+test.afterAll(() => sql.end());
 const userId = (page: Page) => page.evaluate(() => (window as unknown as { Clerk: { user: { id: string } } }).Clerk.user.id);
 
 async function setPlan(id: string, plan: "starter" | "pro" | null, usedSec = 0) {
-  const dir = path.join(dataRoot(), "users", id);
-  await mkdir(dir, { recursive: true });
   const now = Date.now();
   const subscription = plan ? { id: "sub_e2e", status: "active", plan, interval: "month", anchor: now - 86400_000, periodEnd: now + 29 * 86400_000, cancelAt: null, checkedAt: now } : undefined;
-  await writeFile(path.join(dir, "billing.json"), JSON.stringify({ customerId: "cus_e2e", subscription }));
-  await writeFile(path.join(dir, "usage.json"), JSON.stringify({ entries: usedSec > 0 ? [{ key: "e2e-earlier", sec: usedSec, at: now - 3600_000 }] : [] }));
+  await clearPlan(id);
+  await sql`insert into billing_accounts (user_id, data, updated_at) values (${id}, ${sql.json(subscription ? { customerId: "cus_e2e", subscription } : { customerId: "cus_e2e" })}, ${now})`;
+  if (usedSec > 0) await sql`insert into usage_entries (user_id, key, sec, at) values (${id}, 'e2e-earlier', ${usedSec}, ${now - 3600_000})`;
 }
 
 async function clearPlan(id: string) {
-  const dir = path.join(dataRoot(), "users", id);
-  await rm(path.join(dir, "billing.json"), { force: true });
-  await rm(path.join(dir, "usage.json"), { force: true });
+  await sql`delete from billing_accounts where user_id = ${id}`;
+  await sql`delete from usage_entries where user_id = ${id}`;
 }
 
 test.describe("plans", () => {

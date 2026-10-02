@@ -1,17 +1,20 @@
 import "server-only";
-import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import path from "node:path";
+import type postgres from "postgres";
 import type { z } from "zod";
 import { DEFAULT_EDIT, clipEditSchema, projectSchema, transcriptSchema, isJobActive, type ClipEdit, type ClipLength, type Job, type Language, type Project, type Source, type Transcript } from "@/lib/clips/schema";
 import { newId } from "@/lib/ids";
+import { db, type Tx } from "@/lib/server/db";
 import { HttpError } from "@/lib/server/http";
+import { activeJobs, type JobKind } from "@/lib/server/queue";
+import { storage } from "@/lib/server/storage";
 
 /*
- * Projects live on the server's disk, one folder per project:
- *   <data>/users/<userId>/projects/<projectId>/
- *     project.json  transcript.json  source.mp4  thumb.jpg  frames/  exports/  (work folders while busy)
- * Beside them, small files about the account: <data>/users/<userId>/billing.json, usage.json.
- * <data> is BAMIO_DATA_DIR, or web/.data.
+ * Projects, transcripts, billing and usage live in Postgres (db.ts; tables in web/db/migrations).
+ * A project's media are in storage (storage.ts: local files or S3), under
+ *   users/<userId>/projects/<projectId>/  source.mp4  thumb.jpg  frames/  exports/  upload.bin  live/
+ * and work in progress in a scratch folder on the machine doing it (scratch()).
  */
 
 const USER_ID = /^[A-Za-z0-9_-]{1,80}$/;
@@ -43,49 +46,59 @@ export function projectDir(userId: string, projectId: string) {
   return path.join(userDir(userId), projectId.toLowerCase());
 }
 
-export function clipFile(userId: string, projectId: string, clipId: string, kind: "export" | "work") {
-  if (!CLIP_ID.test(clipId)) throw new HttpError(404, "not_found", "That clip doesn’t exist.");
-  const dir = projectDir(userId, projectId);
-  return kind === "export" ? path.join(dir, "exports", `${clipId}.mp4`) : path.join(dir, "work", `export-${clipId}`);
+/**
+ * Where a project's media are kept (storage.ts): keys in the same layout as the data folder,
+ * so with local storage they're the same files as before.
+ */
+export function mediaKeys(userId: string, projectId: string) {
+  projectDir(userId, projectId); // validates both ids
+  const base = `users/${userId}/projects/${projectId.toLowerCase()}`;
+  return {
+    prefix: base,
+    source: `${base}/source.mp4`,
+    thumb: `${base}/thumb.jpg`,
+    /** An upload while it arrives. */
+    upload: `${base}/upload.bin`,
+    /** A followed stream while it grows: HLS (source.m3u8, init.mp4, seg-NNNNNN.m4s). */
+    live: `${base}/live`,
+    /** A frame at a time in tenths of a second (clip cards, the trim bar). */
+    frame: (tenths: number) => `${base}/frames/${Math.max(0, Math.round(tenths))}.jpg`,
+    export: (clipId: string) => {
+      if (!CLIP_ID.test(clipId)) throw new HttpError(404, "not_found", "That clip doesn’t exist.");
+      return `${base}/exports/${clipId.toLowerCase()}.mp4`;
+    },
+  };
 }
 
-export const paths = (userId: string, projectId: string) => {
-  const dir = projectDir(userId, projectId);
+/** Scratch space on this machine for work in progress (downloads, transcription, renders): BAMIO_WORK_DIR, or web/.work. */
+export const workRoot = () =>
+  path.resolve(/*turbopackIgnore: true*/ process.env.BAMIO_WORK_DIR || path.join(/*turbopackIgnore: true*/ process.cwd(), ".work"));
+
+export function scratch(projectId: string) {
+  if (!isProjectId(projectId)) throw new HttpError(404, "not_found", "That project doesn’t exist.");
+  const dir = path.join(workRoot(), projectId.toLowerCase());
   return {
     dir,
-    project: path.join(dir, "project.json"),
-    transcript: path.join(dir, "transcript.json"),
-    source: path.join(dir, "source.mp4"),
-    /** A followed stream while it grows: HLS (source.m3u8, init.mp4, seg-NNNNNN.m4s). */
-    live: path.join(dir, "live"),
+    download: path.join(dir, "download"),
+    /** The prepared video, before it goes to storage. */
+    prepared: path.join(dir, "source.mp4"),
     thumb: path.join(dir, "thumb.jpg"),
     frames: path.join(dir, "frames"),
-    exports: path.join(dir, "exports"),
-    upload: path.join(dir, "upload.bin"),
-    download: path.join(dir, "download"),
-    audio: path.join(dir, "work", "audio"),
-    transcribe: path.join(dir, "work", "transcribe"),
-    work: path.join(dir, "work"),
+    audio: path.join(dir, "audio"),
+    transcribe: path.join(dir, "transcribe"),
+    /** A followed stream's HLS on the machine capturing it (with object storage; local storage writes it in place). */
+    live: path.join(dir, "live"),
+    render: (clipId: string) => ({ output: path.join(dir, "exports", `${clipId}.mp4`), workDir: path.join(dir, `export-${clipId}`) }),
   };
-};
+}
 
-/* --------------------------- Running work --------------------------- */
+/* --------------------------- Work in progress --------------------------- */
 
-export type RunningTask = { controller: AbortController; done: Promise<unknown> };
-/** stops: live recordings that can be ended early; follows: followed streams (hours long), by project id. */
-type Registry = { imports: Map<string, RunningTask>; exports: Map<string, RunningTask>; stops: Map<string, AbortController>; follows: Map<string, RunningTask> };
-
-/** Imports and exports running in this server process (kept across dev reloads). */
-export const running: Registry = ((globalThis as { __bamioRunning?: Registry }).__bamioRunning ??= {
-  imports: new Map(),
-  exports: new Map(),
-  stops: new Map(),
-  follows: new Map(),
-});
-running.stops ??= new Map(); // registries created before live capture existed
-running.follows ??= new Map();
-
-export const exportKey = (projectId: string, clipId: string) => `${projectId}:${clipId}`;
+/** A project's queued or running jobs (from the jobs table): which kinds, and which clips are exporting. */
+type Active = { kinds: Set<JobKind>; clips: Set<string> } | undefined;
+const PROJECT_WORK: JobKind[] = ["import", "analyze", "retranscribe", "follow", "finish-follow"];
+/** A state written just before its job is queued isn't stalled yet. */
+const QUEUE_GRACE_MS = 60_000;
 
 /** True once source.mp4 has been made and measured. */
 export const isPrepared = (project: Project) => project.source.width > 0 && project.source.durationSec > 0;
@@ -94,16 +107,18 @@ export const isPrepared = (project: Project) => project.source.width > 0 && proj
 const UPLOAD_IDLE_MS = 30 * 60 * 1000;
 
 /**
- * Work recorded as in progress but not running here was cut off (server restart or
- * crash). Report it as failed so the user can retry instead of waiting forever.
+ * Work recorded as in progress with no job queued or running for it was cut off (its job
+ * failed for good without saying so, or it predates the job queue). Report it as failed so
+ * the user can retry instead of waiting forever.
  */
-function reconcile(project: Project, now = Date.now()): Project {
+function reconcile(project: Project, active: Active, now = Date.now()): Project {
   let next = project;
   const status = project.job.status;
+  const working = PROJECT_WORK.some((k) => active?.kinds.has(k));
   const stalled =
     status === "uploading"
       ? now - project.job.updatedAt > UPLOAD_IDLE_MS
-      : isJobActive(status) && !running.imports.has(project.id) && !running.follows.has(project.id);
+      : isJobActive(status) && !working && now - project.job.updatedAt > QUEUE_GRACE_MS;
   if (stalled && isPrepared(project)) {
     // The video itself is fine; only captions or AI clips were cut off.
     next = { ...next, job: { status: "ready", progress: 1, message: "Ready", warning: "Processing stopped before it finished. Use Find clips to try again.", updatedAt: now } };
@@ -120,7 +135,7 @@ function reconcile(project: Project, now = Date.now()): Project {
   }
   // A followed stream whose capture was cut off: what was captured gets finished (see resumeFollow in jobs.ts).
   const follow = next.source.live?.follow;
-  if (follow && (follow.status === "following" || follow.status === "finishing") && !running.follows.has(project.id)) {
+  if (follow && (follow.status === "following" || follow.status === "finishing") && !active?.kinds.has("follow") && !active?.kinds.has("finish-follow")) {
     const live = next.source.live!;
     next = {
       ...next,
@@ -129,7 +144,7 @@ function reconcile(project: Project, now = Date.now()): Project {
   }
   const clips = next.clips.map((clip) => {
     const state = clip.export?.status;
-    if ((state === "queued" || state === "rendering") && !running.exports.has(exportKey(project.id, clip.id))) {
+    if ((state === "queued" || state === "rendering") && !active?.clips.has(clip.id) && now - (clip.export?.version ?? 0) > QUEUE_GRACE_MS) {
       return { ...clip, export: { ...clip.export!, status: "failed" as const, error: "The export stopped. Try again." } };
     }
     return clip;
@@ -137,48 +152,23 @@ function reconcile(project: Project, now = Date.now()): Project {
   return clips.some((c, i) => c !== next.clips[i]) ? { ...next, clips } : next;
 }
 
-/* ------------------------------ Files ------------------------------ */
-
-async function writeAtomic(file: string, data: string) {
-  const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
-  await writeFile(tmp, data, "utf8");
-  // Windows can refuse a rename while another request is reading the file; retry briefly.
-  for (let attempt = 0; ; attempt++) {
-    try {
-      await rename(tmp, file);
-      return;
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
-      if (attempt >= 8 || (code !== "EPERM" && code !== "EBUSY" && code !== "EACCES")) {
-        await rm(tmp, { force: true });
-        throw err;
-      }
-      await new Promise((r) => setTimeout(r, 25 * (attempt + 1)));
-    }
-  }
-}
-
-async function readJsonFile(file: string): Promise<unknown | null> {
-  try {
-    return JSON.parse(await readFile(file, "utf8"));
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
-    throw err;
-  }
-}
-
 /* ------------------------------ Projects ------------------------------ */
 
-/** Read a project owned by `userId`, or null. Ownership is the folder: other users' ids resolve elsewhere. */
-export async function readProject(userId: string, projectId: string): Promise<Project | null> {
-  const raw = await readJsonFile(paths(userId, projectId).project);
-  if (raw === null) return null;
+/** A stored document, validated; null (and logged) if it no longer fits the schema. */
+function parseProject(raw: unknown, id: string): Project | null {
   const parsed = projectSchema.safeParse(raw);
-  if (!parsed.success) {
-    console.error(`[bamio/store] project ${projectId} failed validation`, parsed.error.issues.slice(0, 3));
-    return null;
-  }
-  return reconcile(parsed.data);
+  if (parsed.success) return parsed.data;
+  console.error(`[bamio/store] project ${id} failed validation`, parsed.error.issues.slice(0, 3));
+  return null;
+}
+
+/** Read a project owned by `userId`, or null. Another user's project id finds nothing. */
+export async function readProject(userId: string, projectId: string): Promise<Project | null> {
+  projectDir(userId, projectId); // validates both ids
+  const [row] = await db()<{ data: unknown }[]>`select data from projects where id = ${projectId} and user_id = ${userId}`;
+  if (!row) return null;
+  const project = parseProject(row.data, projectId);
+  return project ? reconcile(project, (await activeJobs([projectId])).get(projectId)) : null;
 }
 
 export async function getProject(userId: string, projectId: string): Promise<Project> {
@@ -220,95 +210,140 @@ export function blankProject(input: {
 
 /** `maxProjects`: how many projects the user may keep (their plan's, with billing on). */
 export async function createProject(userId: string, project: Project, maxProjects = MAX_PROJECTS_PER_USER) {
-  const list = await listProjects(userId);
-  if (list.length >= maxProjects) {
-    throw new HttpError(409, "too_many", `You have ${list.length} projects, the most you can keep. Delete one to import another.`);
-  }
-  const p = paths(userId, project.id);
-  await mkdir(p.dir, { recursive: true });
-  await writeAtomic(p.project, JSON.stringify(projectSchema.parse(project)));
-}
-
-const locks: Map<string, Promise<unknown>> = ((globalThis as { __bamioLocks?: Map<string, Promise<unknown>> }).__bamioLocks ??= new Map());
-
-/** Run `work` once every earlier call with the same key has finished (one at a time per key). */
-function serialized<T>(key: string, work: () => Promise<T>): Promise<T> {
-  const previous = locks.get(key) ?? Promise.resolve();
-  const next = previous.catch(() => undefined).then(work);
-  locks.set(key, next);
-  void next.finally(() => {
-    if (locks.get(key) === next) locks.delete(key);
-  }).catch(() => undefined);
-  return next;
+  mediaKeys(userId, project.id); // validates both ids
+  const doc = projectSchema.parse(project);
+  await db().begin(async (tx) => {
+    // One create at a time per user, so two at once can't both pass the count.
+    await tx`select pg_advisory_xact_lock(hashtext(${`projects:${userId}`}))`;
+    const [{ count } = { count: 0 }] = await tx<{ count: number }[]>`select count(*)::int as count from projects where user_id = ${userId}`;
+    if (count >= maxProjects) throw new HttpError(409, "too_many", `You have ${count} projects, the most you can keep. Delete one to import another.`);
+    await tx`insert into projects (id, user_id, data, created_at, updated_at) values (${doc.id}, ${userId}, ${tx.json(asJson(doc))}, ${doc.createdAt}, ${doc.updatedAt})`;
+  });
 }
 
 /**
- * Read, change and write a project with no other change in between (per-project
- * queue). `change` may throw an HttpError to refuse the change.
+ * Read, change and write a project with no other change in between: the row stays locked
+ * until the change is written, across every server and worker. `change` may throw an
+ * HttpError to refuse the change (nothing is written). `then` runs in the same transaction
+ * after the write (queue the job for a state just written: both happen, or neither).
  */
-export function mutateProject(userId: string, projectId: string, change: (project: Project) => Project | Promise<Project>): Promise<Project> {
-  return serialized(`${userId}/${projectId}`, async () => {
-    const current = await getProject(userId, projectId);
-    const updated = projectSchema.parse({ ...(await change(current)), updatedAt: Date.now() });
-    await writeAtomic(paths(userId, projectId).project, JSON.stringify(updated));
+export function mutateProject(
+  userId: string,
+  projectId: string,
+  change: (project: Project) => Project | Promise<Project>,
+  opts: { then?: (tx: Tx, project: Project) => Promise<unknown> } = {},
+): Promise<Project> {
+  projectDir(userId, projectId);
+  return db().begin(async (tx) => {
+    // NO KEY UPDATE: other rows can still reference this one meanwhile (a transcript written inside `change`).
+    const [row] = await tx<{ data: unknown }[]>`select data from projects where id = ${projectId} and user_id = ${userId} for no key update`;
+    const current = row ? parseProject(row.data, projectId) : null;
+    if (!current) throw new HttpError(404, "not_found", "That project doesn’t exist, or it was deleted.");
+    const active = (await activeJobs([projectId], tx)).get(projectId);
+    const updated = projectSchema.parse({ ...(await change(reconcile(current, active))), updatedAt: Date.now() });
+    await tx`update projects set data = ${tx.json(asJson(updated))}, updated_at = ${updated.updatedAt} where id = ${projectId}`;
+    await opts.then?.(tx, updated);
     return updated;
   });
 }
 
 export async function listProjects(userId: string): Promise<Project[]> {
-  let ids: string[];
-  try {
-    ids = await readdir(userDir(userId));
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
-    throw err;
-  }
-  const projects = await Promise.all(ids.filter(isProjectId).map((id) => readProject(userId, id).catch(() => null)));
-  return projects.filter((p): p is Project => p !== null).sort((a, b) => b.updatedAt - a.updatedAt);
+  if (!USER_ID.test(userId)) throw new HttpError(400, "bad_request", "Unknown user.");
+  const rows = await db()<{ id: string; data: unknown }[]>`select id, data from projects where user_id = ${userId} order by updated_at desc`;
+  const projects = rows.map((r) => parseProject(r.data, r.id)).filter((p): p is Project => p !== null);
+  const active = await activeJobs(projects.map((p) => p.id));
+  return projects.map((p) => reconcile(p, active.get(p.id)));
 }
 
-export async function deleteProjectFiles(userId: string, projectId: string) {
-  await rm(paths(userId, projectId).dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+export async function countProjects(userId: string): Promise<number> {
+  if (!USER_ID.test(userId)) throw new HttpError(400, "bad_request", "Unknown user.");
+  const [{ count } = { count: 0 }] = await db()<{ count: number }[]>`select count(*)::int as count from projects where user_id = ${userId}`;
+  return count;
+}
+
+/** The project's record (and its transcript), then its media and any scratch files. */
+export async function deleteProject(userId: string, projectId: string) {
+  const keys = mediaKeys(userId, projectId);
+  const deleted = await db()`delete from projects where id = ${projectId} and user_id = ${userId}`;
+  if (deleted.count === 0) return;
+  await storage().removePrefix(keys.prefix);
+  await rm(scratch(projectId).dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 }
 
 /* ----------------------------- Transcripts ----------------------------- */
 
 export async function readTranscript(userId: string, projectId: string): Promise<Transcript | null> {
-  const raw = await readJsonFile(paths(userId, projectId).transcript);
-  if (raw === null) return null;
-  const parsed = transcriptSchema.safeParse(raw);
+  projectDir(userId, projectId);
+  const [row] = await db()<{ data: unknown }[]>`
+    select t.data from transcripts t join projects p on p.id = t.project_id
+    where t.project_id = ${projectId} and p.user_id = ${userId}`;
+  if (!row) return null;
+  const parsed = transcriptSchema.safeParse(row.data);
   return parsed.success ? parsed.data : null;
 }
 
 export async function writeTranscript(userId: string, projectId: string, transcript: Transcript) {
-  await writeAtomic(paths(userId, projectId).transcript, JSON.stringify(transcriptSchema.parse(transcript)));
+  projectDir(userId, projectId);
+  const doc = transcriptSchema.parse(transcript);
+  const sql = db();
+  const written = await sql`
+    insert into transcripts (project_id, data, updated_at)
+    select id, ${sql.json(asJson(doc))}, ${Date.now()} from projects where id = ${projectId} and user_id = ${userId}
+    on conflict (project_id) do update set data = excluded.data, updated_at = excluded.updated_at`;
+  if (written.count === 0) throw new HttpError(404, "not_found", "That project doesn’t exist, or it was deleted.");
 }
 
-/* ---------------------------- Account files ---------------------------- */
+/* ------------------------------ Billing ------------------------------ */
 
-/** billing.json: the Stripe customer and subscription. usage.json: AI processing used. */
-export type AccountFile = "billing" | "usage";
-
-const accountFile = (userId: string, name: AccountFile) => path.join(accountDir(userId), `${name}.json`);
-
-/** One of the user's account files, or null if it doesn't exist (or no longer fits the schema). */
-export async function readAccountFile<T>(userId: string, name: AccountFile, schema: z.ZodType<T>): Promise<T | null> {
-  const raw = await readJsonFile(accountFile(userId, name));
-  if (raw === null) return null;
-  const parsed = schema.safeParse(raw);
+/** The user's billing record (the Stripe customer and subscription; billing.ts owns its shape), or null. */
+export async function readBilling<T>(userId: string, schema: z.ZodType<T>): Promise<T | null> {
+  if (!USER_ID.test(userId)) throw new HttpError(400, "bad_request", "Unknown user.");
+  const [row] = await db()<{ data: unknown }[]>`select data from billing_accounts where user_id = ${userId}`;
+  if (!row) return null;
+  const parsed = schema.safeParse(row.data);
   if (!parsed.success) {
-    console.error(`[bamio/store] ${name}.json of ${userId} failed validation`, parsed.error.issues.slice(0, 3));
+    console.error(`[bamio/store] billing of ${userId} failed validation`, parsed.error.issues.slice(0, 3));
     return null;
   }
   return parsed.data;
 }
 
-/** Read, change and write an account file with no other change in between. `change` may throw to leave it as it was. */
-export function updateAccountFile<T>(userId: string, name: AccountFile, schema: z.ZodType<T>, change: (current: T | null) => T | Promise<T>): Promise<T> {
-  return serialized(`${userId}#${name}`, async () => {
-    const updated = schema.parse(await change(await readAccountFile(userId, name, schema)));
-    await mkdir(accountDir(userId), { recursive: true });
-    await writeAtomic(accountFile(userId, name), JSON.stringify(updated));
+/** Read, change and write the billing record with no other change in between. `change` may throw to leave it as it was. */
+export function updateBilling<T>(userId: string, schema: z.ZodType<T>, change: (current: T | null) => T | Promise<T>): Promise<T> {
+  if (!USER_ID.test(userId)) throw new HttpError(400, "bad_request", "Unknown user.");
+  return db().begin(async (tx) => {
+    await tx`select pg_advisory_xact_lock(hashtext(${`billing:${userId}`}))`;
+    const [row] = await tx<{ data: unknown }[]>`select data from billing_accounts where user_id = ${userId}`;
+    const parsed = row ? schema.safeParse(row.data) : null;
+    const updated = schema.parse(await change(parsed?.success ? parsed.data : null));
+    await tx`
+      insert into billing_accounts (user_id, data, updated_at) values (${userId}, ${tx.json(asJson(updated))}, ${Date.now()})
+      on conflict (user_id) do update set data = excluded.data, updated_at = excluded.updated_at`;
     return updated;
-  });
+  }) as Promise<T>;
+}
+
+/* ------------------------------ Usage ------------------------------ */
+
+/** Count `sec` of AI processing for `key` (an import, a stream piece). Counting the same key again does nothing. */
+export async function addUsage(userId: string, key: string, sec: number, at = Date.now()) {
+  if (!USER_ID.test(userId)) throw new HttpError(400, "bad_request", "Unknown user.");
+  await db()`insert into usage_entries (user_id, key, sec, at) values (${userId}, ${key}, ${sec}, ${at}) on conflict (user_id, key) do nothing`;
+}
+
+/** Seconds of AI processing counted in [start, end). */
+export async function usageBetween(userId: string, start: number, end: number): Promise<number> {
+  const [{ sec } = { sec: 0 }] = await db()<{ sec: number }[]>`
+    select coalesce(sum(sec), 0)::float8 as sec from usage_entries where user_id = ${userId} and at >= ${start} and at < ${end}`;
+  return sec;
+}
+
+export async function hasUsage(userId: string, key: string): Promise<boolean> {
+  const [row] = await db()`select 1 from usage_entries where user_id = ${userId} and key = ${key}`;
+  return Boolean(row);
+}
+
+/** A validated document as postgres.js's JSON type (it's plain JSON: no dates, functions or undefined left after JSON round-trips). */
+function asJson(value: unknown): postgres.JSONValue {
+  return JSON.parse(JSON.stringify(value)) as postgres.JSONValue;
 }

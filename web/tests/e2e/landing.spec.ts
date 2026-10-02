@@ -14,7 +14,7 @@ test.describe("landing page", () => {
 
   test("the link field opens the import page with the link filled in", async ({ page }) => {
     await page.goto("/");
-    await expect(page.getByRole("link", { name: "Bamio home" }).first().locator("svg")).toBeVisible(); // the scissors i-dot
+    await expect(page.getByRole("link", { name: "Bamio home" }).first().locator(".tittle")).toBeVisible(); // the 9:16 frame i-dot
     await expect(page.getByRole("heading", { name: "AI that finds the moment, not just a clip." })).toBeVisible();
     const form = page.locator("#hero-link");
     await form.getByRole("button", { name: "Get clips" }).click();

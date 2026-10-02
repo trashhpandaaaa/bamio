@@ -1,5 +1,6 @@
 import "server-only";
 import type { z } from "zod";
+import { isDatabaseDown } from "@/lib/server/db";
 
 /** An error with a status and a message that is safe to show to the user. */
 export class HttpError extends Error {
@@ -19,6 +20,11 @@ export function errorResponse(err: unknown): Response {
   if (err instanceof HttpError) {
     const body: ErrorBody = { error: { code: err.code, message: err.message } };
     return Response.json(body, { status: err.status });
+  }
+  if (isDatabaseDown(err)) {
+    console.error("[bamio] The database can't be reached", (err as Error).message);
+    const body: ErrorBody = { error: { code: "unavailable", message: "Bamio can’t reach its database right now. Try again in a moment." } };
+    return Response.json(body, { status: 503 });
   }
   console.error("[bamio] Unexpected error", err);
   const body: ErrorBody = { error: { code: "internal", message: "Something went wrong on our side. Try again." } };

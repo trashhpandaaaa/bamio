@@ -78,7 +78,21 @@ const TAIL = 6000;
 export function run(name: BinName, args: string[], opts: RunOptions = {}): Promise<{ stdout: string; stderrTail: string }> {
   const bin = binPath(name);
   if (!bin) return Promise.reject(new ProcessError(name, null, `${name} is not installed`));
-  return runProcess(bin, args, opts, name);
+  return runProcess(bin, name === "ffmpeg" || name === "ffprobe" ? allowSnapshotSegments(args) : args, opts, name);
+}
+
+/** A followed stream's playlist snapshot (live-media.ts), whose segments may be signed https links in object storage. */
+const SNAPSHOT = /snap-[0-9a-f-]+\.m3u8$/;
+
+/**
+ * ffmpeg opens remote segments from a local playlist only when told it may: the permission
+ * goes right before the snapshot input (an input option). Nothing else is affected.
+ */
+export function allowSnapshotSegments(args: string[]): string[] {
+  const at = args.findIndex((a) => SNAPSHOT.test(a));
+  if (at < 0) return args;
+  const before = args[at - 1] === "-i" ? at - 1 : at;
+  return [...args.slice(0, before), "-protocol_whitelist", "file,http,https,tcp,tls,crypto", ...args.slice(before)];
 }
 
 /** Run a Node script with the same Node that runs the server. */
