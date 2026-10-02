@@ -12,6 +12,18 @@ const nextConfig: NextConfig = {
   outputFileTracingExcludes: {
     "/*": ["./.data/**/*", "./.models/**/*", "./.bin/**/*", "./qa/**/*", "./test-results/**/*"],
   },
+  // Addresses people (and search engines) guess, to the real pages, instead of a 404.
+  async redirects() {
+    return [
+      { source: "/login", destination: "/sign-in", permanent: true },
+      { source: "/signin", destination: "/sign-in", permanent: true },
+      { source: "/signup", destination: "/sign-up", permanent: true },
+      { source: "/register", destination: "/sign-up", permanent: true },
+      { source: "/home", destination: "/", permanent: true },
+      { source: "/index.html", destination: "/", permanent: true },
+      { source: "/plans", destination: "/pricing", permanent: true },
+    ];
+  },
   async headers() {
     return [
       {

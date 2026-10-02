@@ -21,6 +21,7 @@ Note the Droplet's **IP address**.
 Where your domain's DNS is managed, add an **A record**: name `bamio` (for `bamio.yourdomain.com`, or `@` for the bare domain), value the Droplet's IP.
 
 - On **Cloudflare DNS**, set the record to **DNS only** (grey cloud), so Caddy can get the HTTPS certificate itself.
+- Also add an A record for `www` with the same IP (DNS only): Caddy redirects `www.yourdomain.com` to `yourdomain.com`.
 - **No domain yet?** Use `<ip-with-dashes>.sslip.io` as the domain, e.g. `203-0-113-5.sslip.io` for 203.0.113.5. It points at your IP with no setup, and HTTPS works. Clerk's production keys need a real domain, but the development keys you use now work.
 
 ## 3. Set up the server
