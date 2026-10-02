@@ -33,9 +33,10 @@ ENV NODE_ENV=production \
     BAMIO_WORK_DIR=/data/work \
     BAMIO_MODELS_DIR=/data/models
 # ca-certificates: https (yt-dlp, model downloads, Stripe, S3). tini: signals reach node, so a
-# stopping worker hands its jobs back.
+# stopping worker hands its jobs back. lbzip2: the speech models are .tar.bz2, and Debian's tar
+# unpacks those with lbzip2.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates tini \
+ && apt-get install -y --no-install-recommends ca-certificates tini lbzip2 \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --create-home --uid 10001 bamio \
  && mkdir -p /data/media /data/work /data/models \
