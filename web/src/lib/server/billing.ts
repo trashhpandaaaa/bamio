@@ -20,7 +20,7 @@ import type { Email } from "@/lib/email/templates";
 import type { Tx } from "@/lib/server/db";
 import { queueEmail } from "@/lib/server/email";
 import { HttpError } from "@/lib/server/http";
-import { addUsage, countProjects, hasUsage as usageCounted, isUserId, MAX_PROJECTS_PER_USER, readBilling, updateBilling, usageBetween } from "@/lib/server/store";
+import { addUsage, countProjects, readPlanGrant, hasUsage as usageCounted, isUserId, MAX_PROJECTS_PER_USER, readBilling, updateBilling, usageBetween } from "@/lib/server/store";
 
 /*
  * Plans and payments: Stripe Checkout to buy a plan, the Stripe customer portal to change
@@ -230,27 +230,70 @@ async function billingRecord(userId: string, opts: { fresh?: boolean } = {}): Pr
 
 /* ------------------------------ Allowance ------------------------------ */
 
-type Allowance = { plan: Plan; usedSec: number; allowanceSec: number; resetsAt: number };
+type Allowance = {
+  plan: Plan;
+  usedSec: number;
+  allowanceSec: number;
+  resetsAt: number;
+  /** Where the plan comes from: the subscription's id, or "grant" (given without paying). */
+  source: string;
+  granted: boolean;
+};
 
-/** The user's working plan and this month's use of it, or null without one. */
+/**
+ * The user's working plan and this month's use of it, or null without one: a paid plan, or a
+ * plan given without paying (plan_grants, `npm run plan:grant`), whichever has more minutes.
+ */
 async function allowance(userId: string, billing?: BillingRecord): Promise<Allowance | null> {
   const sub = (billing ?? (await billingRecord(userId))).subscription;
-  if (!isWorking(sub)) return null;
-  const window = usageWindow(sub.anchor, Date.now());
+  const grant = await readPlanGrant(userId);
+  const paid = isWorking(sub) ? { plan: PLANS[sub.plan], anchor: sub.anchor, source: sub.id, granted: false } : null;
+  const given = grant ? { plan: PLANS[grant.plan], anchor: grant.since, source: "grant", granted: true } : null;
+  const best = paid && given ? (given.plan.minutes > paid.plan.minutes ? given : paid) : (paid ?? given);
+  if (!best) return null;
+  const window = usageWindow(best.anchor, Date.now());
   const usedSec = await usageBetween(userId, window.start, window.end);
-  const plan = PLANS[sub.plan];
-  return { plan, usedSec, allowanceSec: plan.minutes * 60, resetsAt: window.end };
+  return { plan: best.plan, usedSec, allowanceSec: best.plan.minutes * 60, resetsAt: window.end, source: best.source, granted: best.granted };
 }
 
 /** What the pages show: plan, renewal, minutes used, projects. `fresh`: read the plan from Stripe first. */
 export async function billingState(userId: string, opts: { fresh?: boolean } = {}): Promise<BillingState> {
   const count = await countProjects(userId);
   if (!billingEnabled()) {
-    return { enabled: false, active: false, plan: null, interval: null, status: null, periodEnd: null, ending: false, usage: null, projects: { count, limit: MAX_PROJECTS_PER_USER }, canManage: false };
+    return {
+      enabled: false,
+      active: false,
+      plan: null,
+      interval: null,
+      status: null,
+      periodEnd: null,
+      ending: false,
+      usage: null,
+      projects: { count, limit: MAX_PROJECTS_PER_USER },
+      canManage: false,
+      granted: false,
+    };
   }
   const billing = await billingRecord(userId, opts);
   const sub = billing.subscription;
   const current = await allowance(userId, billing);
+  const usage = current ? { usedSec: current.usedSec, allowanceSec: current.allowanceSec, resetsAt: current.resetsAt } : null;
+  if (current?.granted) {
+    // A plan given without paying: no price, renewal or end date.
+    return {
+      enabled: true,
+      active: true,
+      plan: current.plan.id,
+      interval: null,
+      status: "granted",
+      periodEnd: null,
+      ending: false,
+      usage,
+      projects: { count, limit: current.plan.projects },
+      canManage: Boolean(billing.customerId),
+      granted: true,
+    };
+  }
   return {
     enabled: true,
     active: current !== null,
@@ -259,9 +302,10 @@ export async function billingState(userId: string, opts: { fresh?: boolean } = {
     status: sub?.status ?? null,
     periodEnd: sub ? (sub.cancelAt ?? sub.periodEnd) : null,
     ending: Boolean(sub && sub.cancelAt !== null),
-    usage: current ? { usedSec: current.usedSec, allowanceSec: current.allowanceSec, resetsAt: current.resetsAt } : null,
+    usage,
     projects: { count, limit: current?.plan.projects ?? 0 },
     canManage: Boolean(billing.customerId),
+    granted: false,
   };
 }
 
@@ -319,7 +363,7 @@ export async function recordUsage(userId: string, key: string, sec: number): Pro
   try {
     const billing = await billingRecord(userId);
     const current = await allowance(userId, billing);
-    const notice = current && billing.subscription ? minutesNotice(billing.subscription, current) : null;
+    const notice = current ? minutesNotice({ id: current.source, plan: current.plan.id }, current) : null;
     if (notice) await queueEmail(userId, notice.key, notice.email);
   } catch (err) {
     console.warn("[bamio/billing] couldn’t queue the minutes email:", err instanceof Error ? err.message : err);
@@ -327,7 +371,7 @@ export async function recordUsage(userId: string, key: string, sec: number): Pro
 }
 
 /** The email this month's use calls for: most of the minutes used, or all of them (once each per plan and month). */
-export function minutesNotice(sub: SubscriptionRecord, current: Pick<Allowance, "usedSec" | "allowanceSec" | "resetsAt">): Notice | null {
+export function minutesNotice(sub: Pick<SubscriptionRecord, "id" | "plan">, current: Pick<Allowance, "usedSec" | "allowanceSec" | "resetsAt">): Notice | null {
   const allowanceMin = Math.round(current.allowanceSec / 60);
   const month = `${sub.id}:${sub.plan}:${current.resetsAt}`;
   if (current.allowanceSec - current.usedSec < USED_UP_SEC) {

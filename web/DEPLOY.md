@@ -95,6 +95,16 @@ Open `https://bamio.yourdomain.com`, sign in and import a video. `https://bamio.
 - **Stripe:** put your live key in `.env` as `STRIPE_SECRET_KEY`. On your own computer, in `web/`, run `STRIPE_SECRET_KEY=sk_live_... npm run stripe:setup -- --webhook https://bamio.yourdomain.com` (in PowerShell: `$env:STRIPE_SECRET_KEY="sk_live_..."; npm run stripe:setup -- --webhook https://bamio.yourdomain.com`). It prints a webhook signing secret: put it in the server's `.env` as `STRIPE_WEBHOOK_SECRET`, then `docker compose up -d`.
 - **Resend:** verify your domain at resend.com/domains, add `RESEND_API_KEY` and `EMAIL_FROM` to `.env`, run `docker compose up -d`, then test: `docker compose exec app node scripts/check-email.mjs you@example.com`.
 
+## Your own account
+
+To use Bamio yourself without paying (once plans are on), sign up on the site, then on the Droplet:
+
+```bash
+docker compose exec app node scripts/grant-plan.mjs trashhpandaaaa@gmail.com pro
+```
+
+It finds the account in Clerk by email (so it has to exist on this site, with the same Clerk keys) and gives it Pro for good. `none` instead of `pro` takes it back; `--list` shows who has a free plan. If you switch to Clerk's production keys later, sign up again on the live site and run it again: development and production accounts are different users.
+
 ## Updating
 
 After pushing changes to GitHub:

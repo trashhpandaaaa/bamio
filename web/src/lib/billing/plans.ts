@@ -184,10 +184,12 @@ export type BillingState = {
   projects: { count: number; limit: number };
   /** Has a Stripe customer, so the billing portal can open (plan changes, card, invoices, cancelling). */
   canManage: boolean;
+  /** The plan was given without paying (plan_grants), for good: no price or renewal. */
+  granted: boolean;
 };
 
 /** Whole minutes for people: used rounds up, left rounds down. */
-export const usedMinutes = (sec: number) => Math.ceil(sec / 60 - 1e-6);
+export const usedMinutes = (sec: number) => Math.max(0, Math.ceil(sec / 60 - 1e-6));
 export const minutesLeft = (usage: NonNullable<BillingState["usage"]>) => Math.max(0, Math.floor((usage.allowanceSec - usage.usedSec) / 60 + 1e-6));
 
 /**

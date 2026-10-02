@@ -28,6 +28,7 @@ async function setPlan(id: string, plan: "starter" | "pro" | null, usedSec = 0) 
 }
 
 async function clearPlan(id: string) {
+  await sql`delete from plan_grants where user_id = ${id}`;
   await sql`delete from billing_accounts where user_id = ${id}`;
   await sql`delete from usage_entries where user_id = ${id}`;
 }
@@ -40,6 +41,19 @@ test.describe("plans", () => {
   });
   test.afterEach(async () => {
     if (id) await clearPlan(id);
+  });
+
+  test("a plan given for free works and shows as free", async ({ page }) => {
+    await clearPlan(id);
+    await sql`insert into plan_grants (user_id, plan, note, created_at) values (${id}, ${"pro"}, ${"e2e"}, ${Date.now()})`;
+    await page.goto("/billing");
+    await expect(page.getByRole("heading", { name: "Pro" })).toBeVisible();
+    await expect(page.getByText("Free", { exact: true })).toBeVisible();
+    await expect(page.getByText("Given to your account, free of charge.")).toBeVisible();
+    await expect(page.getByText("400", { exact: false }).first()).toBeVisible();
+    await page.screenshot({ path: "qa/billing/granted.png", fullPage: true });
+    await page.goto("/new");
+    await expect(page.getByText("Choose a plan to import videos")).toHaveCount(0);
   });
 
   test("without a plan, importing waits for one", async ({ page }) => {

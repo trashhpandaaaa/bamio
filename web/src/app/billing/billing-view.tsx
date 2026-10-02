@@ -13,6 +13,7 @@ const formatDate = (ms: number) => new Date(ms).toLocaleDateString(undefined, { 
 
 /** Stripe's subscription status, for people. */
 function statusBadge(billing: BillingState) {
+  if (billing.granted) return <span className="badge is-success">Free</span>;
   if (billing.status === "past_due") return <span className="badge is-warning">Payment due</span>;
   if (billing.active && billing.ending) return <span className="badge is-warning">Ending</span>;
   if (billing.active) return <span className="badge is-success">Active</span>;
@@ -172,9 +173,13 @@ function PlanPanel({ billing, manage }: { billing: BillingState; manage: React.R
         </h2>
         {statusBadge(billing)}
       </div>
-      <p className={styles.price}>
-        <b>{formatPrice(plan.price[interval])}</b> {interval === "month" ? "a month" : "every 3 months"}
-      </p>
+      {billing.granted ? (
+        <p className="t-body-sm t-secondary">Given to your account, free of charge. It doesn’t renew or end.</p>
+      ) : (
+        <p className={styles.price}>
+          <b>{formatPrice(plan.price[interval])}</b> {interval === "month" ? "a month" : "every 3 months"}
+        </p>
+      )}
       {billing.periodEnd ? (
         <p className="t-body-sm t-secondary">
           {!billing.active

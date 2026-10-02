@@ -55,6 +55,7 @@ describe("plans", () => {
     expect(formatPrice(1250)).toBe("$12.50");
     expect(usedMinutes(61)).toBe(2);
     expect(usedMinutes(60)).toBe(1);
+    expect(Object.is(usedMinutes(0), 0)).toBe(true); // not -0 ("-0 used")
     expect(minutesLeft({ usedSec: 61, allowanceSec: 9000, resetsAt: 0 })).toBe(148);
     expect(minutesLeft({ usedSec: 9500, allowanceSec: 9000, resetsAt: 0 })).toBe(0);
   });
@@ -355,6 +356,32 @@ describe("plan limits", () => {
     } finally {
       delete process.env.BAMIO_EMAIL;
     }
+  });
+
+  it("give a plan for free with a grant, and keep the better of a grant and a paid plan", async () => {
+    process.env.STRIPE_SECRET_KEY = "sk_test_unit";
+    const grant = (who: string, plan: string) => db()`insert into plan_grants (user_id, plan, note, created_at) values (${who}, ${plan}, 'test', ${Date.now() - 86400_000})
+      on conflict (user_id) do update set plan = excluded.plan`;
+    await grant("user_owner", "pro");
+    await expect(assertCanProcess("user_owner", { sec: 60 * 60, source: "link" })).resolves.toBeUndefined();
+    expect(await secondsLeft("user_owner")).toBe(400 * 60);
+    expect(await projectLimit("user_owner")).toBe(150);
+    expect(await queuePriority("user_owner")).toBe(1);
+    expect(await billingState("user_owner")).toMatchObject({ active: true, granted: true, plan: "pro", interval: null, status: "granted", periodEnd: null, canManage: false });
+    await recordUsage("user_owner", "g1", 30 * 60);
+    expect(await secondsLeft("user_owner")).toBe(370 * 60);
+
+    // Paying for more than the grant gives: the paid plan counts. Paying for less: the grant does.
+    await givePlan("user_owner", "team");
+    expect(await billingState("user_owner")).toMatchObject({ plan: "team", granted: false, status: "active" });
+    await givePlan("user_owner", "starter");
+    expect(await billingState("user_owner")).toMatchObject({ plan: "pro", granted: true });
+
+    // Taken back: only what's paid for.
+    await db()`delete from plan_grants where user_id = 'user_owner'`;
+    expect(await billingState("user_owner")).toMatchObject({ plan: "starter", granted: false });
+    await grant("user_owner", "none_such").catch(() => "refused");
+    expect(await db()`select 1 from plan_grants where user_id = 'user_owner'`).toHaveLength(0);
   });
 
   it("give paid plans their minutes, room and place in the queue", async () => {

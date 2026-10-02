@@ -3,6 +3,7 @@ import { rm } from "node:fs/promises";
 import path from "node:path";
 import type postgres from "postgres";
 import type { z } from "zod";
+import { planIdSchema, type PlanId } from "@/lib/billing/plans";
 import { DEFAULT_EDIT, clipEditSchema, projectSchema, transcriptSchema, isJobActive, type ClipEdit, type ClipLength, type Job, type Language, type Project, type Source, type Transcript } from "@/lib/clips/schema";
 import { newId } from "@/lib/ids";
 import { db, type Tx } from "@/lib/server/db";
@@ -332,6 +333,14 @@ export function updateBilling<T>(
     await opts.then?.(tx, updated, previous);
     return updated;
   }) as Promise<T>;
+}
+
+/** A plan given to the user without paying (scripts/grant-plan.mjs), or null. `since`: when, which sets the day their minutes renew. */
+export async function readPlanGrant(userId: string): Promise<{ plan: PlanId; since: number } | null> {
+  if (!USER_ID.test(userId)) return null;
+  const [row] = await db()<{ plan: string; created_at: number }[]>`select plan, created_at::float8 as created_at from plan_grants where user_id = ${userId}`;
+  const plan = planIdSchema.safeParse(row?.plan);
+  return row && plan.success ? { plan: plan.data, since: row.created_at } : null;
 }
 
 /* ------------------------------ Usage ------------------------------ */

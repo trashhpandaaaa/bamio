@@ -14,6 +14,7 @@
     "ai:check": "node scripts/check-ai.mjs",
     "setup:media": "node scripts/setup-media.mjs",
     "email:check": "node scripts/check-email.mjs",
+    "plan:grant": "node scripts/grant-plan.mjs",
     "stripe:setup": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/setup-stripe.mjs",
     "db:local": "node scripts/db-local.mjs",
     "db:migrate": "node scripts/db-migrate.mjs",
