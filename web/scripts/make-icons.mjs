@@ -2,7 +2,8 @@
 /*
  * Makes the PNG and ICO icons from src/app/icon.svg (the 9:16 frame, ink on volt), so they always
  * match it: public/icon-192.png and icon-512.png (the app manifest; 512 is also the logo in
- * structured data), src/app/apple-icon.png (180, full-bleed: iOS rounds it itself) and
+ * structured data), src/app/icon1.png (192: a sharp favicon for Google's results, which wants a
+ * multiple of 48 px), src/app/apple-icon.png (180, full-bleed: iOS rounds it itself) and
  * src/app/favicon.ico (16, 32 and 48). Needs Microsoft Edge (Playwright).
  *   node scripts/make-icons.mjs
  */
@@ -24,6 +25,7 @@ async function png(markup, size) {
 
 await writeFile("public/icon-192.png", await png(svg, 192));
 await writeFile("public/icon-512.png", await png(svg, 512));
+await writeFile("src/app/icon1.png", await png(svg, 192));
 await writeFile("src/app/apple-icon.png", await png(square, 180));
 
 // An ICO file can hold PNGs: a 6-byte header, a 16-byte entry per image, then the images.
@@ -47,4 +49,4 @@ sizes.forEach((s, i) => {
 });
 await writeFile("src/app/favicon.ico", Buffer.concat([header, ...images]));
 await browser.close();
-console.log("✓ public/icon-192.png, public/icon-512.png, src/app/apple-icon.png, src/app/favicon.ico");
+console.log("✓ public/icon-192.png, public/icon-512.png, src/app/icon1.png, src/app/apple-icon.png, src/app/favicon.ico");
