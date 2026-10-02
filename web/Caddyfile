@@ -1,5 +1,12 @@
 # HTTPS for Bamio (compose.yaml): Caddy gets and renews the certificate for DOMAIN from
 # Let's Encrypt, once the domain's DNS points at this server.
+{
+	# A TLS connection that doesn't name the site (no SNI) still gets DOMAIN's certificate.
+	# Without it the handshake fails, which Cloudflare reports as error 525 (Google Search
+	# Console saw one reading the sitemap).
+	default_sni {$DOMAIN}
+}
+
 {$DOMAIN} {
 	encode zstd gzip
 	reverse_proxy app:3000
