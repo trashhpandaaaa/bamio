@@ -89,19 +89,34 @@ function assertNotBlocked(res: GenerateContentResponse) {
   }
 }
 
+/** One line per call: tokens in (and how many came from Gemini's cache), thinking and out. */
+function logUsage(task: string, res: GenerateContentResponse) {
+  const u = res.usageMetadata;
+  if (!u) return;
+  const n = (v: number | undefined) => (v ?? 0).toLocaleString("en-US");
+  console.log(
+    `[bamio/ai] ${task} (${res.modelVersion ?? MODEL}): ${n(u.promptTokenCount)} in${u.cachedContentTokenCount ? ` (${n(u.cachedContentTokenCount)} cached)` : ""}, ${n(u.thoughtsTokenCount)} thinking, ${n(u.candidatesTokenCount)} out`,
+  );
+}
+
 /**
  * Ask for JSON matching `schema` (optionally about an audio file), validate it with
  * `parse`, and retry once on bad output. Errors are HttpErrors ready for the UI.
  */
 export async function generateJson<T>(opts: {
+  /** What the call is for, in the log of tokens used. */
+  task: string;
   system: string;
   prompt: string;
   schema: Record<string, unknown>;
   parse: (value: unknown) => T;
   media?: { mimeType: string; data: string };
+  /** Leave unset for the model's default (Gemini 3 is tuned for 1.0; lower can make it loop). */
   temperature?: number;
   /** Less thinking is faster and cheaper; transcription needs almost none. */
   thinking?: "minimal" | "low";
+  /** A ceiling on the answer (thinking included), so a runaway answer can't burn tokens. */
+  maxOutputTokens?: number;
   signal?: AbortSignal;
 }): Promise<T> {
   try {
@@ -119,7 +134,8 @@ export async function generateJson<T>(opts: {
             systemInstruction: opts.system,
             responseMimeType: "application/json",
             responseJsonSchema: opts.schema,
-            temperature: opts.temperature ?? 0.4,
+            ...(opts.temperature === undefined ? {} : { temperature: opts.temperature }),
+            ...(opts.maxOutputTokens ? { maxOutputTokens: opts.maxOutputTokens } : {}),
             ...(opts.thinking ? { thinkingConfig: { thinkingLevel: opts.thinking === "low" ? ThinkingLevel.LOW : ThinkingLevel.MINIMAL } } : {}),
             httpOptions: { timeout: TIMEOUT_MS, retryOptions: RETRY },
             abortSignal: opts.signal,
@@ -127,6 +143,7 @@ export async function generateJson<T>(opts: {
         }),
       );
       assertNotBlocked(res);
+      logUsage(opts.task, res);
       try {
         return opts.parse(JSON.parse(res.text ?? ""));
       } catch (err) {

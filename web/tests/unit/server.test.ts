@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { ApiError } from "@google/genai";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { clipTarget, findHighlights, mockTranscribe, tidySegments } from "@/lib/ai/server/clips-ai";
+import { clipTarget, clipTimes, findHighlights, highlightPrompt, mockTranscribe, promptLines, tidySegments } from "@/lib/ai/server/clips-ai";
 import { shouldFallBack, toAiError } from "@/lib/ai/server/gemini";
 import { projectSchema } from "@/lib/clips/schema";
 import { db } from "@/lib/server/db";
@@ -111,6 +111,44 @@ describe("AI helpers", () => {
       expect(Math.min(30, c.end) - Math.max(0, c.start)).toBeLessThanOrEqual(0);
     }
     delete process.env.BAMIO_AI_MOCK;
+  });
+});
+
+describe("the clip-finding prompt", () => {
+  // Phrases about 2.5 s long; a sentence ends every third one.
+  const phrases = Array.from({ length: 30 }, (_, i) => ({ start: i * 3 + 0.4, end: i * 3 + 2.9, text: i % 3 === 2 ? `phrase ${i} ends.` : `phrase ${i}` }));
+
+  it("merges phrases into lines of 5 to 12 seconds, numbered by their start second", () => {
+    const lines = promptLines(phrases);
+    expect(lines.length).toBeLessThan(phrases.length / 2);
+    expect(lines[0]).toMatchObject({ n: 0, start: 0.4, text: "phrase 0 phrase 1 phrase 2 ends." });
+    for (const l of lines) expect(l.end - l.start).toBeLessThanOrEqual(12);
+    for (const [i, l] of lines.entries()) if (i > 0) expect(l.n).toBeGreaterThan(lines[i - 1]!.n);
+    // Words of scripts without spaces join without one.
+    expect(promptLines([{ start: 0, end: 1, text: "你 好" }, { start: 1, end: 2, text: "世 界" }])[0]!.text).toBe("你好世界");
+  });
+
+  it("maps line numbers back to exact phrase times, and trims a clip that runs long at a line end", () => {
+    const lines = promptLines(phrases);
+    // Lines 0, 9, 18...: start at 9, end before 36 (lines 9 to 27).
+    expect(clipTimes({ start: 9, end: 36 }, lines, 90)).toEqual({ start: 9.4, end: 35.9 });
+    // A number between lines counts the line it falls in.
+    expect(clipTimes({ start: 10, end: 30 }, lines, 90)).toEqual({ start: 9.4, end: 35.9 });
+    // The end of the video.
+    expect(clipTimes({ start: 81, end: 90 }, lines, 90).end).toBe(89.9);
+    // Too long for 15 to 30 s: lines come off the end.
+    expect(clipTimes({ start: 0, end: 54 }, lines, 90, { minSec: 15, maxSec: 33 })).toEqual({ start: 0.4, end: 26.9 });
+  });
+
+  it("puts the transcript first and the request last", () => {
+    const lines = promptLines(phrases);
+    const a = highlightPrompt({ lines, title: "T", durationSec: 90, clipLength: "short", target: 2 });
+    const b = highlightPrompt({ lines, title: "T", durationSec: 90, clipLength: "long", target: 3, avoid: [{ start: 0, end: 20 }] });
+    const transcript = lines.map((l) => `${l.n} ${l.text}`).join("\n");
+    // Asking again about the same video starts with the same text (Gemini caches it).
+    expect(a.slice(0, a.indexOf(transcript) + transcript.length)).toBe(b.slice(0, b.indexOf(transcript) + transcript.length));
+    expect(b).toContain("0:00-0:20");
+    expect(a).not.toContain("[");
   });
 });
 

@@ -1,6 +1,6 @@
 import "server-only";
 import { z } from "zod";
-import { formatTimecode, normalizeClips, parseTimecode, type RawClip } from "@/lib/clips/logic";
+import { displayText, formatTimecode, normalizeClips, parseTimecode, wordGap, type RawClip } from "@/lib/clips/logic";
 import { languageName } from "@/lib/clips/languages";
 import { CLIP_LENGTH_RANGE, LIMITS, type ClipLength, type Segment } from "@/lib/clips/schema";
 import { generateJson, isMock } from "@/lib/ai/server/gemini";
@@ -78,6 +78,7 @@ const round = (n: number) => Math.round(n * 100) / 100;
 export async function transcribeChunk(audio: Buffer, durationSec: number, signal?: AbortSignal): Promise<{ language?: string; segments: Segment[] }> {
   if (isMock()) return mockTranscribe(durationSec);
   const answer = await generateJson({
+    task: "transcribe",
     system: TRANSCRIBE_SYSTEM,
     prompt: `Transcribe this audio. It is ${durationSec.toFixed(1)} seconds long, so every time must be between 0 and ${durationSec.toFixed(1)}.`,
     schema: TRANSCRIPT_JSON_SCHEMA,
@@ -106,6 +107,7 @@ const highlightAnswer = z.object({
     .max(80),
 });
 
+// Short descriptions: the schema is sent with every request.
 const HIGHLIGHT_JSON_SCHEMA = {
   type: "object",
   properties: {
@@ -114,11 +116,11 @@ const HIGHLIGHT_JSON_SCHEMA = {
       items: {
         type: "object",
         properties: {
-          start: { type: "number", description: "Start in seconds, taken from the transcript times" },
-          end: { type: "number", description: "End in seconds, taken from the transcript times" },
-          title: { type: "string", description: "A short, honest title for the clip, at most 60 characters" },
-          reason: { type: "string", description: "One sentence on why this moment works as a short" },
-          score: { type: "number", description: "0 to 100: how likely this clip is to hold a viewer" },
+          start: { type: "integer", description: "Number of the clip's first line" },
+          end: { type: "integer", description: "Number of the line just after the clip's last line" },
+          title: { type: "string", description: "Honest title, at most 60 characters" },
+          reason: { type: "string", description: "Why it works as a short, at most 15 words" },
+          score: { type: "integer", description: "0 to 100: how well it holds a viewer" },
         },
         required: ["start", "end", "title", "reason", "score"],
       },
@@ -127,13 +129,68 @@ const HIGHLIGHT_JSON_SCHEMA = {
   required: ["clips"],
 };
 
-const HIGHLIGHT_SYSTEM = `You are a senior short-form video editor. You find the moments in long videos
-that work as standalone vertical clips for TikTok, YouTube Shorts and Reels.
-A good clip: opens with a hook in its first 3 seconds (a claim, question, surprise or strong emotion),
-makes sense without the rest of the video, and ends on a payoff or a complete thought, never mid-sentence.
+const HIGHLIGHT_SYSTEM = `You are a senior short-form video editor. You find the moments in long videos that work as standalone vertical clips for TikTok, YouTube Shorts and Reels.
+A good clip opens with a hook in its first 3 seconds (a claim, question, surprise or strong emotion), makes sense without the rest of the video, and ends on a payoff or a complete thought, never mid-sentence.
 Prefer funny, surprising, emotional, useful or controversial moments. Avoid intros, outros, sponsor reads and filler.
-Titles must be honest to what is said: no invented facts, no clickbait that the clip doesn't deliver.
+Titles must be honest to what is said: no invented facts, no clickbait the clip doesn't deliver. Score strictly: 90 and above only for standout moments.
 Write titles and reasons in the language of the transcript.`;
+
+/** A transcript line for the model: a few phrases, numbered by the second it starts at. */
+export type PromptLine = { n: number; start: number; end: number; text: string };
+
+/**
+ * The transcript, compact: caption phrases merged into lines of about 5 to 12 seconds that end
+ * at a sentence or a pause, each numbered by the whole second it starts at (unique, rising).
+ * Far fewer tokens than a start and end time on every phrase, and the model answers with line
+ * numbers that map back to exact phrase times (`clipTimes`).
+ */
+export function promptLines(segments: Segment[]): PromptLine[] {
+  const lines: PromptLine[] = [];
+  let cur: PromptLine | null = null;
+  for (const [i, seg] of segments.entries()) {
+    const text = displayText(seg.text);
+    if (!text) continue;
+    const prev = segments[i - 1];
+    const pause = prev ? seg.start - prev.end : 0;
+    const sentenceEnded = Boolean(prev && /[.!?…。！？؟।]["'”’)]*$/.test(prev.text.trim()));
+    const long = cur ? seg.end - cur.start : 0;
+    if (!cur || (cur.end - cur.start >= 5 && (sentenceEnded || pause >= 0.6)) || long > 12) {
+      const n: number = Math.max(Math.floor(seg.start), (lines.at(-1)?.n ?? -1) + 1);
+      cur = { n, start: seg.start, end: seg.end, text };
+      lines.push(cur);
+    } else {
+      cur.text += wordGap(cur.text, text) + text;
+      cur.end = seg.end;
+    }
+  }
+  return lines;
+}
+
+/**
+ * Line numbers back to times: the first line's start, and the end of the line before `end`.
+ * A clip longer than `fit.maxSec` loses lines from its end (while it stays `fit.minSec` or
+ * longer), so it still ends where a line does, not mid-sentence.
+ */
+export function clipTimes(
+  clip: { start: number; end: number },
+  lines: PromptLine[],
+  durationSec: number,
+  fit: { minSec: number; maxSec: number } = { minSec: 0, maxSec: Infinity },
+): { start: number; end: number } {
+  if (lines.length === 0) return clip;
+  // The line a number points at (or the last one before it, for a number between lines).
+  const at = (n: number) => {
+    let i = 0;
+    while (i + 1 < lines.length && lines[i + 1]!.n <= n) i++;
+    return i;
+  };
+  const first = at(clip.start);
+  const after = clip.end >= Math.floor(durationSec) ? lines.length : lines[at(clip.end)]!.n === clip.end ? at(clip.end) : at(clip.end) + 1;
+  let last = Math.min(Math.max(first, after - 1), lines.length - 1);
+  const length = (to: number) => lines[to]!.end - lines[first]!.start;
+  while (last > first && length(last) > fit.maxSec && length(last - 1) >= fit.minSec) last--;
+  return { start: lines[first]!.start, end: lines[last]!.end };
+}
 
 /** How many clips to ask for, from the length of the video. */
 export function clipTarget(durationSec: number, clipLength: ClipLength): number {
@@ -158,33 +215,50 @@ export async function findHighlights(opts: {
   const limits = { durationSec: opts.durationSec, segments: opts.segments, minSec: Math.max(LIMITS.minClipSec, range.min * 0.6), maxSec: Math.min(LIMITS.maxClipSec, range.max * 1.3), max: target };
   if (isMock()) return normalizeClips(mockHighlights(opts.segments, opts.durationSec, opts.clipLength, target, opts.avoid ?? []), limits);
 
-  const lines = opts.segments.map((s) => `[${s.start.toFixed(1)}-${s.end.toFixed(1)}] ${s.text}`).join("\n");
-  const avoid = (opts.avoid ?? []).map((a) => `${formatTimecode(a.start)} to ${formatTimecode(a.end)}`).join(", ");
+  const lines = promptLines(opts.segments);
   const answer = await generateJson({
+    task: `find clips (${lines.length} lines)`,
     system: HIGHLIGHT_SYSTEM,
-    prompt: [
-      `Video title: ${opts.title}`,
-      `Length: ${opts.durationSec.toFixed(0)} seconds.`,
-      opts.language ? `Spoken language: ${languageName(opts.language)}. The transcript may be lowercase and without punctuation; read it for meaning.` : "",
-      `Find up to ${target} of the best clips, each ${range.min} to ${range.max} seconds long. Fewer is fine if the video has fewer strong moments.`,
-      "Start and end every clip on the phrase boundaries in the transcript. Clips must not overlap.",
-      avoid ? `The user already has clips at ${avoid}. Do not pick those moments again.` : "",
-      "",
-      "Transcript, one phrase per line as [start-end seconds] text:",
-      lines,
-    ]
-      .filter(Boolean)
-      .join("\n"),
+    prompt: highlightPrompt({ ...opts, lines, target }),
     schema: HIGHLIGHT_JSON_SCHEMA,
     parse: (v) => highlightAnswer.parse(v),
-    temperature: 0.5,
     thinking: "low",
+    maxOutputTokens: 16_384,
     signal: opts.signal,
   });
   return normalizeClips(
-    answer.clips.map((c) => ({ ...c, reason: c.reason?.trim().slice(0, 300) || undefined })),
+    answer.clips.map((c) => ({ ...c, ...clipTimes(c, lines, opts.durationSec, { minSec: range.min, maxSec: range.max * 1.1 }), reason: c.reason?.trim().slice(0, 300) || undefined })),
     limits,
   );
+}
+
+/**
+ * The request: the transcript first and the task last, so asking again about the same video
+ * (more clips, another length) starts with the same text, which Gemini caches (cached tokens
+ * cost a quarter or less).
+ */
+export function highlightPrompt(opts: {
+  lines: PromptLine[];
+  title: string;
+  durationSec: number;
+  clipLength: ClipLength;
+  target: number;
+  language?: string;
+  avoid?: { start: number; end: number }[];
+}): string {
+  const range = CLIP_LENGTH_RANGE[opts.clipLength];
+  const avoid = (opts.avoid ?? []).map((a) => `${formatTimecode(a.start)}-${formatTimecode(a.end)}`).join(", ");
+  return [
+    `Transcript of "${opts.title}" (${Math.round(opts.durationSec)} s). Each line starts at the second shown and runs until the next line.`,
+    opts.language ? `Spoken language: ${languageName(opts.language)}. It may be lowercase and unpunctuated; read it for meaning.` : "",
+    opts.lines.map((l) => `${l.n} ${l.text}`).join("\n"),
+    "",
+    `Find up to ${opts.target} of the best clips, each ${range.min} to ${range.max} seconds long; fewer if the video has fewer strong moments. Clips must not overlap.`,
+    `For each clip, start is the number of its first line and end is the number of the line just after its last line (${Math.floor(opts.durationSec)} for the end of the video). Line numbers are seconds, so end minus start is the clip's length.`,
+    avoid ? `The user already has clips at ${avoid}; pick other moments.` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 /* --------------------------------- Mock --------------------------------- */
