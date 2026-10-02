@@ -459,6 +459,8 @@ export async function createCheckout(userId: string, input: { plan: PlanId; inte
         subscription_data: { metadata: { bamio_user: userId } },
         metadata: { bamio_user: userId },
         allow_promotion_codes: true,
+        // A 100%-off code (BAMIOFREE, forever) needs no card; every other checkout still asks for one.
+        payment_method_collection: "if_required",
         // The billing page reads the new plan from Stripe as it opens.
         success_url: `${input.origin}/billing?checkout=done`,
         cancel_url: `${input.origin}/pricing?checkout=canceled`,
