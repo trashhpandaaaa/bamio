@@ -1,4 +1,5 @@
 import "server-only";
+import { existsSync } from "node:fs";
 import { lookup } from "node:dns/promises";
 import { copyFile, mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { isIP } from "node:net";
@@ -51,14 +52,39 @@ function requireYtdlp() {
   }
 }
 
+let cookiesWarned = false;
+
+/**
+ * YTDLP_COOKIES: a cookies.txt (Netscape format) from a spare YouTube account. YouTube asks
+ * servers in data centres to sign in ("confirm you're not a bot"); with these cookies yt-dlp
+ * is signed in. yt-dlp writes refreshed cookies back, so the file must be writable. How to
+ * export one: web/DEPLOY.md.
+ */
+function cookiesArgs(): string[] {
+  const file = process.env.YTDLP_COOKIES;
+  if (!file) return [];
+  if (existsSync(file)) return ["--cookies", file];
+  if (!cookiesWarned) console.warn(`[bamio/media] YTDLP_COOKIES is set, but ${file} doesn’t exist; YouTube may ask for a sign-in`);
+  cookiesWarned = true;
+  return [];
+}
+
 /** Arguments every yt-dlp call uses. */
-export const ytdlpArgs = () => ["--no-playlist", "--no-warnings", "--ignore-config", "--js-runtimes", `node:${process.execPath}`];
+export const ytdlpArgs = () => ["--no-playlist", "--no-warnings", "--ignore-config", "--js-runtimes", `node:${process.execPath}`, ...cookiesArgs()];
 
 /** Turn yt-dlp's stderr into a message the user can act on. */
 export function explainYtdlpError(stderr: string): string {
   const s = stderr.toLowerCase();
   if (s.includes("unsupported url")) return "Bamio can’t read videos from that page. Try the video’s own page, or upload the file.";
-  if (s.includes("not a bot")) return "The site asked for a sign-in to prove this isn’t a bot. Try again later, or download the video and upload it.";
+  if (s.includes("not a bot")) {
+    // For whoever runs the server: the users see the message below.
+    console.warn(
+      process.env.YTDLP_COOKIES
+        ? "[bamio/media] YouTube asked for a sign-in despite YTDLP_COOKIES: the cookies have probably expired, export them again (web/DEPLOY.md)"
+        : "[bamio/media] YouTube asked for a sign-in: set YTDLP_COOKIES (web/DEPLOY.md)",
+    );
+    return "The site asked for a sign-in to prove this isn’t a bot. Try again later, or download the video and upload it.";
+  }
   if (s.includes("private video") || s.includes("members-only") || s.includes("subscriber") || s.includes("login") || s.includes("sign in")) {
     return "That video is private or needs a sign-in, so Bamio can’t download it.";
   }

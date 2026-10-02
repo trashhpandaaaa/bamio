@@ -105,6 +105,27 @@ docker compose exec app node scripts/grant-plan.mjs trashhpandaaaa@gmail.com pro
 
 It finds the account in Clerk by email (so it has to exist on this site, with the same Clerk keys) and gives it Pro for good. `none` instead of `pro` takes it back; `--list` shows who has a free plan. If you switch to Clerk's production keys later, sign up again on the live site and run it again: development and production accounts are different users.
 
+## YouTube links
+
+YouTube asks servers in data centres to sign in ("confirm you're not a bot"), so YouTube links fail on the Droplet until Bamio has a signed-in YouTube session. Give it the cookies of a **spare Google account** (not your main one: YouTube may block an account that downloads a lot).
+
+1. On your computer, open a **private / incognito window** and sign in to YouTube with the spare account.
+2. In that same window, go to `https://www.youtube.com/robots.txt` (so no other tab touches the session).
+3. Export the cookies for youtube.com in Netscape format with a cookies.txt extension (for example "Get cookies.txt LOCALLY" for Chrome or Edge, or "cookies.txt" for Firefox; extensions must be allowed in private windows). Save it as `youtube-cookies.txt`.
+4. **Close the private window** without signing out, so YouTube doesn't replace the session.
+5. Copy it to the server and give it to the app:
+   ```bash
+   scp youtube-cookies.txt root@<droplet-ip>:/root/        # from your computer
+   # then on the Droplet, in /opt/bamio/web (or wherever you cloned it):
+   docker compose cp /root/youtube-cookies.txt app:/data/youtube-cookies.txt
+   docker compose exec -u root app chown bamio /data/youtube-cookies.txt
+   rm /root/youtube-cookies.txt
+   grep -q '^YTDLP_COOKIES=' .env || echo 'YTDLP_COOKIES=/data/youtube-cookies.txt' >> .env
+   docker compose up -d
+   ```
+
+The file stays on the server's volume across updates. The cookies last weeks to months; when YouTube links start failing with the sign-in message again (the app log says so: `docker compose logs app | grep YTDLP_COOKIES`), export new ones and repeat step 5.
+
 ## Updating
 
 After pushing changes to GitHub:
@@ -130,6 +151,6 @@ crontab -e
 
 - **The site doesn't load / no HTTPS:** `docker compose logs caddy`. Usually the domain doesn't point at the Droplet yet (DNS can take a few minutes), or Cloudflare's proxy (orange cloud) is on.
 - **The app keeps restarting:** `docker compose logs app`. A missing setting in `.env` is named there.
-- **YouTube links fail with "confirm you're not a bot":** YouTube often blocks servers in data centres. Uploads always work; Twitch and Kick are usually fine.
+- **YouTube links fail with "confirm you're not a bot":** set up YouTube links (above), or export fresh cookies if they've expired. Uploads always work; Twitch and Kick are usually fine.
 - **Out of memory while transcribing:** resize the Droplet to 8 GB (Droplet → Resize), then `docker compose up -d`.
 - **Disk filling up:** `df -h`. Old projects can be deleted in the app; or resize the Droplet's disk.
