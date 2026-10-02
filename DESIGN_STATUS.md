@@ -128,7 +128,7 @@ The user asked for the best clips with as few tokens as possible. Gemini only pi
 
 ### Promotion code BAMIOFREE (2026-10-02)
 
-The user asked for a Stripe promo code giving 100% off, and chose: forever, code `BAMIOFREE`, at most 50 uses. Created in the live Stripe account (coupon `Wx8957PM`, promotion code `promo_1UM3VpGkO4GRypZ943sMxrqn`; this API version takes `promotion[type]=coupon`, not `coupon`). Checkout now uses `payment_method_collection: "if_required"`, so a $0 checkout doesn't ask for a card; paid ones still do. Someone on the code is an ordinary active subscriber at $0 (plan emails, minutes, the billing portal all apply).
+The user asked for a Stripe promo code giving 100% off, and chose: forever, code `BAMIOFREE`, at most 50 uses. Later the same day the user lowered it to 5 uses: Stripe can't edit a code's limit, so the 50-use code (unused) was switched off and `BAMIOFREE` created again on the same coupon with `max_redemptions` 5 (`promo_1UM8M5GkO4GRypZ9AdTO6hb6`). First created in the live Stripe account (coupon `Wx8957PM`, promotion code `promo_1UM3VpGkO4GRypZ943sMxrqn`; this API version takes `promotion[type]=coupon`, not `coupon`). Checkout now uses `payment_method_collection: "if_required"`, so a $0 checkout doesn't ask for a card; paid ones still do. Someone on the code is an ordinary active subscriber at $0 (plan emails, minutes, the billing portal all apply).
 
 ### Live at bamio.app (2026-10-02)
 
