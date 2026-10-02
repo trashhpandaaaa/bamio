@@ -126,6 +126,16 @@ YouTube asks servers in data centres to sign in ("confirm you're not a bot"), so
 
 The file stays on the server's volume across updates. The cookies last weeks to months; when YouTube links start failing with the sign-in message again (the app log says so: `docker compose logs app | grep YTDLP_COOKIES`), export new ones and repeat step 5.
 
+## Search engines
+
+Bamio serves `/sitemap.xml` and `/robots.txt` and marks up its public pages for search engines. Once, after the site is live:
+
+1. **Google Search Console** (search.google.com/search-console): add a **Domain** property for your domain and verify it with the TXT record it gives you (in Cloudflare DNS). Then **Sitemaps → add** `https://bamio.app/sitemap.xml`, and use **URL inspection → Request indexing** on the home page. (Or verify the `https://` URL with the HTML tag: put its code in `.env` as `GOOGLE_SITE_VERIFICATION=...` and run `docker compose up -d`.)
+2. **Bing Webmaster Tools** (bing.com/webmasters): **Import from Google Search Console** (one click once step 1 is done), or add the site and use `BING_SITE_VERIFICATION=...` the same way. Bing's index also feeds DuckDuckGo, Yahoo, Ecosia and ChatGPT search.
+3. **IndexNow** (Bing, Yandex, Naver, Seznam): after a deploy that changes public pages, run `docker compose exec app node scripts/indexnow.mjs` (or `npm run seo:indexnow` on your computer) to have them recrawl at once.
+
+Check the structured data with Google's Rich Results Test (search.google.com/test/rich-results) on the home page and `/pricing`.
+
 ## Updating
 
 After pushing changes to GitHub:

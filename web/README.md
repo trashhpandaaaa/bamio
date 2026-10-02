@@ -86,6 +86,14 @@ Bamio emails users when something happens that they'd want to know, through Rese
 - **Setup:** add your domain at [resend.com/domains](https://resend.com/domains) and its DNS records, make an API key (sending access), and set `RESEND_API_KEY`, `EMAIL_FROM` (on that domain) and `BAMIO_APP_URL` in `web/.env`. Check it with `npm run email:check -- you@example.com`, then restart the server (and the workers). Until a domain is verified, Resend only sends to your own account's address.
 - **Stripe's own emails:** Stripe can also email receipts and failed-payment notices (switched on and off in the Stripe Dashboard's customer email and subscription settings). Keep its receipts if you want them (Bamio doesn't send receipts), and turn its failed-payment emails off so customers don't get two.
 
+## Search engines
+
+- **Public pages:** `/`, `/pricing` and four pages for what people search for: `/youtube-to-shorts`, `/podcast-clips`, `/twitch-clips`, `/auto-captions` (`components/site/use-case.tsx` lays them out; each page passes its words). They're listed in `USE_CASES` (`src/lib/site.ts`), which feeds the footer and the sitemap; a unit test fails if a public page is missing from it or has no share image.
+- **Every public page** sets its title, a description of at most about 160 characters, its canonical address and its link preview with `pageMetadata`, and has an `opengraph-image.tsx` (1200 x 630, drawn by `src/lib/og.tsx` in Bricolage with the design tokens). Pages behind sign-in (and sign-in itself) are `noindex` (`PRIVATE_PAGE`).
+- **Structured data** (JSON-LD, `components/site/json-ld.tsx`): Organization, WebSite, SoftwareApplication with every plan's price from `plans.ts`, the FAQ (answers as plain text: `text` on a FaqItem whose answer has links), and breadcrumbs. No ratings or reviews: there are none to show.
+- **Files:** `/robots.txt` (`app/robots.ts`: the API and signed-in pages left out), `/sitemap.xml` (`app/sitemap.ts`), `/manifest.webmanifest`, `/favicon.ico`, `/apple-icon.png` and `/icon-192.png` / `/icon-512.png` (`node scripts/make-icons.mjs` makes the PNGs and ICO from `icon.svg`), and the IndexNow key (`public/<key>.txt`, used by `npm run seo:indexnow`).
+- **Speed** (Google ranks on it): the hero's first frame loads with high priority and decodes at once, other stills load lazily, the demo loops start only after the page has loaded, the monospace font isn't preloaded, and `/landing/` files are cached for a week.
+
 ## How it works
 
 1. **Import** (`/new`): paste a link (Bamio shows the title, channel and length as you paste) or drop a file. Choose part of a long video, the spoken language (detected automatically unless you pick one), whether to find clips with AI, clip length, format and caption style. For a live stream, **follow the stream** (the default): Bamio captures it from as far back as it keeps (Twitch: the start of the stream; YouTube: its rewind history; Kick: from now) and keeps adding to it until the stream ends, you stop, or 12 hours are captured. The project opens as soon as the first seconds are in, and you can clip, edit and export while it grows; captions and AI clips follow along, and when it ends it becomes a normal video. Or **capture a part**: how far back to start and how long to keep recording.
@@ -206,6 +214,7 @@ Key decisions:
 | `npm run db:migrate` | Brings `DATABASE_URL`'s database up to date (the Docker image does this when it starts) |
 | `node scripts/db-import-disk.mjs` | Copies projects, transcripts, billing and usage from the old JSON files in `BAMIO_DATA_DIR` into the database (safe to re-run) |
 | `npm run build:worker` / `npm run worker` | Bundles the worker into `dist/worker.mjs` / runs it (it stops gracefully on Ctrl+C or SIGTERM) |
+| `npm run seo:indexnow` | Asks Bing, Yandex and other IndexNow search engines to recrawl every page in the live sitemap (run after a deploy that changes public pages) |
 | `npm run plan:grant -- you@example.com pro` | Gives a user a plan for free, for good (`none` takes it back, `-- --list` lists them). On the server: `docker compose exec app node scripts/grant-plan.mjs you@example.com pro` |
 | `npm run stripe:setup` | Creates or updates the plans in Stripe (products, prices by lookup key, billing-portal settings); `-- --webhook https://your.domain` also adds the webhook endpoint. Needs Node 22.18+ (it reads `plans.ts` directly) |
 

@@ -85,6 +85,10 @@ test("pages fit phones, tablets and desktops", async ({ page }) => {
   await audit(page, "pages", [
     { name: "landing", path: "/", ready: (p) => expect(p.locator("#hero-link")).toBeVisible() },
     { name: "pricing", path: "/pricing", ready: (p) => expect(p.getByRole("article").first()).toBeVisible() },
+    { name: "youtube-to-shorts", path: "/youtube-to-shorts", ready: (p) => expect(p.locator("#hero-link")).toBeVisible() },
+    { name: "podcast-clips", path: "/podcast-clips", ready: (p) => expect(p.locator("#hero-link")).toBeVisible() },
+    { name: "twitch-clips", path: "/twitch-clips", ready: (p) => expect(p.locator("#hero-link")).toBeVisible() },
+    { name: "auto-captions", path: "/auto-captions", ready: (p) => expect(p.locator("#hero-link")).toBeVisible() },
     { name: "import", path: "/new", ready: (p) => expect(p.getByLabel("Video link")).toBeVisible() },
     { name: "import-upload", path: "/new?mode=upload", ready: (p) => expect(p.getByText(/Drop a video here|Choose a file/i).first()).toBeVisible() },
     { name: "projects", path: "/projects", ready: (p) => expect(p.getByRole("heading", { level: 1 })).toBeVisible() },

@@ -2,8 +2,9 @@ import type { Metadata } from "next";
 import { AppHeader } from "@/components/app-header";
 import { ProfileView } from "./profile-view";
 import styles from "./profile.module.css";
+import { PRIVATE_PAGE } from "@/lib/site";
 
-export const metadata: Metadata = { title: "Profile" };
+export const metadata: Metadata = { title: "Profile", robots: PRIVATE_PAGE };
 
 export default function ProfilePage() {
   return (

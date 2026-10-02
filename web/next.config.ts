@@ -23,6 +23,12 @@ const nextConfig: NextConfig = {
           { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
         ],
       },
+      {
+        // The landing page's demo footage changes rarely (scripts/landing-footage.mjs): browsers and
+        // Cloudflare keep it a week, and use a stale copy for a day while fetching a new one.
+        source: "/landing/:file*",
+        headers: [{ key: "Cache-Control", value: "public, max-age=604800, stale-while-revalidate=86400" }],
+      },
     ];
   },
 };

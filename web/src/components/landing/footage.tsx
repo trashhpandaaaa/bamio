@@ -10,7 +10,8 @@ import styles from "./footage.module.css";
  * footer). Made by scripts/encode-landing-footage.sh into public/landing/: a 960x540 loop as
  * WebM and MP4, stills of it at a few seconds in, and for the podcast a 10-frame filmstrip.
  *
- * A still shows until the footage is on screen; then the loop plays (from `at` seconds in).
+ * A still shows until the footage is on screen and the page has finished loading (so a loop
+ * never competes with the page's first picture); then the loop plays (from `at` seconds in).
  * With reduced motion, or data saving on, the stills stay.
  */
 
@@ -29,6 +30,15 @@ const STILLS: Record<FootageName, readonly number[]> = { podcast: [0, 3, 6], str
 
 const still = (name: FootageName, at: number) => `/landing/${name}-${STILLS[name].includes(at) ? at : 0}.webp`;
 
+/** True once the page has loaded (its images included). */
+const pageLoaded = {
+  subscribe: (onChange: () => void) => {
+    window.addEventListener("load", onChange);
+    return () => window.removeEventListener("load", onChange);
+  },
+  get: () => document.readyState === "complete",
+};
+
 const saveData = {
   subscribe: () => () => undefined,
   get: () => Boolean((navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData),
@@ -36,21 +46,30 @@ const saveData = {
 
 /**
  * The 16:9 shot, filling its parent (cropped to cover). `at`: where the loop starts (one of the
- * stills, so the still and the first frame match). `play`: false keeps the still.
+ * stills, so the still and the first frame match). `play`: false keeps the still. `priority`:
+ * the page's main picture (the hero): its still loads first; other stills load as they come near.
  */
-export function Footage({ name, at = 0, play = true }: { name: FootageName; at?: number; play?: boolean }) {
+export function Footage({ name, at = 0, play = true, priority = false }: { name: FootageName; at?: number; play?: boolean; priority?: boolean }) {
   const root = useRef<HTMLDivElement>(null);
   const visible = useInView(root, { threshold: 0.05 });
   const reduce = useReducedMotion();
   const lowData = useSyncExternalStore(saveData.subscribe, saveData.get, () => false);
+  const loaded = useSyncExternalStore(pageLoaded.subscribe, pageLoaded.get, () => false);
   const [shown, setShown] = useState(false);
-  const moving = play && visible && !reduce && !lowData;
+  const moving = play && visible && loaded && !reduce && !lowData;
 
   return (
     <div ref={root} className={styles.footage} aria-hidden="true">
       {/* A decorative frame of stock footage. */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img className={styles.media} src={still(name, at)} alt="" decoding="async" />
+      <img
+        className={styles.media}
+        src={still(name, at)}
+        alt=""
+        decoding={priority ? "sync" : "async"}
+        loading={priority ? "eager" : "lazy"}
+        fetchPriority={priority ? "high" : "auto"}
+      />
       {moving ? <Loop name={name} at={at} onShown={setShown} shown={shown} /> : null}
     </div>
   );

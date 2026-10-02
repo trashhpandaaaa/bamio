@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from "next";
 import { Bricolage_Grotesque, Geist_Mono } from "next/font/google";
 import { ToastProvider } from "@/components/toast";
 import { clerkAppearance, clerkLocalization } from "@/lib/clerk-appearance";
+import { HOME_DESCRIPTION, HOME_TITLE, SITE_NAME, SITE_URL } from "@/lib/site";
 import "@/styles/tokens.css";
 import "@/styles/components.css";
 import "./globals.css";
@@ -18,11 +19,26 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
   variable: "--font-geist-mono",
   display: "swap",
+  // Only timecodes use it: not worth competing with the hero image for the first second.
+  preload: false,
 });
 
 export const metadata: Metadata = {
-  title: { default: "Bamio: clip the moments that hook", template: "%s | Bamio" },
-  description: "Turn YouTube, Twitch and Kick videos into vertical shorts. Bamio finds the best moments, reframes them and adds word-by-word captions.",
+  metadataBase: new URL(SITE_URL),
+  title: { default: HOME_TITLE, template: "%s | Bamio" },
+  description: HOME_DESCRIPTION,
+  applicationName: SITE_NAME,
+  // Defaults for pages without their own (public pages set the whole set with pageMetadata, canonical included).
+  openGraph: { type: "website", siteName: SITE_NAME, locale: "en_US", title: HOME_TITLE, description: HOME_DESCRIPTION },
+  twitter: { card: "summary_large_image", title: HOME_TITLE, description: HOME_DESCRIPTION },
+  robots: { index: true, follow: true, googleBot: { index: true, follow: true, "max-image-preview": "large", "max-snippet": -1, "max-video-preview": -1 } },
+  // Search Console and Bing Webmaster Tools ownership checks, when verified by meta tag (DNS works too).
+  verification: {
+    ...(process.env.GOOGLE_SITE_VERIFICATION ? { google: process.env.GOOGLE_SITE_VERIFICATION } : {}),
+    ...(process.env.BING_SITE_VERIFICATION ? { other: { "msvalidate.01": process.env.BING_SITE_VERIFICATION } } : {}),
+  },
+  formatDetection: { telephone: false, email: false, address: false },
+  category: "technology",
 };
 
 export const viewport: Viewport = {

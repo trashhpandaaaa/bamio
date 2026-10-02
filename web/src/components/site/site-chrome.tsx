@@ -5,6 +5,7 @@ import { Wordmark } from "@/components/brand";
 import { MobileMenu } from "@/components/landing/mobile-menu";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { billingEnabled } from "@/lib/server/billing";
+import { USE_CASES } from "@/lib/site";
 import styles from "./site-chrome.module.css";
 
 /** A link in the marketing pages' bar, menu or footer: "#how" on the same page, or a path. */
@@ -75,6 +76,16 @@ export function SiteFooter({ links, roomForBar = false, credit }: { links: SiteL
               {links.map((link) => (
                 <li key={link.href}>
                   <SiteAnchor link={link} />
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div>
+            <p className={styles.footerTitle}>Made for</p>
+            <ul>
+              {USE_CASES.map((page) => (
+                <li key={page.href}>
+                  <Link href={page.href}>{page.label}</Link>
                 </li>
               ))}
             </ul>

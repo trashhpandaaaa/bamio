@@ -73,7 +73,7 @@ export function ClipFlow() {
       <figure ref={root} className={`studio ${styles.panel}`} aria-label="Example: Bamio finds three moments in a 1 hour 48 minute podcast episode and turns each into a captioned vertical clip.">
         <div className={styles.source}>
           <div className={styles.wide} aria-hidden="true">
-            <Footage name="podcast" />
+            <Footage name="podcast" priority />
             <span className={styles.chip}>
               <YoutubeLogo size={14} weight="fill" /> Podcast, episode 112
             </span>

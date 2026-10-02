@@ -7,10 +7,15 @@ import { LanguageCard, LiveCard } from "@/components/landing/feature-cards";
 import { LinkForm } from "@/components/landing/link-form";
 import { MomentFinder } from "@/components/landing/moment-finder";
 import { StickyLinkBar } from "@/components/landing/sticky-link-bar";
-import { FaqList, type FaqItem } from "@/components/site/faq";
+import { FaqList, faqPlain, type FaqItem } from "@/components/site/faq";
+import { JsonLd } from "@/components/site/json-ld";
 import { SiteFooter, SiteHeader, type SiteLink } from "@/components/site/site-chrome";
 import { formatPrice, PLANS } from "@/lib/billing/plans";
+import { faqData, HOME_DESCRIPTION, HOME_TITLE, ORGANIZATION, pageMetadata, softwareData, WEBSITE } from "@/lib/site";
+import type { Metadata } from "next";
 import styles from "./page.module.css";
+
+export const metadata: Metadata = pageMetadata({ title: HOME_TITLE, description: HOME_DESCRIPTION, path: "/", absoluteTitle: true });
 
 const LINKS: SiteLink[] = [
   { href: "#how", label: "How it works" },
@@ -49,6 +54,7 @@ const FAQ: FaqItem[] = [
         months. Every plan exports 1080p with no watermark. <Link href="/pricing">See the plans</Link>.
       </>
     ),
+    text: `Plans start at ${formatPrice(PLANS.starter.price.month)} a month for ${PLANS.starter.minutes} minutes of video, or ${formatPrice(PLANS.starter.price.quarter)} for 3 months. Every plan exports 1080p with no watermark.`,
   },
   {
     q: "Whose videos can I clip?",
@@ -224,6 +230,7 @@ export default function Home() {
       <SiteFooter links={LINKS} roomForBar credit="Demo footage: Mixkit stock video." />
 
       <StickyLinkBar after="hero-link" until="get-started" />
+      <JsonLd data={[ORGANIZATION, WEBSITE, softwareData(), faqData(faqPlain(FAQ))]} />
     </>
   );
 }

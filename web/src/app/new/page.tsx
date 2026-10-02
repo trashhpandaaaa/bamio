@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import { AppHeader } from "@/components/app-header";
 import { ImportView } from "./import-view";
+import { PRIVATE_PAGE } from "@/lib/site";
 
-export const metadata: Metadata = { title: "Import a video" };
+export const metadata: Metadata = { title: "Import a video", robots: PRIVATE_PAGE };
 
 /** ?url= fills in the link (from the landing page's form); ?mode=upload opens the upload tab. */
 export default async function NewPage({ searchParams }: { searchParams: Promise<{ [key: string]: string | string[] | undefined }> }) {

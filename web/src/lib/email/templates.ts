@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { intervalSchema, PLANS, planIdSchema, type Interval, type PlanId } from "@/lib/billing/plans";
 import { formatSpan } from "@/lib/clips/live";
+import { TOKENS } from "@/lib/brand-tokens";
 import { formatTimecode } from "@/lib/clips/logic";
 
 /*
@@ -55,36 +56,8 @@ export const EMAIL_CATEGORY: Record<EmailTemplate, EmailCategory> = {
   "video-failed": "videos",
 };
 
-/*
- * Colours and radii from src/styles/tokens.css (paper, and night for mail apps in dark mode).
- * Mail apps ignore CSS variables, so the values are written out here; a unit test checks they
- * still match the tokens.
- */
-export const EMAIL_TOKENS = {
-  paper: {
-    "--bg": "#F2F2EE",
-    "--surface": "#FBFBF9",
-    "--line": "#DADAD4",
-    "--text": "#121212",
-    "--text-secondary": "#4A4A46",
-    "--text-tertiary": "#676761",
-    "--on-volt": "#121212",
-    "--volt-edge": "#121212",
-    "--warning": "#A34A07",
-    "--warning-bg": "#FBEAD8",
-  },
-  night: {
-    "--bg": "#0E0E0E",
-    "--surface": "#151515",
-    "--line": "#2A2A2A",
-    "--text": "#EDEDED",
-    "--text-secondary": "#A3A3A3",
-    "--text-tertiary": "#8A8A8A",
-    "--warning": "#F29A4A",
-  },
-  brand: { "--volt": "#CDEA55" },
-  radius: { "--r-sm": "10px", "--r-md": "16px", "--r-pill": "999px" },
-} as const;
+/** The design tokens emails use (lib/brand-tokens.ts). */
+export const EMAIL_TOKENS = TOKENS;
 
 const P = EMAIL_TOKENS.paper;
 const N = EMAIL_TOKENS.night;

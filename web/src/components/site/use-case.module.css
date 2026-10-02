@@ -1,0 +1,69 @@
+/* The pages people search for (components/site/use-case.tsx): the landing page's look, simpler. */
+
+/* No entrance animation on the headline: it's what search visitors see first. */
+.hero { display: grid; justify-items: center; gap: 20px; padding-top: 72px; text-align: center; }
+.hero h1 { max-width: 16ch; text-wrap: balance; }
+.kicker { margin: 0; font: var(--t-label); color: var(--text-secondary); text-transform: uppercase; letter-spacing: .08em; }
+.lede { margin: 0; max-width: 52ch; font: var(--t-body-lg); color: var(--text-secondary); }
+.action { display: grid; grid-template-columns: minmax(0, 620px) auto; align-items: start; gap: 14px; width: 100%; justify-content: center; margin-top: 10px; }
+.upload { --btn-h: 64px; }
+.visual { margin-top: 56px; }
+
+.section { padding-top: 112px; }
+.section > h2 { max-width: 18ch; margin-bottom: 32px; }
+
+/* Three steps, side by side. */
+.steps { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.step { display: grid; align-content: start; gap: 10px; padding: 28px; border-radius: var(--r-lg); background: var(--surface); border: 1px solid var(--line); }
+.step p { margin: 0; font: var(--t-body-sm); color: var(--text-secondary); max-width: 44ch; }
+.number {
+  display: inline-grid; place-items: center; width: 40px; height: 40px; margin-bottom: 6px;
+  border-radius: var(--r-pill); background: var(--volt); color: var(--on-volt); box-shadow: inset 0 0 0 1.5px var(--volt-edge);
+  font: var(--t-label);
+}
+
+/* The details: a grid of short facts. */
+.details { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px 32px; }
+.detail { display: grid; align-content: start; gap: 8px; padding-top: 18px; border-top: 1px solid var(--line); }
+.detail p { margin: 0; font: var(--t-body-sm); color: var(--text-secondary); max-width: 46ch; }
+
+/* Questions beside their heading, as on the landing page. */
+.faq { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 32px 48px; align-items: start; }
+.faq > h2 { margin-bottom: 0; }
+
+/* Links to the other pages. */
+.more { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.moreLink {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 64px; padding: 0 22px;
+  border-radius: var(--r-md); background: var(--surface); border: 1px solid var(--line); color: var(--text); text-decoration: none;
+  font: var(--t-heading-sm); transition: border-color var(--dur-fast) var(--ease-out);
+}
+.moreLink:hover { border-color: var(--line-control); }
+.moreLink:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* Closing panel: volt, with the link field (ink text in both themes). */
+.cta {
+  display: grid; grid-template-columns: minmax(0, 1fr); justify-items: center; gap: 28px; padding: 72px 40px; text-align: center;
+  border-radius: var(--r-xl); background: var(--volt); color: var(--on-volt); box-shadow: inset 0 0 0 1.5px var(--volt-edge);
+}
+.cta h2 { max-width: 14ch; text-wrap: balance; }
+.cta > form { max-width: 620px; }
+
+@media (max-width: 1023px) {
+  .steps, .details { grid-template-columns: minmax(0, 1fr); }
+  .faq { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 767px) {
+  .hero { padding-top: 40px; gap: 16px; }
+  .action { grid-template-columns: minmax(0, 1fr); justify-items: center; gap: 10px; }
+  .upload { --btn-h: 48px; }
+  .visual { margin-top: 36px; }
+  .section { padding-top: 80px; }
+  .step { padding: 22px; }
+  .more { grid-template-columns: minmax(0, 1fr); }
+  .cta { padding: 40px 20px; }
+}
+@media (max-width: 420px) {
+  .cta { padding: 36px 16px; }
+  .cta h2 { font-size: clamp(28px, 9vw, 36px); }
+}

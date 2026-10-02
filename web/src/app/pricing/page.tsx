@@ -1,17 +1,20 @@
 import { auth } from "@clerk/nextjs/server";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { FaqList, type FaqItem } from "@/components/site/faq";
+import { FaqList, faqPlain, type FaqItem } from "@/components/site/faq";
+import { JsonLd } from "@/components/site/json-ld";
 import { SiteFooter, SiteHeader, type SiteLink } from "@/components/site/site-chrome";
 import { formatPrice, intervalSchema, planIdSchema, PLANS, quarterSaving } from "@/lib/billing/plans";
 import { billingEnabled, billingState } from "@/lib/server/billing";
+import { breadcrumbData, faqData, ORGANIZATION, pageMetadata, softwareData, WEBSITE } from "@/lib/site";
 import { PricingPlans } from "./pricing-plans";
 import styles from "./pricing.module.css";
 
-export const metadata: Metadata = {
-  title: "Pricing",
-  description: "Bamio plans: Starter, Pro and Team. AI clip finding, word-by-word captions and 1080p exports with no watermark. Pay monthly, or every 3 months and save.",
-};
+export const metadata: Metadata = pageMetadata({
+  title: `Pricing: AI clip maker plans from ${formatPrice(PLANS.starter.price.month)} a month`,
+  description: "Bamio plans: Starter, Pro and Team. AI clip finding, word-by-word captions in 100+ languages and 1080p exports with no watermark. Pay monthly, or every 3 months and save.",
+  path: "/pricing",
+});
 
 const LINKS: SiteLink[] = [
   { href: "/#how", label: "How it works" },
@@ -46,6 +49,7 @@ const FAQ: FaqItem[] = [
         when your current period ends. If you cancel, your plan keeps working until the end of the period you paid for.
       </>
     ),
+    text: "Yes, any time, from Plan & billing. An upgrade starts right away and you pay only the difference; a smaller plan starts when your current period ends. If you cancel, your plan keeps working until the end of the period you paid for.",
   },
   {
     q: "What does “coming soon” mean?",
@@ -98,6 +102,7 @@ export default async function PricingPage({ searchParams }: { searchParams: Prom
         </section>
       </main>
       <SiteFooter links={LINKS} />
+      <JsonLd data={[ORGANIZATION, WEBSITE, softwareData(), faqData(faqPlain(FAQ)), breadcrumbData({ name: "Pricing", path: "/pricing" })]} />
     </>
   );
 }
