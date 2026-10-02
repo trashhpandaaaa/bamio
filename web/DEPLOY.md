@@ -159,6 +159,7 @@ crontab -e
 
 ## When something's wrong
 
+- **Cloudflare error 525 / 526** (Search Console: "General HTTP error"): Cloudflare couldn't make a secure connection to the Droplet. In Cloudflare, SSL/TLS should be **Full (strict)**; `docker compose logs caddy` shows certificate problems. The Caddyfile gives connections without a server name (SNI) the site's certificate, which fixed one such 525.
 - **The site doesn't load / no HTTPS:** `docker compose logs caddy`. Usually the domain doesn't point at the Droplet yet (DNS can take a few minutes), or Cloudflare's proxy (orange cloud) is on.
 - **The app keeps restarting:** `docker compose logs app`. A missing setting in `.env` is named there.
 - **YouTube links fail with "confirm you're not a bot":** set up YouTube links (above), or export fresh cookies if they've expired. Uploads always work; Twitch and Kick are usually fine.
