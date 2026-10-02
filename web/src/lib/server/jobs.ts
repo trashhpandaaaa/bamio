@@ -8,6 +8,7 @@ import { isFollowing, LIMITS, TRANSCRIBER_VERSION, type Clip, type ClipLength, t
 import { isAbortError } from "@/lib/server/bin";
 import { assertCanProcess, hasUsage, queuePriority, recordUsage, secondsLeft } from "@/lib/server/billing";
 import { assMarkup, ensureFont, fontsNeeded } from "@/lib/server/caption-fonts";
+import { emailMode, queueEmail } from "@/lib/server/email";
 import { HttpError } from "@/lib/server/http";
 import { limiter, type Limiter } from "@/lib/server/limiter";
 import { activeJobs, enqueue, requestCancel, requestStop, waitForIdle, type JobKind } from "@/lib/server/queue";
@@ -27,7 +28,8 @@ import { newId } from "@/lib/ids";
  * exports and followed streams. Starting work queues a job (queue.ts); workers run it
  * (worker.ts: in the web server, or their own processes) with the handlers at the end of this
  * file. Progress is written to the project, which the browser polls. Plans with priority
- * processing go first (billing.ts).
+ * processing go first (billing.ts). The user gets an email when an import or a followed
+ * stream is ready, or an import fails (email.ts; they can turn these off).
  */
 
 /** In this process: short frame grabs (web), and transcribing followed streams one piece at a time (workers). */
@@ -259,14 +261,48 @@ async function runImport(userId: string, projectId: string, signal: AbortSignal,
 
     const warning = await analyze(userId, projectId, signal, { findClips: project.findClips });
     await job.set("ready", 1, "Ready", { warning });
+    await emailReady(userId, projectId, warning);
   }
 }
 
-async function importFailed(userId: string, projectId: string, err: unknown) {
+async function importFailed(userId: string, projectId: string, jobId: number, err: unknown) {
   if (!(err instanceof HttpError)) console.error("[bamio/jobs] import failed", err);
   // Plan problems (402) keep their code, so the page can offer the plans.
   const errorCode = err instanceof HttpError && err.status === 402 ? err.code : undefined;
-  await jobWriter(userId, projectId).set("failed", 0, "Import failed", { error: errorText(err), errorCode });
+  const project = await jobWriter(userId, projectId).set("failed", 0, "Import failed", { error: errorText(err), errorCode });
+  await emailFailed(userId, project, `video-failed:${projectId}:${jobId}`);
+}
+
+/* ------------------------------ Emails ------------------------------ */
+
+/** Tell the user a video (or a followed stream) is ready, with its best AI clips: once per project. */
+async function emailReady(userId: string, projectId: string, warning: string | undefined) {
+  if (emailMode() === "off") return;
+  try {
+    const project = await getProject(userId, projectId);
+    const ai = project.clips.filter((c) => c.origin === "ai").sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+    await queueEmail(userId, `video-ready:${projectId}`, {
+      template: "video-ready",
+      projectId,
+      title: project.title,
+      stream: Boolean(project.source.live?.follow),
+      durationSec: project.source.durationSec,
+      captioned: project.hasTranscript,
+      clipCount: ai.length,
+      clips: ai.slice(0, 3).map((c) => ({ title: c.title, score: c.score, start: c.start })),
+      ...(warning ? { warning } : {}),
+    });
+  } catch (err) {
+    console.warn("[bamio/jobs] couldn’t queue the ready email:", err instanceof Error ? err.message : err);
+  }
+}
+
+/** Tell the user an import (or a followed stream) failed, with why. */
+async function emailFailed(userId: string, project: Project, key: string) {
+  if (emailMode() === "off") return;
+  await queueEmail(userId, key, { template: "video-failed", projectId: project.id, title: project.title, error: project.job.error ?? "Something went wrong." }).catch((err: unknown) =>
+    console.warn("[bamio/jobs] couldn’t queue the failure email:", err instanceof Error ? err.message : err),
+  );
 }
 
 async function importRetrying(userId: string, projectId: string, err: unknown, delayMs: number) {
@@ -628,14 +664,15 @@ async function followWork(userId: string, projectId: string, final: boolean, sig
 /** A follow that never produced usable video: failed (Try again starts over). */
 async function failFollow(userId: string, projectId: string, error: string) {
   await clearLive(userId, projectId).catch(() => undefined);
-  await mutateProject(userId, projectId, (cur) => {
+  const project = await mutateProject(userId, projectId, (cur) => {
     const live = cur.source.live;
     return {
       ...cur,
       source: live?.follow ? { ...cur.source, live: { ...live, follow: { ...live.follow, status: "ended", endReason: "error", endedAt: Date.now() } } } : cur.source,
       job: { status: "failed", progress: 0, message: "Failed", error, updatedAt: Date.now(), stages: cur.job.stages },
     };
-  }).catch(() => undefined);
+  }).catch(() => null);
+  if (project) await emailFailed(userId, project, `video-failed:${projectId}:stream`);
 }
 
 /** The end of following: the last captions and clips, then one MP4 in place of the HLS. */
@@ -683,6 +720,7 @@ async function finishFollow(userId: string, projectId: string, signal: AbortSign
     });
     await clearLive(userId, projectId);
     await rm(work.dir, { recursive: true, force: true });
+    await emailReady(userId, projectId, warning);
   } catch (err) {
     if (signal.aborted || isAbortError(err)) return;
     console.error("[bamio/live] finishing failed", err);
@@ -818,7 +856,7 @@ const slots = (name: string, fallback: number) => Math.max(1, Number(process.env
 export const jobSpecs: Record<JobKind, KindSpec> = {
   import: {
     run: (job, { signal, stopSignal }) => runImport(job.userId, job.projectId, signal, stopSignal),
-    failed: (job, err) => importFailed(job.userId, job.projectId, err),
+    failed: (job, err) => importFailed(job.userId, job.projectId, job.id, err),
     retrying: (job, err, delayMs) => importRetrying(job.userId, job.projectId, err, delayMs),
     timeoutMs: 8 * HOUR,
   },

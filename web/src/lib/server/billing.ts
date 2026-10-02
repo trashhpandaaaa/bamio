@@ -10,11 +10,15 @@ import {
   PLANS,
   planIdSchema,
   usageWindow,
+  usedMinutes,
   type BillingState,
   type Interval,
   type Plan,
   type PlanId,
 } from "@/lib/billing/plans";
+import type { Email } from "@/lib/email/templates";
+import type { Tx } from "@/lib/server/db";
+import { queueEmail } from "@/lib/server/email";
 import { HttpError } from "@/lib/server/http";
 import { addUsage, countProjects, hasUsage as usageCounted, isUserId, MAX_PROJECTS_PER_USER, readBilling, updateBilling, usageBetween } from "@/lib/server/store";
 
@@ -28,6 +32,10 @@ import { addUsage, countProjects, hasUsage as usageCounted, isUserId, MAX_PROJEC
  * of video imported, or of a followed stream transcribed), projects to keep, and a place in
  * the processing queues. Prices live in Stripe under the lookup keys of plans.ts (made by
  * `npm run stripe:setup`).
+ *
+ * Changes to a plan are emailed to the user (started, changed, ending, ended, a failed
+ * payment), queued in the same transaction that saves the change, so each goes out once
+ * (email.ts). So are AI minutes running low and running out.
  */
 
 /** On with a Stripe key, unless BAMIO_BILLING=off (the e2e test server, or local work without plans). */
@@ -104,17 +112,64 @@ export function subscriptionRecord(sub: Stripe.Subscription, now = Date.now()): 
 export const isWorking = (sub: SubscriptionRecord | undefined, now = Date.now()): sub is SubscriptionRecord =>
   Boolean(sub && ENTITLED_STATUSES.has(sub.status) && (sub.cancelAt === null || sub.cancelAt > now));
 
+type Notice = { key: string; email: Email };
+
+const entitled = (sub: SubscriptionRecord | undefined): sub is SubscriptionRecord => Boolean(sub && ENTITLED_STATUSES.has(sub.status));
+/** Stripe gave up on the plan: cancelled, or unpaid once its retries ran out. */
+const ENDED_STATUSES = new Set(["canceled", "unpaid"]);
+
+/**
+ * The emails a change to the user's subscription calls for: `before` as it was kept, `after`
+ * as just read from Stripe. Keys name the change, so seeing it again sends nothing new.
+ */
+export function subscriptionNotices(before: SubscriptionRecord | undefined, after: SubscriptionRecord | undefined): Notice[] {
+  if (!after) return [];
+  const { id, plan, interval } = after;
+  if (entitled(after) && (!before || before.id !== id || !entitled(before))) {
+    return [{ key: `plan-started:${id}`, email: { template: "plan-started", plan, interval, renewsAt: after.periodEnd } }];
+  }
+  if (!before || before.id !== id || !entitled(before)) return [];
+  if (ENDED_STATUSES.has(after.status)) return [{ key: `plan-ended:${id}`, email: { template: "plan-ended", plan } }];
+  const notices: Notice[] = [];
+  if (before.plan !== plan || before.interval !== interval) {
+    notices.push({
+      key: `plan-changed:${id}:${plan}-${interval}:${after.periodEnd}`,
+      email: { template: "plan-changed", from: before.plan, fromInterval: before.interval, plan, interval },
+    });
+  }
+  if (after.status === "past_due" && before.status !== "past_due") {
+    notices.push({ key: `payment-failed:${id}:${after.periodEnd}`, email: { template: "payment-failed", plan } });
+  }
+  if (after.cancelAt !== null && before.cancelAt === null) {
+    notices.push({ key: `plan-ending:${id}:${after.cancelAt}`, email: { template: "plan-ending", plan, endsAt: after.cancelAt } });
+  }
+  if (after.cancelAt === null && before.cancelAt !== null) {
+    notices.push({ key: `plan-resumed:${id}:${before.cancelAt}`, email: { template: "plan-resumed", plan, renewsAt: after.periodEnd } });
+  }
+  return notices;
+}
+
+/** In the billing record's transaction: queue the emails its change calls for. */
+const emailChanges = (userId: string) => async (tx: Tx, updated: BillingRecord, previous: BillingRecord | null) => {
+  for (const notice of subscriptionNotices(previous?.subscription, updated.subscription)) await queueEmail(userId, notice.key, notice.email, tx);
+};
+
 /** Keep a subscription from Stripe. A working plan isn't replaced by another subscription that doesn't work (a second checkout left unpaid). */
-async function saveSubscription(userId: string, sub: Stripe.Subscription): Promise<BillingRecord> {
+export async function saveSubscription(userId: string, sub: Stripe.Subscription): Promise<BillingRecord> {
   const record = subscriptionRecord(sub);
   const customerId = typeof sub.customer === "string" ? sub.customer : sub.customer.id;
-  return updateBilling(userId, billingSchema, (current) => {
-    const billing = current ?? {};
-    if (!record || (billing.customerId && billing.customerId !== customerId)) return billing;
-    const kept = billing.subscription;
-    if (kept && kept.id !== record.id && isWorking(kept) && !isWorking(record)) return billing;
-    return { ...billing, customerId, subscription: record };
-  });
+  return updateBilling(
+    userId,
+    billingSchema,
+    (current) => {
+      const billing = current ?? {};
+      if (!record || (billing.customerId && billing.customerId !== customerId)) return billing;
+      const kept = billing.subscription;
+      if (kept && kept.id !== record.id && isWorking(kept) && !isWorking(record)) return billing;
+      return { ...billing, customerId, subscription: record };
+    },
+    { then: emailChanges(userId) },
+  );
 }
 
 const FINAL_STATUSES = new Set(["canceled", "incomplete_expired"]);
@@ -135,8 +190,11 @@ async function readFromStripe(userId: string, customerId: string): Promise<Billi
   const best = ours.find((s) => isWorking(subscriptionRecord(s)!)) ?? ours[0];
   if (best) return saveSubscription(userId, best);
   // None left in Stripe: a subscription kept here no longer counts.
-  return updateBilling(userId, billingSchema, (current) =>
-    current?.subscription ? { ...current, subscription: { ...current.subscription, status: "canceled", checkedAt: Date.now() } } : (current ?? {}),
+  return updateBilling(
+    userId,
+    billingSchema,
+    (current) => (current?.subscription ? { ...current, subscription: { ...current.subscription, status: "canceled", checkedAt: Date.now() } } : (current ?? {})),
+    { then: emailChanges(userId) },
   );
 }
 
@@ -209,6 +267,10 @@ export async function billingState(userId: string, opts: { fresh?: boolean } = {
 
 /** A few seconds over the minutes left don't block a video. */
 const GRACE_SEC = 60;
+/** Fewer seconds left than this: the month's minutes are used up (no new imports). */
+const USED_UP_SEC = 30;
+/** Share of the month's minutes used when the "running low" email goes out. */
+const LOW_SHARE = 0.8;
 
 const formatDay = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" });
 const minutesText = (minutes: number) => `${minutes.toLocaleString("en-US")} ${minutes === 1 ? "minute" : "minutes"}`;
@@ -225,7 +287,7 @@ export async function assertCanProcess(userId: string, need?: { sec: number; sou
   const current = await allowance(userId);
   if (!current) throw new HttpError(402, "plan_required", "Choose a plan to import videos.");
   const left = current.allowanceSec - current.usedSec;
-  if (left < 30) {
+  if (left < USED_UP_SEC) {
     throw new HttpError(402, "minutes_used", `You’ve used this month’s ${current.plan.minutes.toLocaleString("en-US")} AI minutes. More arrive on ${formatDay(current.resetsAt)}, or upgrade for more now.`);
   }
   if (need && need.sec > left + GRACE_SEC) {
@@ -254,6 +316,30 @@ export async function secondsLeft(userId: string): Promise<number> {
 export async function recordUsage(userId: string, key: string, sec: number): Promise<void> {
   if (!billingEnabled() || !(sec > 0)) return;
   await addUsage(userId, key, Math.round(sec * 10) / 10);
+  try {
+    const billing = await billingRecord(userId);
+    const current = await allowance(userId, billing);
+    const notice = current && billing.subscription ? minutesNotice(billing.subscription, current) : null;
+    if (notice) await queueEmail(userId, notice.key, notice.email);
+  } catch (err) {
+    console.warn("[bamio/billing] couldn’t queue the minutes email:", err instanceof Error ? err.message : err);
+  }
+}
+
+/** The email this month's use calls for: most of the minutes used, or all of them (once each per plan and month). */
+export function minutesNotice(sub: SubscriptionRecord, current: Pick<Allowance, "usedSec" | "allowanceSec" | "resetsAt">): Notice | null {
+  const allowanceMin = Math.round(current.allowanceSec / 60);
+  const month = `${sub.id}:${sub.plan}:${current.resetsAt}`;
+  if (current.allowanceSec - current.usedSec < USED_UP_SEC) {
+    return { key: `minutes-out:${month}`, email: { template: "minutes-out", plan: sub.plan, allowanceMin, resetsAt: current.resetsAt } };
+  }
+  if (current.usedSec >= LOW_SHARE * current.allowanceSec) {
+    return {
+      key: `minutes-low:${month}`,
+      email: { template: "minutes-low", plan: sub.plan, usedMin: usedMinutes(current.usedSec), allowanceMin, resetsAt: current.resetsAt },
+    };
+  }
+  return null;
 }
 
 /** True once `key` has been counted (an import being retried). */

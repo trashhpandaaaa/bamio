@@ -90,6 +90,7 @@ test("pages fit phones, tablets and desktops", async ({ page }) => {
     { name: "projects", path: "/projects", ready: (p) => expect(p.getByRole("heading", { level: 1 })).toBeVisible() },
     { name: "billing", path: "/billing", ready: (p) => expect(p.getByRole("heading", { level: 2 }).first()).toBeVisible() },
     { name: "clip-defaults", path: "/profile/clip-defaults", ready: (p) => expect(p.getByRole("heading", { name: "Clip defaults" })).toBeVisible() },
+    { name: "notifications", path: "/profile/notifications", ready: (p) => expect(p.getByRole("heading", { name: "Notifications" })).toBeVisible() },
   ]);
 });
 

@@ -1,11 +1,13 @@
 import { binVersion } from "@/lib/server/bin";
 import { db } from "@/lib/server/db";
+import { emailMode } from "@/lib/server/email";
 import { storage } from "@/lib/server/storage";
 
 /*
  * For load balancers and monitoring: 200 when the database and storage answer (503 when
  * not), with the job queue's depth and whether the media tools are installed. Public (no
- * session, like Stripe's webhook), so it says nothing about users or settings.
+ * session, like Stripe's webhook), so it says nothing about users or settings (only whether
+ * emails go out: send, preview or off).
  */
 
 type Check = { ok: boolean; ms: number; error?: string };
@@ -40,7 +42,7 @@ export async function GET() {
   const ok = database.ok && objects.ok;
   const body = {
     status: ok ? (ffmpeg && ytdlp ? "ok" : "degraded") : "down",
-    checks: { database, storage: { ...objects, driver: storage().name }, queue, tools: { ffmpeg: Boolean(ffmpeg), ytdlp: Boolean(ytdlp) } },
+    checks: { database, storage: { ...objects, driver: storage().name }, queue, tools: { ffmpeg: Boolean(ffmpeg), ytdlp: Boolean(ytdlp) }, email: emailMode() },
   };
   return Response.json(body, { status: ok ? 200 : 503, headers: { "Cache-Control": "no-store" } });
 }

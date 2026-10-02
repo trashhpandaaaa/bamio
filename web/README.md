@@ -48,8 +48,10 @@ BAMIO_AI_MOCK=1 npm run dev
 | `FFMPEG_PATH`, `FFPROBE_PATH`, `YTDLP_PATH` | bundled | Use your own builds of the media tools. |
 | `STRIPE_SECRET_KEY` | none | Turns plans and payments on (see below). Without it nothing is limited. Stays on the server. |
 | `STRIPE_WEBHOOK_SECRET` | none | Signing secret of the Stripe webhook (`whsec_...`). |
-| `BAMIO_APP_URL` | the request's address | Where Stripe sends people back to, e.g. `https://bamio.example.com` behind a proxy. |
+| `BAMIO_APP_URL` | the request's address (`http://localhost:3000` for emails in development) | The site's address, e.g. `https://bamio.example.com`: where Stripe sends people back to, and the links in emails. Required for emails in production. |
 | `BAMIO_BILLING` | on with a key | `off` turns plans off even with a Stripe key: for local work, and the end-to-end test server (Playwright sets it). |
+| `RESEND_API_KEY`, `EMAIL_FROM` | not set (no emails) | Emails to users through [Resend](https://resend.com): the API key, and the sender on a domain verified in Resend, e.g. `Bamio <hello@your-domain.com>`. `EMAIL_REPLY_TO` optionally. See Emails. |
+| `BAMIO_EMAIL` | on with a key | `off`: no emails. `preview`: emails are written and logged, never sent (no key needed; the end-to-end test server, which Playwright sets). |
 
 ## Plans and payments (Stripe)
 
@@ -61,6 +63,25 @@ Without `STRIPE_SECRET_KEY`, `/pricing` shows the plans but can't sell them, and
 - **Buying** is Stripe Checkout (`/pricing`); **changing plan, card, invoices and cancelling** are Stripe's billing portal (Plan & billing in the account menu, `/billing`). Upgrades start at once and charge the difference; smaller plans and switching from 3 months to monthly start at the end of the period paid for; cancelling keeps the plan to the end of the period.
 - **Setup:** add `STRIPE_SECRET_KEY` (test key first), run `npm run stripe:setup` (creates the products, the six prices under lookup keys like `bamio_pro_quarter`, and the portal settings; safe to re-run, and a changed price in `plans.ts` replaces the old one), then send Stripe's events to `/api/billing/webhook`: locally `stripe listen --forward-to localhost:3000/api/billing/webhook` and put the `whsec_...` it prints in `STRIPE_WEBHOOK_SECRET`; in production `npm run stripe:setup -- --webhook https://your.domain`. Restart the server.
 - **State** is kept in the database: `billing_accounts` (Stripe customer and subscription, per user) and `usage_entries` (one row per import or stream piece, keyed, so a retried import counts once). Webhooks keep it current; the server also reads it from Stripe when it may be stale (a renewal due, half an hour old) and when `/billing` opens, so plans keep working where webhooks can't reach the server.
+
+## Emails (Resend)
+
+Bamio emails users when something happens that they'd want to know, through Resend:
+
+| Email | When | Can be turned off |
+|---|---|---|
+| Welcome to your plan | A plan starts (a checkout is paid) | No |
+| Plan changed | A switch to another plan or billing period takes effect | No |
+| Plan ends on (date) / Plan continues | Cancelling, or undoing a cancellation, in the billing portal | No |
+| Payment didn't go through | A renewal payment fails (Stripe keeps retrying for a few days) | No |
+| Plan has ended | The plan is cancelled for good, or unpaid once Stripe stops retrying | No |
+| Most of your AI minutes are used / used up | At 80% of the month's minutes, and when they run out (once each per month and plan) | Yes |
+| Your clips are ready / Couldn't import | An import or a followed stream finishes (with its 3 best AI clips and a link), or an import fails | Yes |
+
+- **Settings:** Profile → Notifications (`/profile/notifications`, stored on the Clerk user like the clip defaults) turns off the video and minutes emails. Plan and payment emails always go out. Emails go to the user's primary address in Clerk, read when the email is sent.
+- **How:** code that has news queues an email with a key naming it (`queueEmail` in `src/lib/server/email.ts`, the only reader of `RESEND_API_KEY`) into the `emails` table; plan emails are queued in the same transaction that saves the plan. A key is used once per user, so a webhook delivered twice or an import retried sends nothing new. The workers' mailer sends what's queued: it looks the user up in Clerk, writes the email (`src/lib/email/templates.ts`: HTML in Bamio's colours with a plain-text copy, light and dark), and sends it with an idempotency key, so a worker that dies mid-send can't send it twice. When Resend or Clerk can't be reached it tries again (1 min, 5 min, 20 min, 1 h, 3 h); a refusal (a bad address, an unverified sender) fails the email. The table records what went out, to whom and Resend's id; old rows are removed after 180 days.
+- **Setup:** add your domain at [resend.com/domains](https://resend.com/domains) and its DNS records, make an API key (sending access), and set `RESEND_API_KEY`, `EMAIL_FROM` (on that domain) and `BAMIO_APP_URL` in `web/.env`. Check it with `npm run email:check -- you@example.com`, then restart the server (and the workers). Until a domain is verified, Resend only sends to your own account's address.
+- **Stripe's own emails:** Stripe can also email receipts and failed-payment notices (switched on and off in the Stripe Dashboard's customer email and subscription settings). Keep its receipts if you want them (Bamio doesn't send receipts), and turn its failed-payment emails off so customers don't get two.
 
 ## How it works
 
@@ -83,7 +104,7 @@ src/
     projects/                        project list
     projects/[id]/                   source player, mark in / out, clip list
     projects/[id]/clips/[clipId]/    clip editor (preview, trim bar, inspector)
-    profile/                         Clerk profile + clip defaults
+    profile/                         Clerk profile + clip defaults + notifications (which emails)
     api/
       system/status                  what this server can do (yt-dlp, ffmpeg, AI)
       sources/inspect                look up a link before importing
@@ -100,6 +121,8 @@ src/
   worker/main.ts                     a worker process on its own (bundled to dist/worker.mjs)
   lib/
     billing/plans.ts                 the plans: prices, minutes, projects, priority, features ("coming soon" flags)
+    email/templates.ts               every email Bamio sends: its data (zod), subject, HTML and plain text
+    profile/                         clip defaults and notification settings (on the Clerk user)
     clips/                           shared by browser and server: schemas (zod), time and caption
                                      maths, crop maths, ASS captions, ffmpeg arguments, URL checks, API client
     server/                          server only: auth and HTTP helpers, media tools (yt-dlp, ffprobe,
@@ -114,6 +137,7 @@ src/
       worker.ts                      runs queued jobs in pools, renews their leases, hands them back on stop
       jobs.ts                        what each job does (import, find clips, transcribe again, export,
                                      follow a stream), and starting or stopping them
+      email.ts                       emails: the outbox (queueEmail) and the mailer that sends it through Resend
     ai/server/                       Gemini client (retries, fallback model), transcription and clip finding
 workers/transcribe.mjs               on-device transcription in any language (sherpa-onnx: Whisper tiny detects the language,
                                      Silero VAD finds speech, Parakeet or Omnilingual transcribes), run as a child process
@@ -168,10 +192,11 @@ Key decisions:
 | `npm run dev` | Dev server |
 | `npm run build` / `npm start` | Production build and server |
 | `npm run check` | Typecheck (with route types) + lint + unit tests (they start the local database if it isn't running, and use a separate `bamio_test` database) |
-| `npm test` | Unit tests (Vitest): time and caption maths, timed words and phrases in any script, caption fonts, crop, clip clean-up, ASS output, ffmpeg arguments, URL safety, byte ranges, store (Postgres: locking, stalled work), storage (local, and S3 through the s3rver emulator), the job queue and worker (claims, priority, leases, retries, a crashed worker's job taken over, cancel and stop), HTTP helpers, AI helpers, live capture rules, plans and billing (prices, usage months, minutes and project limits, webhook signatures), queue priority |
-| `npm run test:e2e` | End-to-end tests (Playwright on installed Microsoft Edge, mock AI). Reuses a server on port 3100 or starts `next dev` there. Makes a test video with ffmpeg and a committed speech track, uploads it, transcribes it on the device, finds clips (mock AI), edits, exports and checks the MP4 with ffprobe. |
+| `npm test` | Unit tests (Vitest): time and caption maths, timed words and phrases in any script, caption fonts, crop, clip clean-up, ASS output, ffmpeg arguments, URL safety, byte ranges, store (Postgres: locking, stalled work), storage (local, and S3 through the s3rver emulator), the job queue and worker (claims, priority, leases, retries, a crashed worker's job taken over, cancel and stop), HTTP helpers, AI helpers, live capture rules, plans and billing (prices, usage months, minutes and project limits, webhook signatures, which plan changes send which email, minutes warnings), emails (every template, escaping, the design tokens' colours, sent once per key, retries, settings, preview), queue priority |
+| `npm run test:e2e` | End-to-end tests (Playwright on installed Microsoft Edge, mock AI). Reuses a server on port 3100 or starts `next dev` there. Makes a test video with ffmpeg and a committed speech track, uploads it, transcribes it on the device, finds clips (mock AI), edits, exports and checks the MP4 with ffprobe. Checks the "clips are ready" email was written (test servers preview emails, never send them). |
 | `npm run setup:media` | Downloads or updates yt-dlp (re-run when a site stops working), and the speech models and caption fonts for every language (`BAMIO_PREFETCH=english` for English only; anything skipped downloads on first use) |
 | `npm run ai:check` | Checks the Gemini key, JSON output and audio input on the main and fallback models |
+| `npm run email:check -- you@example.com` | Sends one test email through Resend with `RESEND_API_KEY` and `EMAIL_FROM` (Resend's `delivered@resend.dev` works as a test inbox) |
 | `node scripts/landing-footage.mjs` | Remakes the landing page's demo footage in `public/landing/` from two Mixkit stock videos (downloads the originals into `qa/footage-src/`) |
 | `npm run db:local` | Starts the development Postgres in `web/.pg` (`-- stop`, `-- status`), and creates and updates the `bamio` and `bamio_test` databases. Needs Postgres 16+ installed (found on PATH, in `PG_BIN` or the usual install folders) |
 | `npm run db:migrate` | Brings `DATABASE_URL`'s database up to date (the Docker image does this when it starts) |
@@ -181,7 +206,7 @@ Key decisions:
 
 Opt-in tests (`E2E_PERF=1` times an import of 20 minutes of a podcast step by step, the pages and an export; the live-stream ones also follow each stream, clip and edit while it grows, then stop; a test server started with `BAMIO_FOLLOW_MAX_BACK_SEC=300` keeps them short): `E2E_LIVE=1` imports part of a real YouTube video; `E2E_LANGUAGES=1` (or `hi,ja,ar,es`) imports real Hindi, Japanese, Arabic and Spanish videos, checks the detected language, the script and the caption fonts, and exports (preview and export frames go to `qa/languages/`); `E2E_LIVE_TWITCH` / `E2E_LIVE_YOUTUBE` / `E2E_LIVE_KICK` capture from live channels; `E2E_LIVE_AI=1 E2E_PORT=<port>` runs real Gemini transcription against a server started without mock AI; `E2E_SCREENSHOTS=1` saves screenshots to `qa/screens/`; `E2E_RESPONSIVE=1` checks every screen (landing, pricing, import, projects, plan & billing, clip defaults, then a project and the clip editor from the uploaded sample video) at 320, 390, 768, 1024 and 1440 wide for sideways scroll, anything past the screen edge and tap targets under 24px (screenshots and `report-*.json` in `qa/responsive/`); `E2E_BILLING=1`, against a test server with a fake Stripe key (`STRIPE_SECRET_KEY=sk_test_e2e_fake`, which overrides a real one in `web/.env`, so nothing reaches your Stripe account; Playwright sets it on a server it starts), gives the test user a plan by writing its billing record into the server's database (`DATABASE_URL`, or the local one) and checks the gates: no plan, minutes counted, out of minutes, a subscriber's buttons on `/pricing` (screenshots in `qa/billing/`).
 
-Tip: Next.js allows one `next dev` per project. If one is already running on port 3000, run the tests against a production build instead: `npm run build`, then `DATABASE_URL=postgres://postgres@127.0.0.1:54329/bamio BAMIO_AI_MOCK=1 BAMIO_BILLING=off npx next start -p 3100` (`next start` runs as production, which needs `DATABASE_URL`) (plans off, even with a Stripe key in `web/.env`: the tests import without a plan), then `npm run test:e2e`.
+Tip: Next.js allows one `next dev` per project. If one is already running on port 3000, run the tests against a production build instead: `npm run build`, then `DATABASE_URL=postgres://postgres@127.0.0.1:54329/bamio BAMIO_AI_MOCK=1 BAMIO_BILLING=off BAMIO_EMAIL=preview npx next start -p 3100` (`next start` runs as production, which needs `DATABASE_URL`; plans off and emails previewed, even with Stripe and Resend keys in `web/.env`: the tests import without a plan and never send email), then `npm run test:e2e`.
 
 ## Limitations
 
@@ -193,6 +218,7 @@ Tip: Next.js allows one `next dev` per project. If one is already running on por
 - **Captions in languages other than English and the European ones are lowercase, without punctuation** (that's how Omnilingual writes), and accuracy varies by language: excellent for widely spoken languages, rougher for some (Nepali and Bengali agreed with YouTube's own captions only 70 to 80% of the time). Captions can be fixed word by word in the editor.
 - **Credits:** NVIDIA Parakeet (CC-BY-4.0: credit NVIDIA if you ship the app), Meta Omnilingual ASR (Apache-2.0), OpenAI Whisper (MIT), Silero VAD (MIT), Noto and Bricolage Grotesque fonts (OFL). The landing page's demo footage is Mixkit stock video under the Mixkit Stock Video Free License (commercial use allowed, no credit required; the footer credits it anyway): #2948 "People recording a podcast in a studio" and #43526 "Man playing an online video game on his computer". Don't put clips of real creators there without their permission.
 - **Windows Smart App Control** can refuse the speech engine's unsigned DLLs for a while (it happened twice here, then allowed them again). Transcription then fails with a message saying so; try again later.
+- **Emails** are in English, and there's no welcome email on sign-up (Clerk sends its own sign-up emails).
 - **Rate limits are per process** (in memory): behind several web servers each one allows the full rate. Jobs, data and media are shared.
 
 ## Deploying

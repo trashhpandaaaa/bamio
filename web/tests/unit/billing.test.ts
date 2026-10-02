@@ -10,11 +10,14 @@ import {
   billingState,
   hasUsage,
   isWorking,
+  minutesNotice,
   planOfPrice,
   projectLimit,
   queuePriority,
   recordUsage,
+  saveSubscription,
   secondsLeft,
+  subscriptionNotices,
   subscriptionRecord,
   verifyWebhook,
   type SubscriptionRecord,
@@ -161,6 +164,73 @@ describe("subscriptions from Stripe", () => {
   });
 });
 
+describe("plan emails", () => {
+  const base: SubscriptionRecord = { id: "sub_1", status: "active", plan: "pro", interval: "month", anchor: 0, periodEnd: 1_807_776_000_000, cancelAt: null, checkedAt: 0 };
+  const sent = (before: SubscriptionRecord | undefined, after: SubscriptionRecord | undefined) => subscriptionNotices(before, after).map((n) => n.email.template);
+
+  it("follow what changed in the subscription", () => {
+    expect(sent(undefined, base)).toEqual(["plan-started"]);
+    expect(sent({ ...base, status: "incomplete" }, base)).toEqual(["plan-started"]); // paid at last
+    expect(sent(undefined, { ...base, status: "incomplete" })).toEqual([]);
+    expect(sent(base, { ...base, checkedAt: 5 })).toEqual([]); // read again, nothing new
+    expect(sent(base, { ...base, plan: "team" })).toEqual(["plan-changed"]);
+    expect(sent(base, { ...base, interval: "quarter" })).toEqual(["plan-changed"]);
+    expect(sent(base, { ...base, status: "past_due" })).toEqual(["payment-failed"]);
+    expect(sent({ ...base, status: "past_due" }, base)).toEqual([]); // paid on a retry
+    expect(sent(base, { ...base, cancelAt: 1 })).toEqual(["plan-ending"]);
+    expect(sent({ ...base, cancelAt: 1 }, base)).toEqual(["plan-resumed"]);
+    expect(sent({ ...base, cancelAt: 1 }, { ...base, cancelAt: 1, status: "canceled" })).toEqual(["plan-ended"]);
+    expect(sent({ ...base, status: "past_due" }, { ...base, status: "unpaid" })).toEqual(["plan-ended"]);
+    expect(sent({ ...base, status: "canceled" }, { ...base, status: "canceled" })).toEqual([]);
+    expect(sent(base, { ...base, id: "sub_2" })).toEqual(["plan-started"]);
+    expect(sent(base, { ...base, plan: "team", cancelAt: 1 })).toEqual(["plan-changed", "plan-ending"]);
+    expect(subscriptionNotices(base, { ...base, plan: "team" })[0]).toMatchObject({ email: { from: "pro", plan: "team", interval: "month" } });
+  });
+
+  it("go out once per change, queued with the plan they report", async () => {
+    const user = "user_mailplan";
+    const stripeSub = (over: Record<string, unknown> = {}) =>
+      ({
+        id: "sub_mail",
+        status: "active",
+        customer: "cus_mail",
+        billing_cycle_anchor: 1_800_000_000,
+        cancel_at: null,
+        cancel_at_period_end: false,
+        created: 1_800_000_000,
+        metadata: {},
+        items: { data: [{ id: "si_1", price: { lookup_key: "bamio_starter_month", metadata: {} }, current_period_start: 1_800_000_000, current_period_end: 1_802_592_000 }] },
+        ...over,
+      }) as unknown as Stripe.Subscription;
+    process.env.BAMIO_EMAIL = "preview";
+    try {
+      await db()`delete from emails where user_id = ${user}`;
+      await saveSubscription(user, stripeSub({ status: "incomplete" }));
+      await saveSubscription(user, stripeSub());
+      await saveSubscription(user, stripeSub()); // the same webhook again
+      await saveSubscription(user, stripeSub({ cancel_at_period_end: true }));
+      await saveSubscription(user, stripeSub({ status: "canceled", cancel_at_period_end: true }));
+      const rows = await db()<{ template: string; data: unknown }[]>`select template, data from emails where user_id = ${user} order by id`;
+      expect(rows.map((r) => r.template)).toEqual(["plan-started", "plan-ending", "plan-ended"]);
+      expect(rows[0]!.data).toEqual({ template: "plan-started", plan: "starter", interval: "month", renewsAt: 1_802_592_000_000 });
+    } finally {
+      delete process.env.BAMIO_EMAIL;
+    }
+  });
+
+  it("warn when most of the minutes are used, then when they're used up", () => {
+    const month = { allowanceSec: 400 * 60, resetsAt: 5 };
+    expect(minutesNotice(base, { ...month, usedSec: 319 * 60 })).toBeNull();
+    expect(minutesNotice(base, { ...month, usedSec: 320 * 60 })).toEqual({
+      key: "minutes-low:sub_1:pro:5",
+      email: { template: "minutes-low", plan: "pro", usedMin: 320, allowanceMin: 400, resetsAt: 5 },
+    });
+    expect(minutesNotice(base, { ...month, usedSec: 400 * 60 - 29 })?.key).toBe("minutes-out:sub_1:pro:5");
+    // After an upgrade the new plan's minutes count, and its warnings are new ones.
+    expect(minutesNotice({ ...base, plan: "team" }, { allowanceSec: 1000 * 60, resetsAt: 5, usedSec: 900 * 60 })?.key).toBe("minutes-low:sub_1:team:5");
+  });
+});
+
 describe("webhooks", () => {
   const payload = JSON.stringify({ id: "evt_1", object: "event", type: "customer.subscription.updated", data: { object: { id: "sub_1" } } });
 
@@ -266,6 +336,25 @@ describe("plan limits", () => {
     expect(await billingState(user)).toMatchObject({ active: true, plan: "starter", usage: { usedSec: 150 * 60, allowanceSec: 150 * 60 }, projects: { limit: 50 } });
     // Finding more clips in what was imported still works.
     await expect(assertPlan(user)).resolves.toBeUndefined();
+  });
+
+  it("email once at 80% of the minutes and once when they're used up", async () => {
+    process.env.STRIPE_SECRET_KEY = "sk_test_unit";
+    process.env.BAMIO_EMAIL = "preview";
+    const who = "user_mailmin";
+    try {
+      await db()`delete from emails where user_id = ${who}`;
+      await givePlan(who, "starter");
+      await recordUsage(who, "a", 100 * 60); // 67%
+      await recordUsage(who, "b", 25 * 60); // 83%
+      await recordUsage(who, "c", 5 * 60); // 87%: already told
+      await recordUsage(who, "d", 20 * 60); // all 150
+      const rows = await db()<{ template: string; data: { usedMin?: number } }[]>`select template, data from emails where user_id = ${who} order by id`;
+      expect(rows.map((r) => r.template)).toEqual(["minutes-low", "minutes-out"]);
+      expect(rows[0]!.data.usedMin).toBe(125);
+    } finally {
+      delete process.env.BAMIO_EMAIL;
+    }
   });
 
   it("give paid plans their minutes, room and place in the queue", async () => {

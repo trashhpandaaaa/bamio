@@ -308,17 +308,28 @@ export async function readBilling<T>(userId: string, schema: z.ZodType<T>): Prom
   return parsed.data;
 }
 
-/** Read, change and write the billing record with no other change in between. `change` may throw to leave it as it was. */
-export function updateBilling<T>(userId: string, schema: z.ZodType<T>, change: (current: T | null) => T | Promise<T>): Promise<T> {
+/**
+ * Read, change and write the billing record with no other change in between. `change` may
+ * throw to leave it as it was. `then` runs in the same transaction with the record before and
+ * after (to queue the emails a change calls for).
+ */
+export function updateBilling<T>(
+  userId: string,
+  schema: z.ZodType<T>,
+  change: (current: T | null) => T | Promise<T>,
+  opts: { then?: (tx: Tx, updated: T, previous: T | null) => Promise<unknown> } = {},
+): Promise<T> {
   if (!USER_ID.test(userId)) throw new HttpError(400, "bad_request", "Unknown user.");
   return db().begin(async (tx) => {
     await tx`select pg_advisory_xact_lock(hashtext(${`billing:${userId}`}))`;
     const [row] = await tx<{ data: unknown }[]>`select data from billing_accounts where user_id = ${userId}`;
     const parsed = row ? schema.safeParse(row.data) : null;
-    const updated = schema.parse(await change(parsed?.success ? parsed.data : null));
+    const previous = parsed?.success ? parsed.data : null;
+    const updated = schema.parse(await change(previous));
     await tx`
       insert into billing_accounts (user_id, data, updated_at) values (${userId}, ${tx.json(asJson(updated))}, ${Date.now()})
       on conflict (user_id) do update set data = excluded.data, updated_at = excluded.updated_at`;
+    await opts.then?.(tx, updated, previous);
     return updated;
   }) as Promise<T>;
 }

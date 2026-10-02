@@ -346,4 +346,6 @@ export type SystemStatus = {
   ai: { configured: boolean; mock: boolean };
   /** Plans and payments (Stripe) are on: importing needs a plan. */
   billing: boolean;
+  /** Emails to users go out (or are previewed): plan changes, videos ready, AI minutes. */
+  email: boolean;
 };

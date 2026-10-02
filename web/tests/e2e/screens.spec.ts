@@ -42,6 +42,24 @@ test("auth and profile screens", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Clip defaults" })).toBeVisible();
   await page.screenshot(shot("07-profile-clip-defaults"));
 
+  // Notifications: a setting is kept on the Clerk user (put back as it was afterwards).
+  await page.goto("/profile/notifications");
+  await expect(page.getByRole("heading", { name: "Notifications" })).toBeVisible();
+  const videos = page.getByRole("switch", { name: "When a video is ready, or an import fails" });
+  await expect(videos).toBeChecked();
+  await expect(page.getByText("Emails about your plan and payments are always sent.")).toBeVisible();
+  await page.screenshot(shot("07b-profile-notifications"));
+  await videos.uncheck();
+  await page.getByRole("button", { name: "Save notifications" }).click();
+  await expect(page.getByText("Notifications saved")).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("switch", { name: "When a video is ready, or an import fails" })).not.toBeChecked();
+  await page.getByRole("switch", { name: "When a video is ready, or an import fails" }).check();
+  await page.getByRole("button", { name: "Save notifications" }).click();
+  await expect(page.getByRole("button", { name: "Saved" })).toBeVisible();
+  await page.goto("/profile/clip-defaults");
+  await expect(page.getByRole("heading", { name: "Clip defaults" })).toBeVisible();
+
   await page.getByRole("button", { name: "Night theme" }).click();
   await page.waitForTimeout(400);
   await page.screenshot(shot("08-profile-clip-defaults-night"));

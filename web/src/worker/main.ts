@@ -1,6 +1,6 @@
 /*
- * A worker process: runs jobs from the queue (imports, exports, followed streams) and nothing
- * else. Run as many as the machines allow, beside web servers started with BAMIO_WORKER=off.
+ * A worker process: runs jobs from the queue (imports, exports, followed streams) and sends
+ * queued emails, and nothing else. Run as many as the machines allow, beside web servers started with BAMIO_WORKER=off.
  * Built into dist/worker.mjs by `npm run build:worker`; run from web/ with `npm run worker`.
  * Reads web/.env and web/.env.local like Next.js does. Stops cleanly on Ctrl+C or SIGTERM,
  * handing running jobs back to the queue.

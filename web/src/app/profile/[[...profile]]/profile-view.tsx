@@ -1,23 +1,109 @@
 "use client";
 
 import { UserProfile, useUser } from "@clerk/nextjs";
-import { Scissors } from "@phosphor-icons/react";
+import { Bell, Info, Scissors } from "@phosphor-icons/react";
 import { useId, useState } from "react";
 import { useToast } from "@/components/toast";
 import { LanguageSelect } from "@/components/language-select";
+import { useSystemStatus } from "@/hooks/use-project";
 import { ASPECT_LABEL, CAPTION_STYLE_LABEL, CLIP_LENGTH_LABEL } from "@/lib/clips/labels";
 import { ASPECTS, CAPTION_STYLES, CLIP_LENGTHS } from "@/lib/clips/schema";
 import { clipDefaultsSchema, readClipDefaults, type ClipDefaults } from "@/lib/profile/defaults";
+import { notificationsSchema, readNotifications, type Notifications } from "@/lib/profile/notifications";
 import styles from "./profile.module.css";
 
-/** Clerk's profile (name, photo, emails, password, sessions) plus Bamio's clip defaults. */
+/** Clerk's profile (name, photo, emails, password, sessions) plus Bamio's clip defaults and email settings. */
 export function ProfileView() {
   return (
     <UserProfile path="/profile" routing="path">
       <UserProfile.Page label="Clip defaults" url="clip-defaults" labelIcon={<Scissors size={16} />}>
         <ClipDefaultsPage />
       </UserProfile.Page>
+      <UserProfile.Page label="Notifications" url="notifications" labelIcon={<Bell size={16} />}>
+        <NotificationsPage />
+      </UserProfile.Page>
     </UserProfile>
+  );
+}
+
+function NotificationsPage() {
+  const { user, isLoaded } = useUser();
+  if (!isLoaded || !user) return <div className="skeleton" style={{ height: 240 }} aria-busy="true" />;
+  return <NotificationsForm key={user.id} initial={readNotifications(user.unsafeMetadata)} address={user.primaryEmailAddress?.emailAddress ?? null} />;
+}
+
+/** Which emails the user wants. The mailer reads these from the Clerk user when it sends (src/lib/server/email.ts). */
+function NotificationsForm({ initial, address }: { initial: Notifications; address: string | null }) {
+  const { user } = useUser();
+  const toast = useToast();
+  const status = useSystemStatus();
+  const [values, setValues] = useState<Notifications>(initial);
+  const [saved, setSaved] = useState<Notifications>(initial);
+  const [saving, setSaving] = useState(false);
+  const dirty = JSON.stringify(values) !== JSON.stringify(saved);
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    if (!user) return;
+    const parsed = notificationsSchema.safeParse(values);
+    if (!parsed.success) return;
+    setSaving(true);
+    try {
+      await user.update({ unsafeMetadata: { ...user.unsafeMetadata, bamioNotifications: parsed.data } });
+      setSaved(parsed.data);
+      toast({ tone: "success", title: "Notifications saved" });
+    } catch {
+      toast({ tone: "error", title: "Couldn’t save your notifications", body: "Check your connection and try again." });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form className={styles.defaults} onSubmit={(e) => void save(e)}>
+      <div className={styles.defaultsHead}>
+        <h2 className="t-heading-md">Notifications</h2>
+        <p className="t-body-sm t-secondary">{address ? `Bamio emails you at ${address}. Change it under Profile.` : "Add an email address under Profile to get emails from Bamio."}</p>
+      </div>
+
+      {status && !status.email ? (
+        <div className="notice" role="status">
+          <Info size={18} aria-hidden />
+          <p>Emails aren’t set up on this server yet, so none are sent.</p>
+        </div>
+      ) : null}
+
+      <div className={styles.option}>
+        <label className="choice">
+          <input className="switch" type="checkbox" role="switch" name="videos" checked={values.videos} onChange={(e) => setValues((v) => ({ ...v, videos: e.target.checked }))} />
+          When a video is ready, or an import fails
+        </label>
+        <p className="t-body-sm t-tertiary">With the best clips Bamio found and a link to them. Also when a followed stream ends.</p>
+      </div>
+
+      {status?.billing !== false ? (
+        <div className={styles.option}>
+          <label className="choice">
+            <input className="switch" type="checkbox" role="switch" name="minutes" checked={values.minutes} onChange={(e) => setValues((v) => ({ ...v, minutes: e.target.checked }))} />
+            When I’ve used most of my AI minutes
+          </label>
+          <p className="t-body-sm t-tertiary">At 80% of this month’s minutes, and when they run out.</p>
+        </div>
+      ) : null}
+
+      <p className="t-body-sm t-secondary">Emails about your plan and payments are always sent.</p>
+
+      <div className={styles.actions}>
+        <button className="btn btn-primary" type="submit" disabled={!dirty || saving} aria-busy={saving}>
+          {saving ? "Saving…" : dirty ? "Save notifications" : "Saved"}
+        </button>
+        {dirty && !saving ? (
+          <button className="btn btn-ghost" type="button" onClick={() => setValues(saved)}>
+            Undo changes
+          </button>
+        ) : null}
+      </div>
+    </form>
   );
 }
 

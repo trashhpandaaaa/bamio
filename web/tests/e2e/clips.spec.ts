@@ -2,14 +2,19 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
+import postgres from "postgres";
 import { SAMPLE_VIDEO, signIn } from "./auth";
 
 /*
  * The main flow against a running app in mock-AI mode (BAMIO_AI_MOCK=1):
  * upload a video, get AI clips, mark one by hand, edit, export with the real
- * ffmpeg pipeline, check the file, then clean up.
+ * ffmpeg pipeline, check the file, then clean up. Test servers preview emails (BAMIO_EMAIL=preview):
+ * the "clips are ready" email is checked in the server's database.
  * E2E_SCREENSHOTS=1 also saves screenshots to qa/screens/.
  */
+
+const sql = postgres(process.env.DATABASE_URL || "postgres://postgres@127.0.0.1:54329/bamio", { onnotice: () => undefined, max: 2 });
+test.afterAll(() => sql.end());
 
 const shots = Boolean(process.env.E2E_SCREENSHOTS);
 const shot = async (page: Page, name: string) => {
@@ -70,6 +75,15 @@ test.describe("clipping", () => {
     await expect(cards.first().locator(".badge.is-live")).toBeVisible();
     await expect(page.getByRole("heading", { name: /Clips/ })).toBeVisible();
     await shot(page, "11-project-ready");
+
+    // The "clips are ready" email was queued once, and written (previewed, never sent, on test servers).
+    const system = (await (await page.request.get("/api/system/status")).json()) as { email?: boolean };
+    if (system.email) {
+      const key = `video-ready:${new URL(projectUrl).pathname.split("/").pop()}`;
+      await expect.poll(async () => (await sql<{ status: string }[]>`select status from emails where key = ${key}`).map((r) => r.status), { timeout: 30_000 }).toEqual(["previewed"]);
+      const [email] = await sql<{ subject: string }[]>`select subject from emails where key = ${key}`;
+      expect(email?.subject).toMatch(/^Your clips are ready: “sample-talk/);
+    }
 
     // Mark a clip by hand.
     await page.getByLabel("Start").fill("0:02");
