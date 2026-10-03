@@ -1,7 +1,7 @@
 "use client";
 
 import { Show, SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
-import { CreditCard, Scissors } from "@phosphor-icons/react";
+import { CreditCard, Gift, Scissors } from "@phosphor-icons/react";
 import { useSystemStatus } from "@/hooks/use-project";
 
 /** Sign in / sign up when signed out; the account menu (edit profile, clip defaults, plan, sign out) when signed in. */
@@ -37,6 +37,7 @@ function AccountMenu() {
         <UserButton.Action label="manageAccount" />
         <UserButton.Link label="Clip defaults" labelIcon={<Scissors size={16} />} href="/profile/clip-defaults" />
         {billing ? <UserButton.Link label="Plan & billing" labelIcon={<CreditCard size={16} />} href="/billing" /> : null}
+        {billing ? <UserButton.Link label="Refer a friend" labelIcon={<Gift size={16} />} href="/billing#refer" /> : null}
         <UserButton.Action label="signOut" />
       </UserButton.MenuItems>
     </UserButton>

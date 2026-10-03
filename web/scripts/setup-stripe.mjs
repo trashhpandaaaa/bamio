@@ -48,6 +48,8 @@ const EVENTS = [
   "customer.subscription.resumed",
   "customer.subscription.pending_update_applied",
   "customer.subscription.pending_update_expired",
+  // A referred user's first payment earns their referrer credit (billing.ts settleReferral).
+  "invoice.paid",
 ];
 
 const stripe = new Stripe(key, { maxNetworkRetries: 2 });

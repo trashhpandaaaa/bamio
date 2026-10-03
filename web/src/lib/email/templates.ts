@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { intervalSchema, PLANS, planIdSchema, type Interval, type PlanId } from "@/lib/billing/plans";
+import { formatPrice, intervalSchema, PLANS, planIdSchema, type Interval, type PlanId } from "@/lib/billing/plans";
 import { formatSpan } from "@/lib/clips/live";
 import { TOKENS } from "@/lib/brand-tokens";
 import { formatTimecode } from "@/lib/clips/logic";
@@ -35,6 +35,8 @@ export const emailSchema = z.discriminatedUnion("template", [
     warning: z.string().optional(),
   }),
   z.object({ template: z.literal("video-failed"), projectId: z.string(), title: z.string(), error: z.string() }),
+  /** A friend the user referred made their first payment. `onBalance`: the credit is on their Stripe balance (else it waits for their first plan). */
+  z.object({ template: z.literal("referral-earned"), amountCents: z.number().int().positive(), onBalance: z.boolean() }),
 ]);
 
 export type Email = z.infer<typeof emailSchema>;
@@ -54,6 +56,7 @@ export const EMAIL_CATEGORY: Record<EmailTemplate, EmailCategory> = {
   "minutes-out": "minutes",
   "video-ready": "videos",
   "video-failed": "videos",
+  "referral-earned": "account",
 };
 
 /** The design tokens emails use (lib/brand-tokens.ts). */
@@ -230,11 +233,28 @@ function draft(email: Email): Draft {
         blocks: [{ p: `Bamio couldn’t import “${email.title}”. ${email.error}` }, { p: "Open the project to try again. Uploading the file also works when a site won’t share it." }],
         button: { label: "Open the project", path: `/projects/${email.projectId}` },
       };
+    case "referral-earned": {
+      const amount = formatPrice(email.amountCents);
+      return {
+        subject: `You earned ${amount} on Bamio`,
+        preview: email.onBalance ? "It comes off your next bill." : "It comes off your first bill when you choose a plan.",
+        heading: "A friend you referred subscribed",
+        blocks: [
+          { p: `Thanks for sharing Bamio. Your friend’s first payment went through, so you’ve earned ${amount}.` },
+          {
+            p: email.onBalance
+              ? "It’s on your Bamio balance and comes off your next bill automatically."
+              : "It’s saved for you and comes off your first bill when you choose a plan.",
+          },
+        ],
+        button: email.onBalance ? { label: "Share your link again", path: "/billing#refer" } : { label: "See plans", path: "/pricing" },
+      };
+    }
   }
 }
 
 const FOOTER: Record<EmailCategory, { text: string; link?: string }> = {
-  account: { text: "You’re getting this because it’s about your Bamio plan." },
+  account: { text: "You’re getting this because it’s about your Bamio account." },
   videos: { text: "You get these emails when a video is ready or an import fails. Turn them off in", link: "Notifications" },
   minutes: { text: "You get these emails when your AI minutes run low. Turn them off in", link: "Notifications" },
 };

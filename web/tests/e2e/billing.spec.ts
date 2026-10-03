@@ -56,6 +56,37 @@ test.describe("plans", () => {
     await expect(page.getByText("Choose a plan to import videos")).toHaveCount(0);
   });
 
+  test("a friend's link is kept, recorded at checkout, and everyone has a link to share", async ({ page, context }) => {
+    const referrer = "user_e2e_referrer";
+    const code = "e2etest2";
+    await sql`delete from referrals where referred_user_id = ${id}`;
+    await sql`insert into referral_codes (user_id, code, created_at) values (${referrer}, ${code}, ${Date.now()}) on conflict (user_id) do update set code = excluded.code`;
+    try {
+      await page.goto(`/r/${code}`);
+      await expect(page).toHaveURL(/\/$/);
+      expect((await context.cookies()).find((c) => c.name === "bamio_ref")?.value).toBe(code);
+
+      // Going to checkout records it (Stripe then refuses this server's fake key).
+      await setPlan(id, null);
+      await page.goto("/pricing");
+      await page.getByRole("button", { name: "Choose Starter" }).click();
+      await expect(page.getByRole("alert").filter({ hasText: "Stripe refused this server’s key" })).toBeVisible();
+      const rows = await sql<{ referrer_user_id: string; status: string }[]>`select referrer_user_id, status from referrals where referred_user_id = ${id}`;
+      expect(rows).toEqual([{ referrer_user_id: referrer, status: "pending" }]);
+
+      // Their own link, on Plan & billing.
+      await page.goto("/billing#refer");
+      const panel = page.getByRole("region", { name: /Get \$5 for every friend who subscribes/ });
+      await expect(panel).toBeVisible();
+      await expect(panel.getByRole("textbox", { name: "Your referral link" })).toHaveValue(/\/r\/[2-9a-z]{8}$/);
+      await expect(panel.getByText("No friends have used your link yet.")).toBeVisible();
+      await page.screenshot({ path: "qa/billing/referral.png", fullPage: true });
+    } finally {
+      await sql`delete from referrals where referred_user_id = ${id}`;
+      await sql`delete from referral_codes where user_id in (${referrer}, ${id})`;
+    }
+  });
+
   test("without a plan, importing waits for one", async ({ page }) => {
     await setPlan(id, null);
     await page.goto("/new");

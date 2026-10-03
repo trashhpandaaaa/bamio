@@ -1,4 +1,4 @@
-import type { BillingState, Interval, PlanId } from "@/lib/billing/plans";
+import type { BillingState, Interval, PlanId, ReferralState } from "@/lib/billing/plans";
 import type {
   ClipEdit,
   ClipLength,
@@ -82,6 +82,8 @@ export const api = {
   /** `fresh`: read the plan from Stripe first (back from Checkout or the billing portal). */
   billing: (opts: { fresh?: boolean; signal?: AbortSignal } = {}) => request<BillingState>("GET", opts.fresh ? "/api/billing?fresh=1" : "/api/billing", undefined, opts.signal),
   /** The Stripe Checkout page to send the browser to. */
+  /** The user's referral link and what it has earned. */
+  referrals: () => request<ReferralState>("GET", "/api/referrals"),
   checkout: (plan: PlanId, interval: Interval) => request<{ url: string }>("POST", "/api/billing/checkout", { plan, interval }),
   /** The Stripe billing portal page to send the browser to; with a plan, it opens on switching to it. */
   billingPortal: (target?: { plan: PlanId; interval: Interval }) => request<{ url: string }>("POST", "/api/billing/portal", target ?? {}),

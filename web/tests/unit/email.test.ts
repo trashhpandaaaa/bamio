@@ -40,6 +40,7 @@ const SAMPLES: Record<EmailTemplate, Email> = {
   "minutes-out": { template: "minutes-out", plan: "starter", allowanceMin: 150, resetsAt: DAY },
   "video-ready": READY,
   "video-failed": FAILED,
+  "referral-earned": { template: "referral-earned", amountCents: 500, onBalance: true },
 };
 
 describe("email templates", () => {

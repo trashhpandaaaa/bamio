@@ -1,11 +1,11 @@
 "use client";
 
-import { ArrowSquareOut, Clock, CreditCard, FolderSimple, WarningCircle } from "@phosphor-icons/react";
+import { ArrowSquareOut, Clock, Copy, CreditCard, FolderSimple, Gift, WarningCircle } from "@phosphor-icons/react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useToast } from "@/components/toast";
 import { useBilling } from "@/hooks/use-billing";
-import { formatPrice, minutesLeft, PLANS, usedMinutes, type BillingState } from "@/lib/billing/plans";
+import { formatPrice, minutesLeft, PLANS, REFERRAL_REWARD_CENTS, usedMinutes, type BillingState, type ReferralState } from "@/lib/billing/plans";
 import { api } from "@/lib/clips/api";
 import styles from "./billing.module.css";
 
@@ -157,6 +157,8 @@ export function BillingView({ arrived }: { arrived: "checkout" | "changed" | nul
           </div>
         </>
       )}
+
+      {billing?.enabled ? <ReferralPanel /> : null}
     </main>
   );
 }
@@ -204,6 +206,81 @@ function PlanPanel({ billing, manage }: { billing: BillingState; manage: React.R
       {manage ? (
         <p className={styles.small}>
           <ArrowSquareOut size={14} aria-hidden /> Manage billing opens Stripe: change your plan, update your card, get invoices or cancel.
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+/** The user's referral link: copy it, and see what it has earned. */
+function ReferralPanel() {
+  const toast = useToast();
+  const [state, setState] = useState<ReferralState | null>(null);
+  const [failed, setFailed] = useState(false);
+  const field = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    let live = true;
+    api.referrals().then(
+      (s) => live && setState(s),
+      () => live && setFailed(true),
+    );
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  if (failed) return null;
+  const reward = formatPrice(state?.rewardCents ?? REFERRAL_REWARD_CENTS);
+
+  async function copy() {
+    if (!state) return;
+    try {
+      await navigator.clipboard.writeText(state.link);
+      toast({ tone: "success", title: "Link copied", body: "Send it to a friend who makes videos." });
+    } catch {
+      // No clipboard (an insecure page, or permission refused): select it to copy by hand.
+      field.current?.select();
+    }
+  }
+
+  const friends = (n: number) => `${n} ${n === 1 ? "friend" : "friends"}`;
+  const summary = !state
+    ? null
+    : state.rewarded === 0 && state.pending === 0
+      ? "No friends have used your link yet."
+      : [
+          state.rewarded > 0 ? `${friends(state.rewarded)} subscribed, ${formatPrice(state.earnedCents)} earned` : null,
+          state.pending > 0 ? `${friends(state.pending)} waiting for their first payment` : null,
+        ]
+          .filter(Boolean)
+          .join(". ") + ".";
+
+  return (
+    <section id="refer" className={`${styles.panel} ${styles.referPanel}`} aria-labelledby="refer-title">
+      <p className={styles.kicker}>
+        <Gift size={14} aria-hidden className={styles.inlineIcon} /> Refer a friend
+      </p>
+      <h2 id="refer-title" className="t-heading-md">
+        Get {reward} for every friend who subscribes
+      </h2>
+      <p className="t-body-sm t-secondary">
+        Share your link. When a friend subscribes through it and their first payment goes through, {reward} comes off your next Bamio bill. Once per friend.
+      </p>
+      <div className={styles.referLink}>
+        <input ref={field} className="input" readOnly value={state?.link ?? ""} placeholder="Making your link…" aria-label="Your referral link" onFocus={(e) => e.currentTarget.select()} />
+        <button className="btn btn-primary" type="button" onClick={() => void copy()} disabled={!state}>
+          <Copy size={18} aria-hidden /> Copy link
+        </button>
+      </div>
+      {summary ? (
+        <p className="t-body-sm t-secondary" aria-live="polite">
+          {summary}
+        </p>
+      ) : null}
+      {state && state.waitingCents > 0 ? (
+        <p className={styles.small}>
+          {formatPrice(state.waitingCents)} is saved for you: it comes off your first bill when you choose a plan.
         </p>
       ) : null}
     </section>

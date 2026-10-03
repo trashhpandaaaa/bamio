@@ -23,6 +23,11 @@
 .out a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
 .inlineIcon { vertical-align: -2px; }
 
+/* Refer a friend: under the plan panels, the link field and its copy button side by side. */
+.referPanel { max-width: 760px; }
+.referLink { display: flex; flex-wrap: wrap; gap: 8px; }
+.referLink > :global(.input) { flex: 1 1 260px; min-width: 0; font: var(--t-mono); }
+
 .skeletonPlan { grid-column: 1 / -1; height: 228px; border-radius: var(--r-lg); }
 .skeletonCard { height: 168px; border-radius: var(--r-lg); }
 

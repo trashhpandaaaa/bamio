@@ -163,6 +163,22 @@ export function formatPrice(cents: number): string {
   return cents % 100 === 0 ? `$${(cents / 100).toLocaleString("en-US")}` : `$${(cents / 100).toFixed(2)}`;
 }
 
+/** What a referrer earns, once per friend whose first payment goes through: credit on their Bamio bill. */
+export const REFERRAL_REWARD_CENTS = 500;
+
+/** What /api/referrals tells the billing page: the user's link and what it has earned. */
+export type ReferralState = {
+  link: string;
+  rewardCents: number;
+  /** Friends who started subscribing through the link and haven't paid yet. */
+  pending: number;
+  /** Friends whose first payment went through. */
+  rewarded: number;
+  earnedCents: number;
+  /** Earned, but not on a Stripe balance yet: the referrer has never had a plan. It's added at their first checkout. */
+  waitingCents: number;
+};
+
 /** Subscription states that keep a plan working (past_due: Stripe is still retrying the payment). */
 export const ENTITLED_STATUSES = new Set(["active", "trialing", "past_due"]);
 

@@ -9,17 +9,20 @@ import {
   lookupKey,
   PLANS,
   planIdSchema,
+  REFERRAL_REWARD_CENTS,
   usageWindow,
   usedMinutes,
   type BillingState,
   type Interval,
   type Plan,
   type PlanId,
+  type ReferralState,
 } from "@/lib/billing/plans";
 import type { Email } from "@/lib/email/templates";
 import type { Tx } from "@/lib/server/db";
 import { queueEmail } from "@/lib/server/email";
 import { HttpError } from "@/lib/server/http";
+import { markCredited, markEarned, owedRewards, pendingReferral, recordReferral, referralCode, referralStats } from "@/lib/server/referrals";
 import { addUsage, countProjects, readPlanGrant, hasUsage as usageCounted, isUserId, MAX_PROJECTS_PER_USER, readBilling, updateBilling, usageBetween } from "@/lib/server/store";
 
 /*
@@ -158,7 +161,7 @@ const emailChanges = (userId: string) => async (tx: Tx, updated: BillingRecord, 
 export async function saveSubscription(userId: string, sub: Stripe.Subscription): Promise<BillingRecord> {
   const record = subscriptionRecord(sub);
   const customerId = typeof sub.customer === "string" ? sub.customer : sub.customer.id;
-  return updateBilling(
+  const saved = await updateBilling(
     userId,
     billingSchema,
     (current) => {
@@ -170,6 +173,11 @@ export async function saveSubscription(userId: string, sub: Stripe.Subscription)
     },
     { then: emailChanges(userId) },
   );
+  // A referred user's plan works: if their first payment went through, their referrer earns the reward.
+  if (entitled(record ?? undefined)) {
+    await settleReferral(userId).catch((err: unknown) => console.warn("[bamio/billing] couldn’t settle the referral:", err instanceof Error ? err.message : err));
+  }
+  return saved;
 }
 
 const FINAL_STATUSES = new Set(["canceled", "incomplete_expired"]);
@@ -445,15 +453,27 @@ async function customerFor(userId: string, email: string | undefined): Promise<s
 }
 
 /** A Stripe Checkout page for a plan, billed every month or every 3 months. */
-export async function createCheckout(userId: string, input: { plan: PlanId; interval: Interval; origin: string; email?: string }): Promise<string> {
+export async function createCheckout(
+  userId: string,
+  input: { plan: PlanId; interval: Interval; origin: string; email?: string; referral?: string },
+): Promise<string> {
   const billing = await billingRecord(userId);
   if (isWorking(billing.subscription)) throw new HttpError(409, "has_plan", "You already have a plan. Change it from Billing.");
+  // Arrived through a friend's link: recorded now, rewarded when the first payment goes through. Only for a first plan.
+  if (input.referral) {
+    await recordReferral(userId, input.referral, { newSubscriber: !billing.subscription }).catch((err: unknown) =>
+      console.warn("[bamio/billing] couldn’t record the referral:", err instanceof Error ? err.message : err),
+    );
+  }
   try {
     const price = await priceId(input.plan, input.interval);
-    const open = async () =>
-      stripe().checkout.sessions.create({
+    const open = async () => {
+      const customer = await customerFor(userId, input.email);
+      // Referral credit earned before this user had a plan goes on the balance now, so it comes off this first bill.
+      await creditReferrer(userId).catch((err: unknown) => console.warn("[bamio/billing] couldn’t add referral credit:", err instanceof Error ? err.message : err));
+      return stripe().checkout.sessions.create({
         mode: "subscription",
-        customer: await customerFor(userId, input.email),
+        customer,
         client_reference_id: userId,
         line_items: [{ price, quantity: 1 }],
         subscription_data: { metadata: { bamio_user: userId } },
@@ -465,6 +485,7 @@ export async function createCheckout(userId: string, input: { plan: PlanId; inte
         success_url: `${input.origin}/billing?checkout=done`,
         cancel_url: `${input.origin}/pricing?checkout=canceled`,
       });
+    };
     let session: Stripe.Checkout.Session;
     try {
       session = await open();
@@ -530,6 +551,64 @@ export async function createPortal(userId: string, origin: string, target?: { pl
   }
 }
 
+/* ------------------------------ Referrals ------------------------------ */
+
+/** The Stripe calls a referral needs (the tests pass their own). */
+export type ReferralDeps = {
+  /** The customer's first paid invoice with money in it (not a $0 one from a 100%-off code), or null. */
+  paidInvoice(customerId: string): Promise<{ id: string } | null>;
+  /** Credit on the customer's Stripe balance (it comes off their next invoices); returns the balance transaction's id. */
+  credit(customerId: string, cents: number, idempotencyKey: string): Promise<string>;
+};
+
+const stripeReferralDeps: ReferralDeps = {
+  async paidInvoice(customer) {
+    const list = await stripe().invoices.list({ customer, status: "paid", limit: 20 });
+    const invoice = list.data.find((i) => i.amount_paid > 0);
+    return invoice?.id ? { id: invoice.id } : null;
+  },
+  async credit(customer, cents, idempotencyKey) {
+    const txn = await stripe().customers.createBalanceTransaction(customer, { amount: -cents, currency: "usd", description: "Bamio referral credit" }, { idempotencyKey });
+    return txn.id;
+  },
+};
+
+/**
+ * If the user was referred and their first real payment has gone through, their referrer earns
+ * the reward (once) and it goes on the referrer's Stripe balance. Safe to call often: Stripe is
+ * only asked while the user has a referral waiting.
+ */
+export async function settleReferral(userId: string, deps: ReferralDeps = stripeReferralDeps): Promise<void> {
+  if (!billingEnabled()) return;
+  const waiting = await pendingReferral(userId);
+  if (!waiting) return;
+  const customerId = (await readBilling(userId, billingSchema))?.customerId;
+  if (!customerId) return;
+  const invoice = await deps.paidInvoice(customerId);
+  if (!invoice) return;
+  const referrerCustomer = (await readBilling(waiting.referrerUserId, billingSchema))?.customerId;
+  const earned = await markEarned(userId, invoice.id, REFERRAL_REWARD_CENTS, { onBalance: Boolean(referrerCustomer) });
+  if (earned) await creditReferrer(earned.referrerUserId, deps);
+}
+
+/** Put the referrer's earned rewards on their Stripe balance, once they have a Stripe customer (their first checkout). */
+export async function creditReferrer(referrerUserId: string, deps: ReferralDeps = stripeReferralDeps): Promise<void> {
+  if (!billingEnabled()) return;
+  const customerId = (await readBilling(referrerUserId, billingSchema))?.customerId;
+  if (!customerId) return;
+  for (const owed of await owedRewards(referrerUserId)) {
+    const txn = await deps.credit(customerId, owed.cents, `bamio-referral-${owed.referredUserId}`);
+    await markCredited(owed.referredUserId, txn);
+  }
+}
+
+/** The user's referral link and what it has earned (adding any credit still waiting to their balance first). */
+export async function referralState(userId: string, origin: string): Promise<ReferralState> {
+  await creditReferrer(userId).catch((err: unknown) => console.warn("[bamio/billing] couldn’t add referral credit:", err instanceof Error ? err.message : err));
+  const [code, stats] = await Promise.all([referralCode(userId), referralStats(userId)]);
+  return { link: `${origin}/r/${code}`, rewardCents: REFERRAL_REWARD_CENTS, ...stats };
+}
+
 /* ------------------------------ Webhooks ------------------------------ */
 
 /** A webhook event, once Stripe's signature over the raw body checks out. */
@@ -563,6 +642,15 @@ export async function handleWebhook(event: Stripe.Event): Promise<void> {
       case "customer.subscription.pending_update_expired":
         await syncSubscription(event.data.object.id);
         return;
+      case "invoice.paid": {
+        // A payment with money in it settles the payer's referral (if one is waiting).
+        const invoice = event.data.object;
+        if (invoice.amount_paid > 0 && invoice.customer) {
+          const userId = await customerUser(invoice.customer);
+          if (userId && isUserId(userId)) await settleReferral(userId);
+        }
+        return;
+      }
       default:
         return;
     }
