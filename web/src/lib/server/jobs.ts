@@ -701,6 +701,12 @@ async function finishFollow(userId: string, projectId: string, signal: AbortSign
       await prepareSource(file, work.prepared, info, { live: true, signal });
     });
     const prepared = await probe(work.prepared, signal);
+    // The thumbnail is made when following starts; if that didn't work, make it now from the finished video.
+    if (!(await storage().stat(keys.thumb))) {
+      await extractFrame(work.prepared, work.thumb, Math.min(prepared.durationSec * 0.1, 8), 640, signal)
+        .then(() => storage().publish(keys.thumb, work.thumb, "image/jpeg"))
+        .catch(() => undefined);
+    }
     await storage().publish(keys.source, work.prepared, "video/mp4");
     await mutateProject(userId, projectId, (cur) => {
       const live = cur.source.live;

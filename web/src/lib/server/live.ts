@@ -339,12 +339,19 @@ async function downloadVodRange(vodUrl: string, range: { start: number; end: num
 
 export type FollowEnd = "stopped" | "ended" | "limit" | "error";
 
-/** The live dir's files: the growing playlist, its init segment, and 6 s media segments. */
+/**
+ * The live dir's files: the growing playlist and its 6 s MPEG-TS segments. (Streams followed
+ * before 2026-10-03 used fMP4: init.mp4 and .m4s segments, still served. ffmpeg can't seek in
+ * an fMP4 playlist: past the first segment it reads nothing, so exports and frames came out
+ * empty. In MPEG-TS it seeks like in any file.)
+ */
 export const LIVE_PLAYLIST = "source.m3u8";
-export const LIVE_FILE = /^(source\.m3u8|init\.mp4|seg-\d{6}\.m4s)$/;
+export const LIVE_FILE = /^(source\.m3u8|seg-\d{6}\.ts|init\.mp4|seg-\d{6}\.m4s)$/;
+/** A media segment's name in the live playlist. */
+export const LIVE_SEGMENT = /^seg-\d{6}\.(ts|m4s)$/;
 
 /**
- * Follow a live stream into `dir` as HLS (fMP4 segments and a growing EVENT playlist that
+ * Follow a live stream into `dir` as HLS (MPEG-TS segments and a growing EVENT playlist that
  * the editor plays while it grows): from `backSec` before now (a Twitch VOD: from its
  * start), until the stream ends, `stopSignal` fires (the playlist is closed cleanly), or
  * 12 hours are captured. Resolves with why it ended.
@@ -378,10 +385,10 @@ export async function followLive(source: Source, dir: string, opts: { backSec: n
     "-y",
     ...inputs.flatMap((f) => inputArgs(f, startIndex, limit)),
     ...(single
-      ? ["-map", "0:v:0", "-map", "0:a:0?", "-c", "copy", "-bsf:a", "aac_adtstoasc"]
+      ? ["-map", "0:v:0", "-map", "0:a:0?", "-c", "copy"]
       : ["-copyts", "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-af", "aresample=async=1", "-c:a", "aac", "-b:a", "160k"]),
-    ...["-f", "hls", "-hls_time", "6", "-hls_list_size", "0", "-hls_playlist_type", "event", "-hls_segment_type", "fmp4"],
-    ...["-hls_fmp4_init_filename", "init.mp4", "-hls_segment_filename", "seg-%06d.m4s", "-hls_flags", "temp_file", LIVE_PLAYLIST],
+    ...["-f", "hls", "-hls_time", "6", "-hls_list_size", "0", "-hls_playlist_type", "event", "-hls_segment_type", "mpegts"],
+    ...["-hls_segment_filename", "seg-%06d.ts", "-hls_flags", "temp_file", LIVE_PLAYLIST],
   ];
   await mkdir(dir, { recursive: true });
   try {

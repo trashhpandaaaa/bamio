@@ -575,11 +575,18 @@ export async function renderClip(
     }
     const args = renderArgs({ ...plan, output: tmp, subtitles: Boolean(plan.ass) });
     await run("ffmpeg", args, { cwd: plan.workDir, signal: opts.signal, onStdoutLine: ffmpegProgress(plan.duration, opts.onProgress) });
+    // ffmpeg can finish "successfully" having read nothing (a source it couldn't seek in): never
+    // hand that out as a download.
+    const made = await probe(tmp, opts.signal).catch(() => null);
+    if (!made?.hasVideo || made.durationSec < Math.min(1, plan.duration * 0.5)) {
+      console.error(`[bamio/media] render came out empty (${made ? `${made.durationSec.toFixed(2)} s` : "unreadable"} of ${plan.duration.toFixed(2)} s) from ${path.basename(plan.input)}`);
+      throw new HttpError(500, "render_empty", "The export came out empty. Try again; if it keeps happening, tell us which video.");
+    }
     await replaceFile(tmp, plan.output);
     return (await stat(plan.output)).size;
   } catch (err) {
     await rm(tmp, { force: true });
-    if (isAbortError(err)) throw err;
+    if (isAbortError(err) || err instanceof HttpError) throw err;
     console.error("[bamio/media] render failed:", err instanceof ProcessError ? err.stderrTail.slice(-2000) : err);
     throw new HttpError(500, "render_failed", "The export failed. Try again; if it keeps failing, try the Fit framing.");
   } finally {

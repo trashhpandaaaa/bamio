@@ -5,12 +5,12 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { parsePlaylistWindow } from "@/lib/server/hls";
 import { HttpError } from "@/lib/server/http";
-import { LIVE_PLAYLIST, livePlaylistSnapshot } from "@/lib/server/live";
+import { LIVE_PLAYLIST, LIVE_SEGMENT, livePlaylistSnapshot } from "@/lib/server/live";
 import { putText, storage } from "@/lib/server/storage";
 import { mediaKeys, scratch } from "@/lib/server/store";
 
 /*
- * A followed stream's HLS (source.m3u8, init.mp4, seg-NNNNNN.m4s) while it grows. ffmpeg
+ * A followed stream's HLS (source.m3u8 and seg-NNNNNN.ts; init.mp4 and .m4s before 2026-10-03) while it grows. ffmpeg
  * writes it on the machine following the stream: with local storage straight into storage
  * (the project's live/ folder), with object storage into a scratch folder that syncLive()
  * copies up every few seconds, so the player and other machines find it there.
@@ -22,7 +22,10 @@ export function liveDir(userId: string, projectId: string): string {
   return s.localPath ? s.localPath(mediaKeys(userId, projectId).live) : scratch(projectId).live;
 }
 
-const SEGMENT = /^seg-\d{6}\.m4s$/;
+const SEGMENT = LIVE_SEGMENT;
+
+/** The content type of a live HLS file (MPEG-TS segments; init.mp4 and .m4s from fMP4 follows). */
+export const liveType = (name: string) => (name.endsWith(".ts") ? "video/mp2t" : name.endsWith(".m3u8") ? "application/vnd.apple.mpegurl" : "video/mp4");
 /** Segments already copied up, per project (after a restart they're copied again: harmless). */
 const synced: Map<string, Set<string>> = ((globalThis as { __bamioLiveSynced?: Map<string, Set<string>> }).__bamioLiveSynced ??= new Map());
 
@@ -43,7 +46,7 @@ export async function syncLive(userId: string, projectId: string): Promise<void>
   const names = ["init.mp4", ...playlist.split(/\r?\n/).map((l) => l.trim()).filter((l) => SEGMENT.test(l))];
   for (const name of names) {
     if (done.has(name) || !existsSync(path.join(dir, name))) continue;
-    await s.publish(`${keys.live}/${name}`, path.join(dir, name), "video/mp4", { keep: true });
+    await s.publish(`${keys.live}/${name}`, path.join(dir, name), liveType(name), { keep: true });
     done.add(name);
   }
   await putText(`${keys.live}/${LIVE_PLAYLIST}`, playlist, "application/vnd.apple.mpegurl");

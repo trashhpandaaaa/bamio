@@ -1,5 +1,24 @@
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { signIn } from "./auth";
+
+/** Length and picture of a downloaded export (ffprobe from npm). */
+function probeBytes(bytes: Buffer) {
+  const dir = mkdtempSync(path.join(tmpdir(), "bamio-live-export-"));
+  const file = path.join(dir, "clip.mp4");
+  try {
+    writeFileSync(file, bytes);
+    const bin = path.join(process.cwd(), "node_modules", "ffprobe-static", "bin", process.platform, process.arch, process.platform === "win32" ? "ffprobe.exe" : "ffprobe");
+    const res = spawnSync(bin, ["-v", "error", "-print_format", "json", "-show_streams", "-show_format", file], { encoding: "utf8", windowsHide: true });
+    const data = JSON.parse(res.stdout || "{}") as { streams?: { codec_type: string }[]; format?: { duration: string } };
+    return { hasVideo: Boolean(data.streams?.some((x) => x.codec_type === "video")), duration: Number(data.format?.duration ?? 0) };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
 
 /*
  * Capturing from live streams, end to end. Opt-in, because it needs channels that are
@@ -107,13 +126,19 @@ async function follow(page: Page, url: string, opts: { captions: boolean }) {
   if (opts.captions) await expect.poll(async () => (await state()).transcribedSec ?? 0, { timeout: 240_000 }).toBeGreaterThan(30);
   if (process.env.E2E_SCREENSHOTS) await page.screenshot({ path: "qa/screens/29-following-top.png" });
 
-  // A clip from what's in so far, exported while the stream goes on.
-  await page.getByLabel("Start").fill("0:05");
-  await page.getByLabel("End").fill("0:20");
+  // A clip from what's in so far, exported while the stream goes on. Past the first few 6 s
+  // segments: exports seek into the stream's playlist, and (in fMP4 HLS) that once came out empty.
+  await expect.poll(async () => (await state()).source.durationSec, { timeout: 180_000 }).toBeGreaterThan(50);
+  await page.getByLabel("Start").fill("0:30");
+  await page.getByLabel("End").fill("0:45");
   await page.getByRole("button", { name: "Add clip" }).click();
-  const card = page.getByTestId("clip-card").filter({ hasText: "Clip at 0:05" });
+  const card = page.getByTestId("clip-card").filter({ hasText: "Clip at 0:30" });
   await card.getByRole("button", { name: "Export" }).click();
-  await expect(card.getByRole("link", { name: /^Download/ })).toBeVisible({ timeout: 180_000 });
+  const download = card.getByRole("link", { name: /^Download/ });
+  await expect(download).toBeVisible({ timeout: 180_000 });
+  const exported = probeBytes(Buffer.from(await (await page.request.get((await download.getAttribute("href"))!)).body()));
+  expect(exported.hasVideo).toBe(true);
+  expect(exported.duration).toBeGreaterThan(14);
   if (process.env.E2E_SCREENSHOTS) await page.screenshot({ path: "qa/screens/30-following.png" });
 
   // The clip editor plays the growing video too.
@@ -132,7 +157,7 @@ async function follow(page: Page, url: string, opts: { captions: boolean }) {
   await expect.poll(async () => (await state()).source.live?.follow?.status, { timeout: 600_000 }).toBe("ended");
   const done = await state();
   expect(done.job.status).toBe("ready");
-  expect(done.clips.some((c) => c.start === 5)).toBe(true);
+  expect(done.clips.some((c) => c.start === 30)).toBe(true);
   const source = await page.request.get(`${api}/source`, { headers: { Range: "bytes=0-99" } });
   expect(source.status()).toBe(206);
   await expect.poll(() => page.locator("video").first().evaluate((v: HTMLVideoElement) => v.currentSrc), { timeout: 30_000 }).toContain("/source");

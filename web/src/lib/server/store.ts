@@ -60,7 +60,7 @@ export function mediaKeys(userId: string, projectId: string) {
     thumb: `${base}/thumb.jpg`,
     /** An upload while it arrives. */
     upload: `${base}/upload.bin`,
-    /** A followed stream while it grows: HLS (source.m3u8, init.mp4, seg-NNNNNN.m4s). */
+    /** A followed stream while it grows: HLS (source.m3u8 and seg-NNNNNN.ts). */
     live: `${base}/live`,
     /** A frame at a time in tenths of a second (clip cards, the trim bar). */
     frame: (tenths: number) => `${base}/frames/${Math.max(0, Math.round(tenths))}.jpg`,

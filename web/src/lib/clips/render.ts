@@ -21,7 +21,10 @@ export function renderFilter(plan: Pick<RenderPlan, "srcW" | "srcH" | "edit" | "
   const chain: string[] = [];
   if (plan.edit.framing === "crop") {
     const r = cropRect(plan.srcW, plan.srcH, plan.edit.aspect, plan.edit.focusX);
-    chain.push(`[0:v]crop=${r.w}:${r.h}:${r.x}:${r.y},scale=${W}:${H}:flags=lanczos,setsar=1[base]`);
+    // Every frame at the video's recorded size first: a live stream can change resolution part
+    // way (Twitch dropped one from 1080p to 720p), and a crop sized for 1080p fails on 720p
+    // frames. Frames already that size pass straight through.
+    chain.push(`[0:v]scale=${plan.srcW}:${plan.srcH},crop=${r.w}:${r.h}:${r.x}:${r.y},scale=${W}:${H}:flags=lanczos,setsar=1[base]`);
   } else {
     // Fit: the whole frame, over a blurred, darkened copy that fills the rest.
     const bw = W / 4;
