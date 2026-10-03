@@ -21,7 +21,7 @@ RUN npm ci
 COPY . .
 RUN npm run build && npm run build:worker
 
-# Runtime packages only (ffmpeg and ffprobe come with them; so do the speech engine's Linux libraries).
+# Runtime packages only (the speech engine's Linux libraries come with them).
 FROM base AS deps
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
@@ -31,12 +31,16 @@ ENV NODE_ENV=production \
     PORT=3000 \
     BAMIO_DATA_DIR=/data/media \
     BAMIO_WORK_DIR=/data/work \
-    BAMIO_MODELS_DIR=/data/models
+    BAMIO_MODELS_DIR=/data/models \
+    FFMPEG_PATH=/usr/bin/ffmpeg \
+    FFPROBE_PATH=/usr/bin/ffprobe
 # ca-certificates: https (yt-dlp, model downloads, Stripe, S3). tini: signals reach node, so a
 # stopping worker hands its jobs back. lbzip2: the speech models are .tar.bz2, and Debian's tar
-# unpacks those with lbzip2.
+# unpacks those with lbzip2. ffmpeg: Debian's, not the npm packages' static builds, which crash
+# (segfault) resolving any host name here, so live captures, followed streams and Twitch VOD
+# parts failed. FFMPEG_PATH and FFPROBE_PATH above point bin.ts at it.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates tini lbzip2 \
+ && apt-get install -y --no-install-recommends ca-certificates tini lbzip2 ffmpeg \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --create-home --uid 10001 bamio \
  && mkdir -p /data/media /data/work /data/models \
