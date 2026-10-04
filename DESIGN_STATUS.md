@@ -443,6 +443,8 @@ The user asked: "make the live stream video work without recording as well, add 
 
 ### Next steps
 
+A full product and engineering audit, with everything left to do from "safe to sell" to "best of its kind" in a suggested order, is in `ROADMAP.md` (2026-10-04). The list below is the older, shorter one.
+
 1. Payments: add a Stripe test key, run `npm run stripe:setup`, `stripe listen`, and buy, upgrade and cancel with test cards; then the live key and the production webhook (`npm run stripe:setup -- --webhook https://...`). Then build the coming-soon features in order of what sells (likely 4K export, silence and filler removal, face tracking / smart reframing, custom caption styling), removing each `soon` flag as it ships.
 2. Imports: YouTube sometimes answers a part's byte range with 403 (twice now, the second time with the connection throttled to 23 KB/s), and the fallback then downloads the whole file. Find out whether the ranges need fresh URLs (retry the lookup once) and give a clearer message when YouTube throttles.
 3. Transcription of mixed languages: English said inside a sentence of another language and written in that script ("आइ बलिभ") could be checked against English too (compare romanized words, as `wordAgreement` does for mixed-script words), and long speech parts could be split at the language switch instead of going wholly to one model.
