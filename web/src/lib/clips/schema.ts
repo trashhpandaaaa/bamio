@@ -61,6 +61,8 @@ export const segmentSchema = z.object({
 export const transcriptSchema = z.object({
   language: z.string().max(40).optional(),
   segments: z.array(segmentSchema),
+  /** dBFS of each second of the video, from time 0 (lib/clips/loudness.ts): the clip finder's hint of hype. Transcripts from before 2026-10-04 have none. */
+  loudness: z.array(z.number()).max(LIMITS.maxFollowSec + 3600).optional(),
 });
 
 export const clipEditSchema = z.object({

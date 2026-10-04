@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { ApiError } from "@google/genai";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { clipTarget, clipTimes, findHighlights, highlightPrompt, mockTranscribe, promptLines, tidySegments } from "@/lib/ai/server/clips-ai";
+import { clipTarget, clipTimes, findHighlights, highlightPrompt, hypeScore, MAX_CLIPS_PER_SEARCH, mockTranscribe, promptLines, tidySegments } from "@/lib/ai/server/clips-ai";
 import { shouldFallBack, toAiError } from "@/lib/ai/server/gemini";
 import { projectSchema } from "@/lib/clips/schema";
 import { db } from "@/lib/server/db";
@@ -97,7 +97,14 @@ describe("AI helpers", () => {
   it("asks for a sensible number of clips", () => {
     expect(clipTarget(20, "medium")).toBe(1);
     expect(clipTarget(600, "short")).toBeGreaterThanOrEqual(5);
-    expect(clipTarget(3 * 3600, "short")).toBe(15);
+    expect(clipTarget(3 * 3600, "short")).toBe(MAX_CLIPS_PER_SEARCH);
+    // About one clip per 2.5 minutes of 30 to 60 s clips: a 28-minute stream gets 11, an hour 24.
+    expect(clipTarget(28 * 60, "medium")).toBe(11);
+    expect(clipTarget(3600, "medium")).toBe(24);
+    expect(clipTarget(88 * 60, "long")).toBe(25);
+    // Short videos: at least 3 where they fit.
+    expect(clipTarget(120, "short")).toBe(3);
+    expect(clipTarget(70, "medium")).toBe(2);
   });
 
   it("finds mock clips inside the video without overlapping existing ones", async () => {
@@ -149,6 +156,32 @@ describe("the clip-finding prompt", () => {
     expect(a.slice(0, a.indexOf(transcript) + transcript.length)).toBe(b.slice(0, b.indexOf(transcript) + transcript.length));
     expect(b).toContain("0:00-0:20");
     expect(a).not.toContain("[");
+    // A number to fill, not "up to": the model otherwise stops after a handful.
+    expect(a).toContain("Find 2 clips, each 15 to 30 seconds long, and return all 2, best first");
+  });
+
+  it("marks the loudest lines, where the hype often is", () => {
+    // 90 s at a calm -30 dB, with a shout (-8 dB) at 56 to 62 s (inside the line from 54.4 s).
+    const loudness = Array.from({ length: 90 }, (_, s) => (s >= 56 && s < 62 ? -8 : -30));
+    const lines = promptLines(phrases, loudness);
+    const shout = lines.find((l) => l.start <= 58 && l.end >= 58)!;
+    expect(shout.mark).toBe("!!");
+    expect(lines.filter((l) => l.mark === "!!")).toHaveLength(1);
+    const prompt = highlightPrompt({ lines, title: "T", durationSec: 90, clipLength: "short", target: 3 });
+    expect(prompt).toContain(`${shout.n} !! `);
+    expect(prompt).toContain("Lines marked ! are louder than most of the video");
+    // Even loudness throughout: nothing stands out, no marks.
+    expect(promptLines(phrases, Array(90).fill(-20)).some((l) => l.mark)).toBe(false);
+    expect(highlightPrompt({ lines: promptLines(phrases), title: "T", durationSec: 90, clipLength: "short", target: 3 })).not.toContain("Lines marked");
+  });
+
+  it("ranks by hype first, then the hook, then the payoff", () => {
+    expect(hypeScore({ hype: 10, hook: 10, payoff: 10 })).toBe(100);
+    expect(hypeScore({ hype: 1, hook: 1, payoff: 1 })).toBe(10);
+    // A loud, gripping moment beats a calm, tidy one.
+    expect(hypeScore({ hype: 9, hook: 7, payoff: 5 })).toBeGreaterThan(hypeScore({ hype: 4, hook: 7, payoff: 9 })!);
+    expect(hypeScore({ hype: 14, hook: 0, payoff: 5 })).toBe(hypeScore({ hype: 10, hook: 1, payoff: 5 }));
+    expect(hypeScore({ score: 70 })).toBe(70);
   });
 });
 

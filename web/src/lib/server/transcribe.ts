@@ -1,9 +1,10 @@
 import "server-only";
-import { existsSync } from "node:fs";
+import { createReadStream, existsSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { isAutoLanguage, languageName } from "@/lib/clips/languages";
+import { loudnessMeter } from "@/lib/clips/loudness";
 import { transcriptSchema, type Transcript } from "@/lib/clips/schema";
 import { isAbortError, ProcessError, run, runNode } from "@/lib/server/bin";
 import { HttpError } from "@/lib/server/http";
@@ -33,10 +34,26 @@ export function speechCpu(cpus = os.cpus().length): { threads: number; parallel:
   return { threads: cpus >= 4 ? 2 : 1, parallel: Math.max(1, Math.min(6, Math.floor(cpus / 3))) };
 }
 
+/** Loudness of each second of a 16 kHz mono s16le file (lib/clips/loudness.ts), read in chunks. */
+async function measureLoudness(pcm: string): Promise<number[]> {
+  const meter = loudnessMeter(16_000);
+  let carry: Buffer | null = null;
+  for await (const chunk of createReadStream(pcm, { highWaterMark: 1 << 20 }) as AsyncIterable<Buffer>) {
+    const buf: Buffer = carry ? Buffer.concat([carry, chunk]) : chunk;
+    const even = buf.length - (buf.length % 2);
+    carry = even < buf.length ? buf.subarray(even) : null;
+    // Copied so the samples are aligned for an Int16Array.
+    const copy = new Uint8Array(buf.subarray(0, even));
+    meter.push(new Int16Array(copy.buffer, 0, even / 2));
+  }
+  return meter.done();
+}
+
 /**
  * Transcribe a video's audio, or with `range` just that part of it (times in the result
  * are still the video's). `workDir` is scratch space (removed afterwards). Progress
- * messages cover the one-time model download too.
+ * messages cover the one-time model download too. The result has the audio's loudness per
+ * second too: from time 0, or with `range` from `loudnessFrom` (the range's start).
  */
 export async function transcribeLocal(
   source: string,
@@ -45,7 +62,7 @@ export async function transcribeLocal(
   signal: AbortSignal,
   onProgress: (value: number, message: string) => void,
   range?: { start: number; end: number },
-): Promise<Transcript> {
+): Promise<Transcript & { loudnessFrom?: number }> {
   if (!existsSync(workerPath())) throw new HttpError(500, "no_worker", "The transcription worker is missing.");
   await rm(workDir, { recursive: true, force: true });
   await mkdir(workDir, { recursive: true });
@@ -95,11 +112,15 @@ export async function transcribeLocal(
       },
     });
     const transcript = transcriptSchema.parse(JSON.parse(await readFile(out, "utf8")));
-    if (!range) return transcript;
+    // A hint of hype for the clip finder; never worth failing a transcript over.
+    const loudness = await measureLoudness(pcm).catch(() => undefined);
+    if (!range) return { ...transcript, loudness };
     const at = (t: number) => Math.round((t + range.start) * 1000) / 1000;
     return {
       ...transcript,
       segments: transcript.segments.map((s) => ({ ...s, start: at(s.start), end: at(s.end), words: s.words?.map((w) => ({ start: at(w.start), end: at(w.end) })) })),
+      loudness,
+      loudnessFrom: range.start,
     };
   } catch (err) {
     if (isAbortError(err) || signal.aborted) throw err;

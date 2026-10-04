@@ -16,6 +16,7 @@ import type { KindSpec, Pool } from "@/lib/server/worker";
 import { downloadUrl, extractAudioChunks, extractFrame, prepareSource, probe, renderClip } from "@/lib/server/media";
 import { relocateAiClips } from "@/lib/clips/relocate";
 import { commitPiece, FOLLOW_FIND_EVERY_SEC, FOLLOW_PIECE_SEC } from "@/lib/clips/live";
+import { mergeLoudness } from "@/lib/clips/loudness";
 import { followLive, recordLive, sleep, type FollowEnd } from "@/lib/server/live";
 import { clearLive, liveCaptured, liveDir, liveSnapshot, syncLive } from "@/lib/server/live-media";
 import { storage } from "@/lib/server/storage";
@@ -322,9 +323,11 @@ async function analyze(userId: string, projectId: string, signal: AbortSignal, o
   const noAi = "Gemini isn’t connected. Add GEMINI_API_KEY to web/.env and restart.";
 
   let segments: Segment[];
+  let loudness: number[] | undefined;
   const existing = project.hasTranscript ? await readTranscript(userId, projectId) : null;
   if (existing) {
     segments = existing.segments;
+    loudness = existing.loudness;
   } else if (isFollowing(project)) {
     return "The stream’s captions are still being made. Try again in a minute.";
   } else if (!local && !aiConfigured()) {
@@ -341,6 +344,7 @@ async function analyze(userId: string, projectId: string, signal: AbortSignal, o
         transcript = await transcribe(userId, projectId, project.source.durationSec, signal, (v) => job.progress("transcribing", v, "Transcribing with Gemini"));
       }
       segments = transcript.segments;
+      loudness = transcript.loudness;
       await saveTranscript(userId, projectId, transcript, local ? "device" : "gemini");
     } catch (err) {
       if (signal.aborted || isAbortError(err)) throw err;
@@ -351,14 +355,21 @@ async function analyze(userId: string, projectId: string, signal: AbortSignal, o
   if (segments.length === 0) return "No speech was found, so there are no captions or AI clips. You can still cut clips by hand.";
   if (!opts.findClips) return undefined;
   if (!aiConfigured()) return `Captions are ready. AI clips are off because ${noAi}`;
-  return findClipsStep(userId, projectId, segments, signal);
+  return findClipsStep(userId, projectId, segments, signal, { loudness });
 }
 
 /**
  * Find AI clips in `segments`. `spanSec`: the video they cover, when only part of it (a
  * followed stream's newest part); then the project's status isn't touched either.
  */
-async function findClipsStep(userId: string, projectId: string, segments: Segment[], signal: AbortSignal, spanSec?: number): Promise<string | undefined> {
+async function findClipsStep(
+  userId: string,
+  projectId: string,
+  segments: Segment[],
+  signal: AbortSignal,
+  opts: { spanSec?: number; loudness?: number[] } = {},
+): Promise<string | undefined> {
+  const { spanSec, loudness } = opts;
   const job = jobWriter(userId, projectId);
   let project: Project;
   try {
@@ -374,6 +385,7 @@ async function findClipsStep(userId: string, projectId: string, segments: Segmen
       language: project.spokenLanguage,
       spanSec,
       avoid: project.clips.map((c) => ({ start: c.start, end: c.end })),
+      loudness,
       signal,
     });
     let added = 0;
@@ -633,8 +645,13 @@ async function followWork(userId: string, projectId: string, final: boolean, sig
     const { keep, until } = commitPiece(piece.segments, from, to, final && to >= edge - 0.01);
     await recordUsage(userId, `${projectId}@${from.toFixed(1)}`, until - from);
     await mutateProject(userId, projectId, async (cur) => {
-      const before = cur.hasTranscript ? ((await readTranscript(userId, projectId))?.segments ?? []) : [];
-      await writeTranscript(userId, projectId, { language: piece.language, segments: [...before.filter((s) => s.end <= from + 0.01), ...keep] });
+      const prev = cur.hasTranscript ? await readTranscript(userId, projectId) : null;
+      const before = prev?.segments ?? [];
+      await writeTranscript(userId, projectId, {
+        language: piece.language,
+        segments: [...before.filter((s) => s.end <= from + 0.01), ...keep],
+        loudness: mergeLoudness(prev?.loudness, piece.loudness, piece.loudnessFrom ?? from),
+      });
       return {
         ...cur,
         hasTranscript: true,
@@ -655,7 +672,7 @@ async function followWork(userId: string, projectId: string, final: boolean, sig
   const transcript = await readTranscript(userId, projectId);
   const segments = (transcript?.segments ?? []).filter((s) => s.start >= since - 60 && s.end <= upTo);
   if (segments.length > 0) {
-    const note = await findClipsStep(userId, projectId, segments, signal, upTo - since);
+    const note = await findClipsStep(userId, projectId, segments, signal, { spanSec: upTo - since, loudness: transcript?.loudness });
     if (note) console.warn("[bamio/live] finding clips:", note);
   }
   await mutateProject(userId, projectId, (cur) => ({ ...cur, clipsFoundSec: upTo }));

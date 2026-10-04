@@ -8,7 +8,8 @@ type Params = { id: string };
 export const GET = userRoute<Params>(async (_req, { userId, params }) => {
   const project = await getProject(userId, params.id);
   const transcript: Transcript = (project.hasTranscript ? await readTranscript(userId, project.id) : null) ?? { segments: [] };
-  return Response.json(transcript);
+  // The editor needs the words; the loudness (the clip finder's, up to 40 KB) stays on the server.
+  return Response.json({ language: transcript.language, segments: transcript.segments } satisfies Transcript);
 });
 
 /**

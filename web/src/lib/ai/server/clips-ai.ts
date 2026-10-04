@@ -2,6 +2,7 @@ import "server-only";
 import { z } from "zod";
 import { displayText, formatTimecode, normalizeClips, parseTimecode, wordGap, type RawClip } from "@/lib/clips/logic";
 import { languageName } from "@/lib/clips/languages";
+import { loudnessMarks } from "@/lib/clips/loudness";
 import { CLIP_LENGTH_RANGE, LIMITS, type ClipLength, type Segment } from "@/lib/clips/schema";
 import { generateJson, isMock } from "@/lib/ai/server/gemini";
 
@@ -101,11 +102,24 @@ const highlightAnswer = z.object({
         end: seconds,
         title: z.string().max(300),
         reason: z.string().max(600).optional(),
+        hype: z.number().optional(),
+        hook: z.number().optional(),
+        payoff: z.number().optional(),
         score: z.number().optional(),
       }),
     )
     .max(80),
 });
+
+/**
+ * A clip's score from the model's three ratings (1 to 10 each): hype counts most, then the hook,
+ * then the payoff. 10 to 100; best-first order sorts on it.
+ */
+export function hypeScore(r: { hype?: number; hook?: number; payoff?: number; score?: number }): number | undefined {
+  if (r.hype === undefined && r.hook === undefined && r.payoff === undefined) return r.score;
+  const clamp = (v: number | undefined) => Math.min(10, Math.max(1, v ?? 5));
+  return Math.round(4 * clamp(r.hype) + 3.5 * clamp(r.hook) + 2.5 * clamp(r.payoff));
+}
 
 // Short descriptions: the schema is sent with every request.
 const HIGHLIGHT_JSON_SCHEMA = {
@@ -120,9 +134,11 @@ const HIGHLIGHT_JSON_SCHEMA = {
           end: { type: "integer", description: "Number of the line just after the clip's last line" },
           title: { type: "string", description: "Honest title, at most 60 characters" },
           reason: { type: "string", description: "Why it works as a short, at most 15 words" },
-          score: { type: "integer", description: "0 to 100: how well it holds a viewer" },
+          hype: { type: "integer", description: "1 to 10: energy and emotion at their peak" },
+          hook: { type: "integer", description: "1 to 10: how hard the first 3 seconds grab" },
+          payoff: { type: "integer", description: "1 to 10: how well it lands" },
         },
-        required: ["start", "end", "title", "reason", "score"],
+        required: ["start", "end", "title", "reason", "hype", "hook", "payoff"],
       },
     },
   },
@@ -131,12 +147,15 @@ const HIGHLIGHT_JSON_SCHEMA = {
 
 const HIGHLIGHT_SYSTEM = `You are a senior short-form video editor. You find the moments in long videos that work as standalone vertical clips for TikTok, YouTube Shorts and Reels.
 A good clip opens with a hook in its first 3 seconds (a claim, question, surprise or strong emotion), makes sense without the rest of the video, and ends on a payoff or a complete thought, never mid-sentence.
-Prefer funny, surprising, emotional, useful or controversial moments. Avoid intros, outros, sponsor reads and filler.
-Titles must be honest to what is said: no invented facts, no clickbait the clip doesn't deliver. Score strictly: 90 and above only for standout moments.
+Rate every clip from 1 to 10 on three things, strictly, using the whole range (most clips are not 9s):
+- hype: energy and emotion at their peak: excitement, shouting, laughing, shock, a clutch play or a fail, a heated argument, a big reveal. Calm explaining is low hype, even when it's useful.
+- hook: how hard the first 3 seconds grab someone scrolling past.
+- payoff: how well it lands: a punchline, an answer, a result, a complete story.
+Avoid intros, outros, sponsor reads and filler. Titles must be honest to what is said: no invented facts, no clickbait the clip doesn't deliver.
 Write titles and reasons in the language of the transcript.`;
 
-/** A transcript line for the model: a few phrases, numbered by the second it starts at. */
-export type PromptLine = { n: number; start: number; end: number; text: string };
+/** A transcript line for the model: a few phrases, numbered by the second it starts at; `mark`: "!" loud, "!!" loudest. */
+export type PromptLine = { n: number; start: number; end: number; text: string; mark?: string };
 
 /**
  * The transcript, compact: caption phrases merged into lines of about 5 to 12 seconds that end
@@ -144,7 +163,7 @@ export type PromptLine = { n: number; start: number; end: number; text: string }
  * Far fewer tokens than a start and end time on every phrase, and the model answers with line
  * numbers that map back to exact phrase times (`clipTimes`).
  */
-export function promptLines(segments: Segment[]): PromptLine[] {
+export function promptLines(segments: Segment[], loudness?: number[]): PromptLine[] {
   const lines: PromptLine[] = [];
   let cur: PromptLine | null = null;
   for (const [i, seg] of segments.entries()) {
@@ -163,7 +182,9 @@ export function promptLines(segments: Segment[]): PromptLine[] {
       cur.end = seg.end;
     }
   }
-  return lines;
+  // The loudest lines (shouting, cheering, laughter): where the hype often is.
+  const marks = loudnessMarks(lines, loudness);
+  return lines.map((l, i) => (marks[i] ? { ...l, mark: marks[i] } : l));
 }
 
 /**
@@ -192,10 +213,19 @@ export function clipTimes(
   return { start: lines[first]!.start, end: lines[last]!.end };
 }
 
-/** How many clips to ask for, from the length of the video. */
+/** About one clip per this many seconds of video, by clip length. */
+const CLIP_SPACING: Record<ClipLength, number> = { short: 90, medium: 150, long: 210 };
+/** At most this many clips per search (a project keeps up to LIMITS.maxClips). */
+export const MAX_CLIPS_PER_SEARCH = 40;
+
+/**
+ * How many clips to ask for: about one per 1.5 (short clips) to 3.5 minutes (long) of video,
+ * at least 3 where they fit, at most MAX_CLIPS_PER_SEARCH. A 30-minute stream gets 12 clips
+ * of 30 to 60 s; a 2-hour podcast, 40.
+ */
 export function clipTarget(durationSec: number, clipLength: ClipLength): number {
-  const perClip = CLIP_LENGTH_RANGE[clipLength].max;
-  return Math.max(1, Math.min(15, Math.round(durationSec / (perClip * 4)) + 2, Math.floor(durationSec / CLIP_LENGTH_RANGE[clipLength].min)));
+  const fit = Math.floor(durationSec / CLIP_LENGTH_RANGE[clipLength].min);
+  return Math.max(1, Math.min(MAX_CLIPS_PER_SEARCH, fit, Math.max(3, Math.round(durationSec / CLIP_SPACING[clipLength]))));
 }
 
 export async function findHighlights(opts: {
@@ -208,6 +238,8 @@ export async function findHighlights(opts: {
   /** How much video the transcript covers, if not all of it (a followed stream's newest part): sets how many clips to ask for. */
   spanSec?: number;
   avoid?: { start: number; end: number }[];
+  /** The video's loudness per second (Transcript.loudness), to point out the loudest moments. */
+  loudness?: number[];
   signal?: AbortSignal;
 }): Promise<RawClip[]> {
   const range = CLIP_LENGTH_RANGE[opts.clipLength];
@@ -215,7 +247,7 @@ export async function findHighlights(opts: {
   const limits = { durationSec: opts.durationSec, segments: opts.segments, minSec: Math.max(LIMITS.minClipSec, range.min * 0.6), maxSec: Math.min(LIMITS.maxClipSec, range.max * 1.3), max: target };
   if (isMock()) return normalizeClips(mockHighlights(opts.segments, opts.durationSec, opts.clipLength, target, opts.avoid ?? []), limits);
 
-  const lines = promptLines(opts.segments);
+  const lines = promptLines(opts.segments, opts.loudness);
   const answer = await generateJson({
     task: `find clips (${lines.length} lines)`,
     system: HIGHLIGHT_SYSTEM,
@@ -227,7 +259,12 @@ export async function findHighlights(opts: {
     signal: opts.signal,
   });
   return normalizeClips(
-    answer.clips.map((c) => ({ ...c, ...clipTimes(c, lines, opts.durationSec, { minSec: range.min, maxSec: range.max * 1.1 }), reason: c.reason?.trim().slice(0, 300) || undefined })),
+    answer.clips.map((c) => ({
+      title: c.title,
+      ...clipTimes(c, lines, opts.durationSec, { minSec: range.min, maxSec: range.max * 1.1 }),
+      reason: c.reason?.trim().slice(0, 300) || undefined,
+      score: hypeScore(c),
+    })),
     limits,
   );
 }
@@ -251,9 +288,12 @@ export function highlightPrompt(opts: {
   return [
     `Transcript of "${opts.title}" (${Math.round(opts.durationSec)} s). Each line starts at the second shown and runs until the next line.`,
     opts.language ? `Spoken language: ${languageName(opts.language)}. It may be lowercase and unpunctuated; read it for meaning.` : "",
-    opts.lines.map((l) => `${l.n} ${l.text}`).join("\n"),
+    opts.lines.some((l) => l.mark)
+      ? "Lines marked ! are louder than most of the video (shouting, cheering, laughter, a crowd); !! the loudest. Loud is often where the hype is, but read what's said."
+      : "",
+    opts.lines.map((l) => `${l.n} ${l.mark ? `${l.mark} ` : ""}${l.text}`).join("\n"),
     "",
-    `Find up to ${opts.target} of the best clips, each ${range.min} to ${range.max} seconds long; fewer if the video has fewer strong moments. Clips must not overlap.`,
+    `Find ${opts.target} clips, each ${range.min} to ${range.max} seconds long, and return all ${opts.target}, best first: after the standout moments, take the next most watchable ones and rate them lower. Clips must not overlap.`,
     `For each clip, start is the number of its first line and end is the number of the line just after its last line (${Math.floor(opts.durationSec)} for the end of the video). Line numbers are seconds, so end minus start is the clip's length.`,
     avoid ? `The user already has clips at ${avoid}; pick other moments.` : "",
   ]
