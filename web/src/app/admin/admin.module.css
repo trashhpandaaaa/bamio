@@ -1,0 +1,82 @@
+/* The admin panel: a title, the section tabs, then panels of numbers and tables. */
+.page { padding-top: 32px; padding-bottom: 96px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; }
+.head { display: grid; gap: 6px; }
+.head h1 { margin: 0; font: var(--t-heading-xl); letter-spacing: -.03em; overflow-wrap: anywhere; }
+.head p { margin: 0; color: var(--text-secondary); font: var(--t-body-sm); }
+
+.nav { display: flex; gap: 4px; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
+.navLink {
+  position: relative; display: inline-flex; align-items: center; height: 44px; padding: 0 12px;
+  color: var(--text-secondary); font: var(--t-label); white-space: nowrap; text-decoration: none;
+  transition: color var(--dur-fast) var(--ease-out);
+}
+.navLink:hover, .navLink[aria-current="page"] { color: var(--text); }
+.navLink[aria-current="page"]::after { content: ""; position: absolute; left: 12px; right: 12px; bottom: -1px; height: 2.5px; border-radius: 2px; background: var(--mark); }
+
+.section { display: grid; gap: 12px; min-width: 0; }
+.section > h2 { margin: 0; font: var(--t-heading-sm); letter-spacing: -.01em; }
+.sectionHead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+.sectionHead h2 { margin: 0; font: var(--t-heading-sm); letter-spacing: -.01em; }
+
+/* Numbers: one card each, as many across as fit. */
+.stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+.stat { display: grid; gap: 6px; align-content: start; min-width: 0; padding: 20px; border-radius: var(--r-lg); background: var(--surface); border: 1px solid var(--line); }
+.stat p { margin: 0; color: var(--text-secondary); font: var(--t-body-sm); }
+.kicker { font: var(--t-label-sm); color: var(--text-tertiary); text-transform: uppercase; letter-spacing: .06em; }
+.big { font: var(--t-mono-lg); font-variant-numeric: tabular-nums; color: var(--text); overflow-wrap: anywhere; }
+.big span { font: var(--t-body-sm); color: var(--text-secondary); }
+.warn { color: var(--warning); }
+.bad { color: var(--error); }
+
+.panel { display: grid; gap: 12px; align-content: start; min-width: 0; padding: 22px; border-radius: var(--r-lg); background: var(--surface); border: 1px solid var(--line); }
+.panel p { margin: 0; }
+.panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: 12px; align-items: start; }
+.facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 16px; margin: 0; font: var(--t-body-sm); }
+.facts dt { color: var(--text-tertiary); }
+.facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+
+/* Tables scroll sideways inside their box on narrow screens; the page never does (positioned, so it also clips the hidden "Actions" headers). */
+.tableWrap { position: relative; overflow-x: auto; border-radius: var(--r-lg); background: var(--surface); border: 1px solid var(--line); }
+.table { width: 100%; border-collapse: collapse; font: var(--t-body-sm); }
+.table th {
+  padding: 10px 14px; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--line);
+  font: var(--t-label-sm); color: var(--text-tertiary); text-transform: uppercase; letter-spacing: .06em;
+}
+.table td { padding: 10px 14px; vertical-align: top; border-bottom: 1px solid var(--line); }
+.table tr:last-child td { border-bottom: 0; }
+/* On phones a table scrolls in its box rather than squeezing its first column to a few letters. */
+.table td:first-child { min-width: 168px; }
+.table a { color: var(--text); text-underline-offset: 3px; }
+.num { font: var(--t-mono); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.table th.num { text-align: right; }
+.nowrap { white-space: nowrap; }
+.sub { display: block; color: var(--text-tertiary); font: var(--t-caption); overflow-wrap: anywhere; }
+.mono { font: var(--t-mono); overflow-wrap: anywhere; }
+.error { display: block; min-width: 120px; max-width: 48ch; color: var(--error); font: var(--t-caption); overflow-wrap: anywhere; }
+.cellLink { display: inline-flex; align-items: center; min-height: 24px; font: var(--t-label); }
+.rowActions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+
+.note { margin: 0; padding: 14px 16px; border-radius: var(--r-md); background: var(--surface-sunken); color: var(--text-secondary); font: var(--t-body-sm); }
+.search { display: flex; flex-wrap: wrap; gap: 8px; }
+.search > :global(.input-wrap) { flex: 1 1 260px; min-width: 0; }
+.pager { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; color: var(--text-secondary); font: var(--t-body-sm); }
+.inline { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.inline > :global(.select-wrap) { flex: 0 1 200px; min-width: 0; }
+.inline > :global(.input) { flex: 1 1 240px; min-width: 0; }
+
+@media (max-width: 767px) {
+  .page { padding-top: 20px; }
+  .head h1 { font: var(--t-heading-lg); letter-spacing: -.025em; }
+  .stat, .panel { padding: 18px; }
+}
+
+/* Views of a page as links in the design system's segmented control (.seg). */
+.segLink {
+  display: inline-flex; align-items: center; height: 32px; padding: 0 14px; border-radius: var(--r-pill);
+  color: var(--text-secondary); font: var(--t-label-sm); white-space: nowrap; text-decoration: none;
+  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.segLink:hover { color: var(--text); }
+.segLink[aria-current="page"] { background: var(--surface-raised); color: var(--text); box-shadow: var(--shadow-1), inset 0 0 0 1px var(--line); }
+.segNav { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.plainList { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; font: var(--t-body-sm); overflow-wrap: anywhere; }

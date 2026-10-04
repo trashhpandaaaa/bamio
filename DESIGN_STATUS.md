@@ -1,6 +1,6 @@
 # Bamio design status
 
-Last updated: 2026-10-02 (emails through Resend; production architecture: Postgres, S3-compatible storage, a durable job queue with separate workers, Docker; the older logo back)
+Last updated: 2026-10-04 (the admin panel; more AI clips ranked by hype)
 
 ## Current phase
 
@@ -21,6 +21,7 @@ On 2026-09-27 the user said the only features needed are (1) **video clipping** 
 | Profile | Clerk profile plus "Clip defaults" (spoken language, find clips, clip length, format, captions, caption style). |
 | Pricing (`/pricing`) | Starter, Pro (most popular) and Team, monthly or every 3 months ("Save $6 compared to $36 monthly"...); included features, then a folded "Coming soon" list per plan; buy with Stripe Checkout, switch plans in Stripe's portal; billing questions. Public. |
 | Plan & billing (`/billing`) | The plan and its renewal, AI minutes left this month, projects kept, Manage billing (Stripe portal). In the account menu when plans are on. |
+| Admin (`/admin`) | For the people who run Bamio (see Admin panel): overview numbers, users, jobs and errors, money. 404 for everyone else. |
 | Data and storage | Projects, transcripts, jobs, billing and usage in Postgres; media (sources, thumbnails, frames, exports, a followed stream's segments) in a local folder or S3 / R2 / MinIO, per Clerk user and project. |
 
 ### Caption timing (2026-09-28)
@@ -102,6 +103,20 @@ The user pasted a production-readiness checklist (keys, Postgres, S3/R2, Redis a
 - **Workers** (`worker.ts`): pools for imports (2 at once), exports (2) and streams (4), set with `BAMIO_*_SLOTS`. Each kind has a time limit (import 8 h, find clips and transcribe again 6 h, export 2 h, follow its maximum plus 2 h). On SIGTERM a worker stops claiming, aborts its jobs and hands them back without counting an attempt. The web server runs a worker itself (`instrumentation.ts`) unless `BAMIO_WORKER=off`; then `node dist/worker.mjs` (esbuild bundle, `npm run build:worker`) runs on any machine with the same environment. Job handlers were made safe to run again: an import that finds its video already prepared goes straight to transcription, and a followed stream resumed by another worker finishes what was captured.
 - **Health and deploy:** `GET /api/health` (public, nothing about users) reports the database, storage, media tools and the queue (waiting, running, oldest wait) with 200 or 503. A database that can't be reached gives a 503 "can't reach its database" everywhere. `web/Dockerfile` (one image for both roles: Node 24 slim, tini, a non-root user, migrations on start, a health check) and `web/compose.yaml` (Postgres 18, MinIO and its bucket, a web server that only queues, a worker; `--scale worker=N`).
 - **Decision: a Postgres queue instead of Redis and BullMQ.** Same guarantees for this load (durable, leased, retried, prioritised, cancellable), one less service to run and back up, and a job is queued in the same transaction as the project change that asks for it, so neither can exist without the other. `queue.ts` is small, so it can be swapped if volume ever needs it. Redis and Docker weren't available on this machine either.
+
+### Admin panel (2026-10-04)
+
+The user asked for an admin panel with four sections (all picked): an overview dashboard, users, jobs and errors, and money (plans, promo codes, referrals). Access: the user (trashhpandaaaa@gmail.com) is the superadmin, sujandahal711@gmail.com a normal admin.
+
+- **Roles.** Superadmins are named on the server (`BAMIO_SUPERADMINS`, matched to the account's *verified* primary email in Clerk, so an unverified address can't claim it). Admins are rows in a new `admins` table (migration 0006), added and removed by superadmins from Admin → Admins. Admins see everything and can retry or cancel jobs; only superadmins give or take back free plans and manage admins. Every change goes into `admin_actions`.
+- **Hidden.** Non-admins get a 404 at `/admin` and `/api/admin/*`, signed out too: no sign-in redirect, not in `robots.txt`. Admins get an "Admin" link in the account menu (`admin` role in `/api/system/status`).
+- **Pages** are server components reading the database, Clerk and Stripe directly (`src/lib/server/admin.ts`, `adminRevenue` / `adminPromoCodes` in `billing.ts`); only the changes go through `/api/admin/*`. Tables scroll inside their box on phones.
+- **Retry and cancel.** A retry runs the owner's own starter (`retryImport`, moved out of the retry route, `startExport`, `startAnalysis`, `startRetranscribe`), only for the newest job of its kind for that project. Cancelled jobs skip a job kind's `failed` hook, which would have left a project stuck mid-step, so `cancelJob` (`jobs.ts`) waits for the worker to let go and settles the project: an import fails with Try again, finding clips or transcribing again ends with a warning, an export fails. A followed stream is stopped instead (keeps the recording); finishing a stream's video can't be cancelled.
+- **Money** shows subscriptions by plan from `billing_accounts` with their monthly value at list prices (promo codes not taken off), and money actually paid from Stripe's invoices (last 30 days and this month, cached 5 minutes).
+
+Verified: `npm run check` (178 unit tests, new `admin.test.ts`: roles, unverified emails, plan grants, cancel then retry), `npm run build`, `npm run test:e2e` (9 passed), `E2E_ADMIN=1` admin e2e (outsiders 404, every section, a free plan given and taken back), `E2E_RESPONSIVE=1 E2E_ADMIN=1` responsive (pages, editor and the admin pages at 320 to 1440; a long email title overflowed at 320 and 390 and was fixed).
+
+Next: watch the panel on the live data; possible additions if wanted: deleting a user's project, sending an email again, a chart of imports per day.
 
 ### More clips, ranked by hype (2026-10-04)
 

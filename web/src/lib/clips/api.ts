@@ -81,12 +81,19 @@ export const api = {
   exportClip: (id: string, clipId: string) => request<Project>("POST", `${base(id)}/clips/${encodeURIComponent(clipId)}/export`),
   /** `fresh`: read the plan from Stripe first (back from Checkout or the billing portal). */
   billing: (opts: { fresh?: boolean; signal?: AbortSignal } = {}) => request<BillingState>("GET", opts.fresh ? "/api/billing?fresh=1" : "/api/billing", undefined, opts.signal),
-  /** The Stripe Checkout page to send the browser to. */
   /** The user's referral link and what it has earned. */
   referrals: () => request<ReferralState>("GET", "/api/referrals"),
+  /** The Stripe Checkout page to send the browser to. */
   checkout: (plan: PlanId, interval: Interval) => request<{ url: string }>("POST", "/api/billing/checkout", { plan, interval }),
   /** The Stripe billing portal page to send the browser to; with a plan, it opens on switching to it. */
   billingPortal: (target?: { plan: PlanId; interval: Interval }) => request<{ url: string }>("POST", "/api/billing/portal", target ?? {}),
+  /** The admin panel’s changes (the server checks the role). */
+  admin: {
+    grantPlan: (userId: string, plan: PlanId | null) => request<{ ok: true }>("POST", `/api/admin/users/${encodeURIComponent(userId)}/plan`, { plan }),
+    job: (id: number, action: "retry" | "cancel") => request<{ ok: true }>("POST", `/api/admin/jobs/${id}`, { action }),
+    addAdmin: (email: string) => request<{ userId: string; email: string }>("POST", "/api/admin/admins", { email }),
+    removeAdmin: (userId: string) => request<{ ok: true }>("DELETE", `/api/admin/admins/${encodeURIComponent(userId)}`),
+  },
 };
 
 /** Errors a plan can fix (no plan yet, minutes used up, as many projects as the plan keeps): worth a link to Pricing. */

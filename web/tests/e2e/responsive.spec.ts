@@ -98,6 +98,24 @@ test("pages fit phones, tablets and desktops", async ({ page }) => {
   ]);
 });
 
+test("the admin panel fits phones, tablets and desktops", async ({ page }) => {
+  test.skip(!process.env.E2E_ADMIN, "Set E2E_ADMIN=1, with the server's BAMIO_SUPERADMINS naming the e2e user (see admin.spec.ts).");
+  test.setTimeout(10 * 60_000);
+  mkdirSync(OUT, { recursive: true });
+  await signIn(page);
+  const me = await page.evaluate(() => (window as unknown as { Clerk: { user: { id: string } } }).Clerk.user.id);
+  const title = (p: Page) => expect(p.getByRole("heading", { level: 1 })).toBeVisible();
+  await audit(page, "admin", [
+    { name: "admin", path: "/admin", ready: title },
+    { name: "admin-users", path: "/admin/users", ready: title },
+    { name: "admin-user", path: `/admin/users/${me}`, ready: title },
+    { name: "admin-jobs", path: "/admin/jobs?view=recent", ready: title },
+    { name: "admin-emails", path: "/admin/jobs?view=emails", ready: title },
+    { name: "admin-money", path: "/admin/money", ready: title },
+    { name: "admin-admins", path: "/admin/admins", ready: title },
+  ]);
+});
+
 test("a project and the editor fit phones, tablets and desktops", async ({ page }) => {
   test.setTimeout(10 * 60_000);
   mkdirSync(OUT, { recursive: true });

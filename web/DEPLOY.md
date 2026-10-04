@@ -106,6 +106,8 @@ docker compose exec app node scripts/grant-plan.mjs trashhpandaaaa@gmail.com pro
 
 It finds the account in Clerk by email (so it has to exist on this site, with the same Clerk keys) and gives it Pro for good. `none` instead of `pro` takes it back; `--list` shows who has a free plan. If you switch to Clerk's production keys later, sign up again on the live site and run it again: development and production accounts are different users.
 
+The admin panel (`/admin`, in the account menu) is for the email addresses in `BAMIO_SUPERADMINS` in `.env` (comma-separated; the account's email must be verified). After changing it run `docker compose up -d`. Superadmins add other admins in the panel (Admin → Admins), and can give free plans there too.
+
 ## YouTube links
 
 YouTube asks servers in data centres to sign in ("confirm you're not a bot"), so YouTube links fail on the Droplet until Bamio has a signed-in YouTube session. Give it the cookies of a **spare Google account** (not your main one: YouTube may block an account that downloads a lot).

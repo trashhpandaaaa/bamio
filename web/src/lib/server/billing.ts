@@ -675,3 +675,71 @@ async function customerUser(customer: Stripe.Subscription["customer"]): Promise<
   if ("deleted" in found && found.deleted) return null;
   return found.metadata?.bamio_user ?? null;
 }
+
+/* ------------------------------ Admin panel ------------------------------ */
+
+export type AdminRevenue = { last30dCents: number; monthCents: number; payingCustomers30d: number };
+let revenueCache: { at: number; value: AdminRevenue } | null = null;
+
+/**
+ * Money that came in: paid invoices with money in them (after discounts and credit), over the
+ * last 30 days and since the 1st of the month (UTC). Read from Stripe, kept 5 minutes. Null with plans off.
+ */
+export async function adminRevenue(): Promise<AdminRevenue | null> {
+  if (!billingEnabled()) return null;
+  if (revenueCache && Date.now() - revenueCache.at < 5 * 60_000) return revenueCache.value;
+  const now = new Date();
+  const since = Math.floor((now.getTime() - 30 * 86_400_000) / 1000);
+  const month = Math.floor(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1) / 1000);
+  const value: AdminRevenue = { last30dCents: 0, monthCents: 0, payingCustomers30d: 0 };
+  const paying = new Set<string>();
+  try {
+    for await (const invoice of stripe().invoices.list({ status: "paid", created: { gte: Math.min(since, month) }, limit: 100 })) {
+      if (invoice.amount_paid <= 0) continue;
+      if (invoice.created >= since) {
+        value.last30dCents += invoice.amount_paid;
+        if (invoice.customer) paying.add(typeof invoice.customer === "string" ? invoice.customer : invoice.customer.id);
+      }
+      if (invoice.created >= month) value.monthCents += invoice.amount_paid;
+    }
+  } catch (err) {
+    stripeError(err);
+  }
+  value.payingCustomers30d = paying.size;
+  revenueCache = { at: Date.now(), value };
+  return value;
+}
+
+export type AdminPromoCode = {
+  id: string;
+  code: string;
+  active: boolean;
+  timesRedeemed: number;
+  maxRedemptions: number | null;
+  percentOff: number | null;
+  amountOffCents: number | null;
+  duration: string | null;
+};
+
+/** The promotion codes in Stripe (made and switched off in the Stripe Dashboard). Null with plans off. */
+export async function adminPromoCodes(): Promise<AdminPromoCode[] | null> {
+  if (!billingEnabled()) return null;
+  try {
+    const list = await stripe().promotionCodes.list({ limit: 50, expand: ["data.promotion.coupon"] });
+    return list.data.map((p) => {
+      const coupon = typeof p.promotion?.coupon === "object" ? p.promotion.coupon : null;
+      return {
+        id: p.id,
+        code: p.code,
+        active: p.active,
+        timesRedeemed: p.times_redeemed,
+        maxRedemptions: p.max_redemptions,
+        percentOff: coupon?.percent_off ?? null,
+        amountOffCents: coupon?.amount_off ?? null,
+        duration: coupon?.duration ?? null,
+      };
+    });
+  } catch (err) {
+    stripeError(err);
+  }
+}

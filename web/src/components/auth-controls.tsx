@@ -1,7 +1,7 @@
 "use client";
 
 import { Show, SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
-import { CreditCard, Gift, Scissors } from "@phosphor-icons/react";
+import { CreditCard, Gift, Scissors, ShieldCheck } from "@phosphor-icons/react";
 import { useSystemStatus } from "@/hooks/use-project";
 
 /** Sign in / sign up when signed out; the account menu (edit profile, clip defaults, plan, sign out) when signed in. */
@@ -28,8 +28,9 @@ export function AuthControls() {
 }
 
 function AccountMenu() {
-  // "Plan & billing" only where plans are on (STRIPE_SECRET_KEY on the server).
-  const billing = useSystemStatus()?.billing ?? false;
+  const status = useSystemStatus();
+  // "Plan & billing" only where plans are on (STRIPE_SECRET_KEY on the server); "Admin" only for admins.
+  const billing = status?.billing ?? false;
   return (
     // "Manage account" is renamed "Edit profile" (see clerk-appearance.ts) and opens /profile.
     <UserButton userProfileMode="navigation" userProfileUrl="/profile">
@@ -38,6 +39,7 @@ function AccountMenu() {
         <UserButton.Link label="Clip defaults" labelIcon={<Scissors size={16} />} href="/profile/clip-defaults" />
         {billing ? <UserButton.Link label="Plan & billing" labelIcon={<CreditCard size={16} />} href="/billing" /> : null}
         {billing ? <UserButton.Link label="Refer a friend" labelIcon={<Gift size={16} />} href="/billing#refer" /> : null}
+        {status?.admin ? <UserButton.Link label="Admin" labelIcon={<ShieldCheck size={16} />} href="/admin" /> : null}
         <UserButton.Action label="signOut" />
       </UserButton.MenuItems>
     </UserButton>

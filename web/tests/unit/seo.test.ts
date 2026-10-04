@@ -14,7 +14,7 @@ describe("search engines", () => {
     const routes = readdirSync("src/app", { withFileTypes: true })
       .filter((d) => d.isDirectory() && existsSync(`src/app/${d.name}/page.tsx`) && !d.name.startsWith("["))
       .map((d) => `/${d.name}`);
-    const privateRoutes = ["/billing", "/new", "/projects", "/profile", "/sign-in", "/sign-up"];
+    const privateRoutes = ["/admin", "/billing", "/new", "/projects", "/profile", "/sign-in", "/sign-up"];
     expect(routes.filter((r) => !privateRoutes.includes(r)).sort()).toEqual(["/pricing", ...USE_CASES.map((u) => u.href)].sort());
     for (const u of USE_CASES) expect(existsSync(`src/app${u.href}/opengraph-image.tsx`), u.href).toBe(true);
   });

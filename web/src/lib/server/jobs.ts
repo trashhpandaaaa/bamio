@@ -121,6 +121,36 @@ export async function startRetranscribe(userId: string, projectId: string): Prom
   );
 }
 
+/** Try a failed import again, from wherever it can resume (the project's Try again, and the admin panel's Retry). */
+export async function retryImport(userId: string, projectId: string): Promise<Project> {
+  // Not yet counted against the plan's minutes: it needs minutes left, like a new import.
+  if (!(await hasUsage(userId, projectId))) await assertCanProcess(userId);
+  const project = await mutateProject(userId, projectId, async (p) => {
+    if (p.job.status !== "failed") throw new HttpError(409, "not_failed", "This project isn’t in a failed state.");
+    const keys = mediaKeys(userId, p.id);
+    const prepared = isPrepared(p) && (await storage().stat(keys.source)) !== null;
+    if (!prepared && p.source.live && !p.source.live.vodRange && !p.source.live.follow) {
+      throw new HttpError(409, "live_gone", "A live recording can’t be redone once the moment has passed. Start a new capture from the stream.");
+    }
+    const canResume =
+      prepared || p.source.kind === "url" || (p.upload !== undefined && p.upload.received === p.upload.size && (await storage().stat(keys.upload)) !== null);
+    if (!canResume) throw new HttpError(409, "upload_missing", "The uploaded file didn’t fully arrive. Start a new import and upload it again.");
+    // A follow that never got going starts over (from as far back as the stream keeps now).
+    const follow = p.source.live?.follow && !prepared ? { ...p.source.live.follow, status: "following" as const, endReason: undefined, endedAt: undefined } : undefined;
+    if (follow) {
+      return {
+        ...p,
+        source: { ...p.source, live: { ...p.source.live!, follow, requestedAt: Date.now() } },
+        job: { status: "queued", progress: 0, message: "Waiting to start", updatedAt: Date.now(), stages: ["recording"] },
+      };
+    }
+    return { ...p, job: { status: "queued", progress: 0, message: "Waiting to start", updatedAt: Date.now(), stages: plannedStages(p) } };
+  });
+  if (project.source.live?.follow?.status === "following") await startFollow(userId, project.id);
+  else await startImport(userId, project.id, { retries: !project.source.live });
+  return project;
+}
+
 /** Ask a capture (or a followed stream) to end now, keeping what was recorded. */
 export async function stopRecording(projectId: string): Promise<boolean> {
   return (await requestStop(projectId)) > 0;
@@ -853,6 +883,36 @@ export async function stopExport(projectId: string, clipId: string) {
 /** Stop everything running for a project (before deleting it), and wait briefly for it to stop. */
 export async function stopProject(projectId: string) {
   if ((await requestCancel(projectId)) > 0) await waitForIdle(projectId, 5_000);
+}
+
+/**
+ * Stop one job from the admin panel and leave its project as a failure would, so its owner can
+ * try again: an import fails, finding clips or transcribing again ends with a warning, an export
+ * fails. A followed stream is stopped instead (what was recorded is kept and finished).
+ */
+export async function cancelJob(job: { kind: JobKind; userId: string; projectId: string; clipId: string | null }, reason: string) {
+  if (job.kind === "follow") {
+    await requestStop(job.projectId);
+    return;
+  }
+  if (job.kind === "finish-follow") throw new HttpError(409, "cant_cancel", "Finishing a stream’s video can’t be stopped: its recording has already ended.");
+  const filter = { kind: job.kind, clipId: job.clipId ?? undefined };
+  if ((await requestCancel(job.projectId, filter)) === 0) return;
+  // A running job notices at its next heartbeat (every 10 s).
+  await waitForIdle(job.projectId, 15_000, filter);
+  const settle =
+    job.kind === "export"
+      ? mutateProject(job.userId, job.projectId, (p) => ({
+          ...p,
+          clips: p.clips.map((c) =>
+            c.id === job.clipId && c.export && (c.export.status === "queued" || c.export.status === "rendering") ? { ...c, export: { ...c.export, status: "failed", error: reason } } : c,
+          ),
+        }))
+      : job.kind === "import"
+        ? jobWriter(job.userId, job.projectId).set("failed", 0, "Import failed", { error: reason })
+        : jobWriter(job.userId, job.projectId).set("ready", 1, "Ready", { warning: reason });
+  // The project may have been deleted meanwhile.
+  await settle.catch(() => undefined);
 }
 
 /** Refuse new work when the disk is nearly full: the scratch folder's, and the data folder's when media are kept there. */

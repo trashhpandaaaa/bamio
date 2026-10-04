@@ -350,4 +350,6 @@ export type SystemStatus = {
   billing: boolean;
   /** Emails to users go out (or are previewed): plan changes, videos ready, AI minutes. */
   email: boolean;
+  /** The signed-in user’s role in the admin panel (/admin), if they have one. */
+  admin: "superadmin" | "admin" | null;
 };
