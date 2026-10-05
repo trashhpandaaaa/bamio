@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useToast } from "@/components/toast";
 import { useBilling } from "@/hooks/use-billing";
-import { formatPrice, minutesLeft, PLANS, REFERRAL_REWARD_CENTS, usedMinutes, type BillingState, type ReferralState } from "@/lib/billing/plans";
+import { formatPrice, FREE_TRIAL, minutesLeft, PLANS, REFERRAL_REWARD_CENTS, usedMinutes, type BillingState, type ReferralState } from "@/lib/billing/plans";
 import { api } from "@/lib/clips/api";
 import styles from "./billing.module.css";
 
@@ -120,8 +120,12 @@ export function BillingView({ arrived }: { arrived: "checkout" | "changed" | nul
       ) : !billing.plan ? (
         <div className="empty">
           <span className="ai-mark" aria-hidden />
-          <h2 className="empty-title">No plan yet</h2>
-          <p className="empty-body">Choose a plan to import videos. Bamio finds the moments, captions every word and exports 1080p with no watermark.</p>
+          <h2 className="empty-title">{billing.trial && minutesLeft({ ...billing.trial, resetsAt: 0 }) > 0 ? "Your free trial" : billing.trial ? "You’ve used your free video" : "No plan yet"}</h2>
+          <p className="empty-body">
+            {billing.trial && minutesLeft({ ...billing.trial, resetsAt: 0 }) > 0
+              ? `Your first video is free: ${minutesLeft({ ...billing.trial, resetsAt: 0 })} of ${FREE_TRIAL.minutes} minutes left. Choose a plan for more each month.`
+              : "Choose a plan to import videos. Bamio finds the moments, captions every word and exports 1080p with no watermark."}
+          </p>
           <Link href="/pricing" className="btn btn-volt">
             See the plans
           </Link>

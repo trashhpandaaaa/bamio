@@ -9,6 +9,11 @@ import nextEnv from "@next/env";
 
 nextEnv.loadEnvConfig(process.cwd(), process.env.NODE_ENV !== "production");
 
+// Error reports (SENTRY_DSN) and, in production, JSON log lines, as in the web server (instrumentation.ts).
+const { flushReports, initSentry, startJsonConsole } = await import("@/lib/server/monitor");
+startJsonConsole();
+initSentry("worker");
+
 const { startJobsWorker, stopJobsWorker } = await import("@/lib/server/worker-start");
 startJobsWorker();
 
@@ -18,6 +23,8 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
     if (stopping) process.exit(1);
     stopping = true;
     console.log("[bamio/worker] stopping: handing running jobs back to the queue…");
-    void stopJobsWorker().finally(() => process.exit(0));
+    void stopJobsWorker()
+      .then(() => flushReports())
+      .finally(() => process.exit(0));
   });
 }

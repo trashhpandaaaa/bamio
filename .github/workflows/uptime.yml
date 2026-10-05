@@ -1,0 +1,30 @@
+# Every 10 minutes: is bamio.app up? /api/health answers 200 when the database and storage
+# respond, 503 when not. Three tries a minute apart, so a deploy's restart isn't an outage.
+# A failed run is emailed by GitHub (to whoever last changed this schedule; Settings >
+# Notifications > Actions). GitHub pauses schedules after 60 days without commits: re-enable
+# it under Actions if that happens. Change the address with the repository variable HEALTH_URL.
+name: Uptime
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: bamio.app answers
+        env:
+          URL: ${{ vars.HEALTH_URL || 'https://bamio.app/api/health' }}
+        run: |
+          for attempt in 1 2 3; do
+            code=$(curl -s -o health.json -w '%{http_code}' --max-time 20 "$URL" || echo 000)
+            if [ "$code" = "200" ]; then cat health.json; exit 0; fi
+            echo "Attempt $attempt: HTTP $code"
+            sleep 60
+          done
+          echo "::error title=Bamio is down::$URL answered HTTP $code three times"
+          cat health.json 2>/dev/null || true
+          exit 1

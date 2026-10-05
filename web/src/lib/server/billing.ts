@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   ALL_LOOKUP_KEYS,
   ENTITLED_STATUSES,
+  FREE_TRIAL,
   fromLookupKey,
   intervalSchema,
   lookupKey,
@@ -264,6 +265,19 @@ async function allowance(userId: string, billing?: BillingRecord): Promise<Allow
   return { plan: best.plan, usedSec, allowanceSec: best.plan.minutes * 60, resetsAt: window.end, source: best.source, granted: best.granted };
 }
 
+type Trial = { usedSec: number; allowanceSec: number };
+
+/**
+ * The free first video (FREE_TRIAL in plans.ts), for an account that has never had a plan,
+ * paid or given: its minutes counted over the account's whole life. Null where it doesn't apply
+ * (plans off, or the account has or had a plan: when that plan ends, it's "choose a plan" again).
+ */
+async function trial(userId: string, billing?: BillingRecord): Promise<Trial | null> {
+  if (!billingEnabled()) return null;
+  if ((billing ?? (await billingRecord(userId))).subscription || (await readPlanGrant(userId))) return null;
+  return { usedSec: await usageBetween(userId, 0, Date.now() + 1), allowanceSec: FREE_TRIAL.minutes * 60 };
+}
+
 /** What the pages show: plan, renewal, minutes used, projects. `fresh`: read the plan from Stripe first. */
 export async function billingState(userId: string, opts: { fresh?: boolean } = {}): Promise<BillingState> {
   const count = await countProjects(userId);
@@ -280,12 +294,14 @@ export async function billingState(userId: string, opts: { fresh?: boolean } = {
       projects: { count, limit: MAX_PROJECTS_PER_USER },
       canManage: false,
       granted: false,
+      trial: null,
     };
   }
   const billing = await billingRecord(userId, opts);
   const sub = billing.subscription;
   const current = await allowance(userId, billing);
   const usage = current ? { usedSec: current.usedSec, allowanceSec: current.allowanceSec, resetsAt: current.resetsAt } : null;
+  const free = current ? null : await trial(userId, billing);
   if (current?.granted) {
     // A plan given without paying: no price, renewal or end date.
     return {
@@ -300,6 +316,7 @@ export async function billingState(userId: string, opts: { fresh?: boolean } = {
       projects: { count, limit: current.plan.projects },
       canManage: Boolean(billing.customerId),
       granted: true,
+      trial: null,
     };
   }
   return {
@@ -311,9 +328,10 @@ export async function billingState(userId: string, opts: { fresh?: boolean } = {
     periodEnd: sub ? (sub.cancelAt ?? sub.periodEnd) : null,
     ending: Boolean(sub && sub.cancelAt !== null),
     usage,
-    projects: { count, limit: current?.plan.projects ?? 0 },
+    projects: { count, limit: current?.plan.projects ?? (free ? FREE_TRIAL.projects : 0) },
     canManage: Boolean(billing.customerId),
     granted: false,
+    trial: free,
   };
 }
 
@@ -337,7 +355,7 @@ const SHORTER = { link: "Import a part of it", upload: "Upload a shorter video",
 export async function assertCanProcess(userId: string, need?: { sec: number; source: keyof typeof SHORTER }): Promise<void> {
   if (!billingEnabled()) return;
   const current = await allowance(userId);
-  if (!current) throw new HttpError(402, "plan_required", "Choose a plan to import videos.");
+  if (!current) return assertTrial(userId, need);
   const left = current.allowanceSec - current.usedSec;
   if (left < USED_UP_SEC) {
     throw new HttpError(402, "minutes_used", `You’ve used this month’s ${current.plan.minutes.toLocaleString("en-US")} AI minutes. More arrive on ${formatDay(current.resetsAt)}, or upgrade for more now.`);
@@ -351,16 +369,31 @@ export async function assertCanProcess(userId: string, need?: { sec: number; sou
   }
 }
 
-/** Before AI work on a video already imported (finding more clips, transcribing again): a working plan. */
-export async function assertPlan(userId: string): Promise<void> {
-  if (!billingEnabled()) return;
-  if (!(await allowance(userId))) throw new HttpError(402, "plan_required", "Choose a plan to use AI on your videos.");
+/** Without a plan: the free first video, if the account still has it and the video fits. */
+async function assertTrial(userId: string, need?: { sec: number; source: keyof typeof SHORTER }): Promise<void> {
+  const free = await trial(userId);
+  if (!free) throw new HttpError(402, "plan_required", "Choose a plan to import videos.");
+  const left = free.allowanceSec - free.usedSec;
+  if (left < USED_UP_SEC) throw new HttpError(402, "trial_used", `You’ve used your free ${FREE_TRIAL.minutes} minutes. Choose a plan to import more videos.`);
+  if (need && need.sec > left + GRACE_SEC) {
+    throw new HttpError(
+      402,
+      "minutes_short",
+      `This video is ${minutesText(Math.ceil(need.sec / 60))} long, and your free trial has ${minutesText(Math.floor(left / 60))} left. ${SHORTER[need.source]}, or choose a plan.`,
+    );
+  }
 }
 
-/** AI processing left this month, in seconds: Infinity with billing off, 0 without a plan. */
+/** Before AI work on a video already imported (finding more clips, transcribing again): a working plan, or the free trial's project. */
+export async function assertPlan(userId: string): Promise<void> {
+  if (!billingEnabled()) return;
+  if (!(await allowance(userId)) && !(await trial(userId))) throw new HttpError(402, "plan_required", "Choose a plan to use AI on your videos.");
+}
+
+/** AI processing left this month (or of the free trial), in seconds: Infinity with billing off, 0 without a plan. */
 export async function secondsLeft(userId: string): Promise<number> {
   if (!billingEnabled()) return Infinity;
-  const current = await allowance(userId);
+  const current = (await allowance(userId)) ?? (await trial(userId));
   return current ? Math.max(0, current.allowanceSec - current.usedSec) : 0;
 }
 
@@ -406,10 +439,10 @@ export async function queuePriority(userId: string): Promise<number> {
   return (await allowance(userId).catch(() => null))?.plan.priority ?? 0;
 }
 
-/** How many projects the user may keep. */
+/** How many projects the user may keep (the free trial: one at a time). */
 export async function projectLimit(userId: string): Promise<number> {
   if (!billingEnabled()) return MAX_PROJECTS_PER_USER;
-  return (await allowance(userId))?.plan.projects ?? 0;
+  return (await allowance(userId))?.plan.projects ?? ((await trial(userId)) ? FREE_TRIAL.projects : 0);
 }
 
 /* ------------------------------ Stripe pages ------------------------------ */
@@ -687,6 +720,43 @@ async function customerUser(customer: Stripe.Subscription["customer"]): Promise<
   const found = typeof customer === "string" ? await stripe().customers.retrieve(customer) : customer;
   if ("deleted" in found && found.deleted) return null;
   return found.metadata?.bamio_user ?? null;
+}
+
+/* ------------------------------ Deleting an account ------------------------------ */
+
+const gone = (err: unknown) => err instanceof Stripe.errors.StripeInvalidRequestError && err.code === "resource_missing";
+
+/**
+ * For an account being deleted: end its subscriptions at once (no refund for the time left, as
+ * the terms say) and delete its Stripe customers, so nothing is charged again and no card stays
+ * on file. Invoices stay in Stripe. Customers are found from the billing record and by the
+ * `bamio_user` metadata Bamio puts on every customer it makes. Safe to repeat.
+ */
+export async function closeBilling(userId: string): Promise<void> {
+  // With plans off (BAMIO_BILLING=off: the test servers) Stripe is never called, as everywhere else.
+  if (!billingEnabled() || !isUserId(userId)) return;
+  const customers = new Set<string>();
+  const recorded = (await readBilling(userId, billingSchema))?.customerId;
+  if (recorded) customers.add(recorded);
+  try {
+    for (const c of (await stripe().customers.search({ query: `metadata['bamio_user']:'${userId}'`, limit: 10 })).data) customers.add(c.id);
+    for (const customer of customers) {
+      const subs = await stripe()
+        .subscriptions.list({ customer, status: "all", limit: 100 })
+        .catch((err: unknown) => (gone(err) ? null : Promise.reject(err)));
+      for (const sub of subs?.data ?? []) {
+        if (FINAL_STATUSES.has(sub.status)) continue;
+        await stripe()
+          .subscriptions.cancel(sub.id, { prorate: false, invoice_now: false }, { idempotencyKey: `bamio-delete-account:${sub.id}` })
+          .catch((err: unknown) => (gone(err) ? null : Promise.reject(err)));
+      }
+      await stripe()
+        .customers.del(customer)
+        .catch((err: unknown) => (gone(err) ? null : Promise.reject(err)));
+    }
+  } catch (err) {
+    stripeError(err);
+  }
 }
 
 /* ------------------------------ Admin panel ------------------------------ */

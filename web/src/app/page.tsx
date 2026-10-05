@@ -10,7 +10,8 @@ import { StickyLinkBar } from "@/components/landing/sticky-link-bar";
 import { FaqList, faqPlain, type FaqItem } from "@/components/site/faq";
 import { JsonLd } from "@/components/site/json-ld";
 import { SiteFooter, SiteHeader, type SiteLink } from "@/components/site/site-chrome";
-import { formatPrice, PLANS } from "@/lib/billing/plans";
+import { formatPrice, FREE_TRIAL, PLANS } from "@/lib/billing/plans";
+import { COMPANY } from "@/lib/legal";
 import { faqData, HOME_DESCRIPTION, HOME_TITLE, ORGANIZATION, pageMetadata, softwareData, WEBSITE } from "@/lib/site";
 import type { Metadata } from "next";
 import styles from "./page.module.css";
@@ -51,14 +52,22 @@ const FAQ: FaqItem[] = [
     a: (
       <>
         Plans start at {formatPrice(PLANS.starter.price.month)} a month for {PLANS.starter.minutes} minutes of video, or {formatPrice(PLANS.starter.price.quarter)} for 3
-        months. Every plan exports 1080p with no watermark. <Link href="/pricing">See the plans</Link>.
+        months. Every plan exports 1080p with no watermark, and your first video is free (up to {FREE_TRIAL.minutes} minutes). <Link href="/pricing">See the plans</Link>.
       </>
     ),
-    text: `Plans start at ${formatPrice(PLANS.starter.price.month)} a month for ${PLANS.starter.minutes} minutes of video, or ${formatPrice(PLANS.starter.price.quarter)} for 3 months. Every plan exports 1080p with no watermark.`,
+    text: `Plans start at ${formatPrice(PLANS.starter.price.month)} a month for ${PLANS.starter.minutes} minutes of video, or ${formatPrice(PLANS.starter.price.quarter)} for 3 months. Every plan exports 1080p with no watermark, and your first video is free (up to ${FREE_TRIAL.minutes} minutes).`,
   },
   {
     q: "Whose videos can I clip?",
-    a: "Only videos you own or have permission to use. Bamio downloads what you paste, so check the rights before you post a clip.",
+    a: COMPANY.ready ? (
+      <>
+        Only videos you own or have permission to use. Bamio downloads what you paste, so check the rights before you post a clip. Rights holders can{" "}
+        <Link href="/takedown">report a misuse</Link>.
+      </>
+    ) : (
+      "Only videos you own or have permission to use. Bamio downloads what you paste, so check the rights before you post a clip."
+    ),
+    text: "Only videos you own or have permission to use. Bamio downloads what you paste, so check the rights before you post a clip.",
   },
 ];
 

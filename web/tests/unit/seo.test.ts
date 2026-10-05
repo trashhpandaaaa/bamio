@@ -3,19 +3,21 @@ import { describe, expect, it } from "vitest";
 import robots from "@/app/robots";
 import sitemap from "@/app/sitemap";
 import { PLANS } from "@/lib/billing/plans";
+import { COMPANY, LEGAL_PAGES } from "@/lib/legal";
 import { faqData, HOME_DESCRIPTION, pageMetadata, SITE_URL, softwareData, USE_CASES } from "@/lib/site";
 
 describe("search engines", () => {
   it("get every public page in the sitemap, and every page there exists", () => {
     const urls = sitemap().map((e) => e.url);
-    expect(urls).toEqual([SITE_URL, `${SITE_URL}/pricing`, ...USE_CASES.map((u) => `${SITE_URL}${u.href}`)]);
+    const legal = COMPANY.ready ? LEGAL_PAGES.map((p) => `${SITE_URL}${p.href}`) : [];
+    expect(urls).toEqual([SITE_URL, `${SITE_URL}/pricing`, ...USE_CASES.map((u) => `${SITE_URL}${u.href}`), ...legal]);
     for (const u of USE_CASES) expect(existsSync(`src/app${u.href}/page.tsx`), u.href).toBe(true);
     // A new public page needs a place here (and a share image).
     const routes = readdirSync("src/app", { withFileTypes: true })
       .filter((d) => d.isDirectory() && existsSync(`src/app/${d.name}/page.tsx`) && !d.name.startsWith("["))
       .map((d) => `/${d.name}`);
     const privateRoutes = ["/admin", "/billing", "/new", "/projects", "/profile", "/sign-in", "/sign-up"];
-    expect(routes.filter((r) => !privateRoutes.includes(r)).sort()).toEqual(["/pricing", ...USE_CASES.map((u) => u.href)].sort());
+    expect(routes.filter((r) => !privateRoutes.includes(r)).sort()).toEqual(["/pricing", ...USE_CASES.map((u) => u.href), ...LEGAL_PAGES.map((p) => p.href)].sort());
     for (const u of USE_CASES) expect(existsSync(`src/app${u.href}/opengraph-image.tsx`), u.href).toBe(true);
   });
 

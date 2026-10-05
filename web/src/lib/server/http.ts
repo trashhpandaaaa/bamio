@@ -1,6 +1,8 @@
 import "server-only";
 import type { z } from "zod";
+import { requestId, withContext } from "@/lib/server/context";
 import { isDatabaseDown } from "@/lib/server/db";
+import { reportError } from "@/lib/server/monitor";
 
 /** An error with a status and a message that is safe to show to the user. */
 export class HttpError extends Error {
@@ -22,11 +24,11 @@ export function errorResponse(err: unknown): Response {
     return Response.json(body, { status: err.status });
   }
   if (isDatabaseDown(err)) {
-    console.error("[bamio] The database can't be reached", (err as Error).message);
+    reportError(err, "database unreachable");
     const body: ErrorBody = { error: { code: "unavailable", message: "Bamio can’t reach its database right now. Try again in a moment." } };
     return Response.json(body, { status: 503 });
   }
-  console.error("[bamio] Unexpected error", err);
+  reportError(err, "unexpected error in a route");
   const body: ErrorBody = { error: { code: "internal", message: "Something went wrong on our side. Try again." } };
   return Response.json(body, { status: 500 });
 }
@@ -100,17 +102,29 @@ export function userRoute<P extends Params = Params>(
   opts: { rate?: RateRule } = {},
 ) {
   return async (req: Request, ctx: { params: Promise<P> }): Promise<Response> => {
-    try {
-      if (req.method !== "GET" && req.method !== "HEAD" && isCrossSite(req)) {
-        throw new HttpError(403, "forbidden", "Cross-site requests are not allowed.");
+    // Log lines and error reports from here on carry the request's id (and the user, once known);
+    // the answer says it too (x-request-id), so a user's report can be found in the logs.
+    const reqId = requestId(req);
+    const res = await withContext({ reqId }, async () => {
+      try {
+        if (req.method !== "GET" && req.method !== "HEAD" && isCrossSite(req)) {
+          throw new HttpError(403, "forbidden", "Cross-site requests are not allowed.");
+        }
+        const userId = await currentUserId();
+        if (!userId) throw new HttpError(401, "signed_out", "Sign in to continue.");
+        if (opts.rate) takeRateLimit(`${opts.rate.bucket}:${userId}`, opts.rate.limit, opts.rate.windowMs);
+        const params = await ctx.params;
+        return await withContext({ userId }, () => run(req, { userId, params }));
+      } catch (err) {
+        return errorResponse(err);
       }
-      const userId = await currentUserId();
-      if (!userId) throw new HttpError(401, "signed_out", "Sign in to continue.");
-      if (opts.rate) takeRateLimit(`${opts.rate.bucket}:${userId}`, opts.rate.limit, opts.rate.windowMs);
-      return await run(req, { userId, params: await ctx.params });
-    } catch (err) {
-      return errorResponse(err);
+    });
+    try {
+      res.headers.set("x-request-id", reqId);
+    } catch {
+      // Some responses (redirects) have fixed headers.
     }
+    return res;
   };
 }
 

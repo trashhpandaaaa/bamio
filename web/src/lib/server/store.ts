@@ -47,6 +47,12 @@ export function projectDir(userId: string, projectId: string) {
   return path.join(userDir(userId), projectId.toLowerCase());
 }
 
+/** Every media key of a user (deleting the account). The id is validated, so it can't name anything else. */
+export function userMediaPrefix(userId: string) {
+  accountDir(userId);
+  return `users/${userId}`;
+}
+
 /**
  * Where a project's media are kept (storage.ts): keys in the same layout as the data folder,
  * so with local storage they're the same files as before.
@@ -217,7 +223,7 @@ export async function createProject(userId: string, project: Project, maxProject
     // One create at a time per user, so two at once can't both pass the count.
     await tx`select pg_advisory_xact_lock(hashtext(${`projects:${userId}`}))`;
     const [{ count } = { count: 0 }] = await tx<{ count: number }[]>`select count(*)::int as count from projects where user_id = ${userId}`;
-    if (count >= maxProjects) throw new HttpError(409, "too_many", `You have ${count} projects, the most you can keep. Delete one to import another.`);
+    if (count >= maxProjects) throw new HttpError(409, "too_many", count === 1 ? "You have 1 project, the most you can keep now. Delete it to import another, or choose a plan to keep more." : `You have ${count} projects, the most you can keep. Delete one to import another.`);
     await tx`insert into projects (id, user_id, data, created_at, updated_at) values (${doc.id}, ${userId}, ${tx.json(asJson(doc))}, ${doc.createdAt}, ${doc.updatedAt})`;
   });
 }

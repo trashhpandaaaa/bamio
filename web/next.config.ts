@@ -7,6 +7,8 @@ const nextConfig: NextConfig = {
     // Build workers by free memory (at least 4), not one per CPU: with 11 on a busy 8 GB machine the build ran out of memory.
     memoryBasedWorkersCount: true,
   },
+  // Sentry's Node SDK hooks into module loading (OpenTelemetry): loaded from node_modules, not bundled.
+  serverExternalPackages: ["@sentry/node"],
   // Runtime data, speech models, downloaded tools and QA files are never part of the build.
   // (Webpack's tracer ignores the /*turbopackIgnore*/ hints in server code, so say it here too.)
   outputFileTracingExcludes: {

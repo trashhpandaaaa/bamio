@@ -4,6 +4,7 @@ import { clerkClient } from "@clerk/nextjs/server";
 import type postgres from "postgres";
 import { notFound } from "next/navigation";
 import { ENTITLED_STATUSES, INTERVALS, PLAN_IDS, PLANS, type Interval, type PlanId } from "@/lib/billing/plans";
+import { superadminEmails } from "@/lib/server/admin-roles";
 import { db } from "@/lib/server/db";
 import type { JobKind } from "@/lib/server/queue";
 import { HttpError, userRoute } from "@/lib/server/http";
@@ -18,17 +19,11 @@ import { dataRoot, workRoot } from "@/lib/server/store";
  * panel is logged (admin_actions). Someone who isn't an admin gets a 404: the panel isn't there.
  */
 
+export { superadminEmails };
+
 export type AdminRole = "superadmin" | "admin";
 export type Admin = { userId: string; email: string; role: AdminRole };
 
-const emailList = (value: string | undefined) =>
-  (value ?? "")
-    .split(",")
-    .map((e) => e.trim().toLowerCase())
-    .filter(Boolean);
-
-/** The superadmins' email addresses (BAMIO_SUPERADMINS). */
-export const superadminEmails = () => emailList(process.env.BAMIO_SUPERADMINS);
 
 type Cached = { at: number; admin: Admin | null };
 const roles: Map<string, Cached> = ((globalThis as { __bamioAdmins?: Map<string, Cached> }).__bamioAdmins ??= new Map());

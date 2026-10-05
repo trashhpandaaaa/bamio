@@ -87,6 +87,8 @@ export const api = {
   checkout: (plan: PlanId, interval: Interval) => request<{ url: string }>("POST", "/api/billing/checkout", { plan, interval }),
   /** The Stripe billing portal page to send the browser to; with a plan, it opens on switching to it. */
   billingPortal: (target?: { plan: PlanId; interval: Interval }) => request<{ url: string }>("POST", "/api/billing/portal", target ?? {}),
+  /** Delete the signed-in account and everything in it. */
+  deleteAccount: () => request<void>("DELETE", "/api/account", { confirm: "delete" }),
   /** The admin panel’s changes (the server checks the role). */
   admin: {
     grantPlan: (userId: string, plan: PlanId | null) => request<{ ok: true }>("POST", `/api/admin/users/${encodeURIComponent(userId)}/plan`, { plan }),

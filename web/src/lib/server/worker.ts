@@ -2,8 +2,10 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import os from "node:os";
 import { isAbortError } from "@/lib/server/bin";
+import { withContext } from "@/lib/server/context";
 import { db } from "@/lib/server/db";
 import { HttpError } from "@/lib/server/http";
+import { reportError } from "@/lib/server/monitor";
 import { claim, heartbeat, JOBS_CHANNEL, pruneJobs, release, retryDelay, settle, type JobKind, type JobRow } from "@/lib/server/queue";
 
 /*
@@ -48,7 +50,11 @@ export function startWorker(specs: Record<JobKind, KindSpec>, pools: Pool[], opt
   // The database being down shows once a minute, not on every poll.
   let quietUntil = 0;
 
-  async function runJob(job: JobRow, controller: AbortController) {
+  /** A job, with its id, kind, project and user on every log line and error report from it. */
+  const runJob = (job: JobRow, controller: AbortController) =>
+    withContext({ jobId: job.id, kind: job.kind, projectId: job.projectId, userId: job.userId }, () => runJobIn(job, controller));
+
+  async function runJobIn(job: JobRow, controller: AbortController) {
     const spec = specs[job.kind];
     const stopper = new AbortController();
     let lost = false;
@@ -99,7 +105,11 @@ export function startWorker(specs: Record<JobKind, KindSpec>, pools: Pool[], opt
         log(`${job.kind} job ${job.id} failed (attempt ${job.attempts} of ${job.maxAttempts}), trying again in ${Math.round(delayMs / 1000)} s: ${message(err)}`);
         if (await settle(job.id, id, { status: "retry", error: message(err), delayMs })) await spec.retrying?.(job, err, delayMs).catch(() => undefined);
       } else {
-        if (!(err instanceof HttpError)) log(`${job.kind} job ${job.id} failed: ${message(err)}`);
+        // A user's problem (a private video, no minutes left) isn't Bamio's: only the rest is reported.
+        if (!(err instanceof HttpError) || err.status >= 500) {
+          log(`${job.kind} job ${job.id} failed: ${message(err)}`);
+          reportError(err, `${job.kind} job failed`, { jobId: job.id, attempts: job.attempts });
+        }
         if (await settle(job.id, id, { status: "failed", error: message(err) })) await spec.failed?.(job, err).catch((e: unknown) => log(`recording the failure failed: ${message(e)}`));
       }
     } finally {

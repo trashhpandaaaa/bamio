@@ -1,18 +1,21 @@
 "use client";
 
-import { UserProfile, useUser } from "@clerk/nextjs";
-import { Bell, Info, Scissors } from "@phosphor-icons/react";
+import { UserProfile, useClerk, useUser } from "@clerk/nextjs";
+import { Bell, Info, Scissors, Trash, WarningCircle } from "@phosphor-icons/react";
+import { useRouter } from "next/navigation";
 import { useId, useState } from "react";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useToast } from "@/components/toast";
 import { LanguageSelect } from "@/components/language-select";
 import { useSystemStatus } from "@/hooks/use-project";
+import { api } from "@/lib/clips/api";
 import { ASPECT_LABEL, CAPTION_STYLE_LABEL, CLIP_LENGTH_LABEL } from "@/lib/clips/labels";
 import { ASPECTS, CAPTION_STYLES, CLIP_LENGTHS } from "@/lib/clips/schema";
 import { clipDefaultsSchema, readClipDefaults, type ClipDefaults } from "@/lib/profile/defaults";
 import { notificationsSchema, readNotifications, type Notifications } from "@/lib/profile/notifications";
 import styles from "./profile.module.css";
 
-/** Clerk's profile (name, photo, emails, password, sessions) plus Bamio's clip defaults and email settings. */
+/** Clerk's profile (name, photo, emails, password, sessions) plus Bamio's clip defaults, email settings and account deletion. */
 export function ProfileView() {
   return (
     <UserProfile path="/profile" routing="path">
@@ -21,6 +24,10 @@ export function ProfileView() {
       </UserProfile.Page>
       <UserProfile.Page label="Notifications" url="notifications" labelIcon={<Bell size={16} />}>
         <NotificationsPage />
+      </UserProfile.Page>
+      {/* Clerk’s own Delete account is hidden (clerk-appearance.ts): this one also ends the plan and removes everything Bamio keeps. */}
+      <UserProfile.Page label="Delete account" url="delete-account" labelIcon={<Trash size={16} />}>
+        <DeleteAccountPage />
       </UserProfile.Page>
     </UserProfile>
   );
@@ -209,5 +216,67 @@ function ClipDefaultsForm({ initial }: { initial: ClipDefaults }) {
         ) : null}
       </div>
     </form>
+  );
+}
+
+/**
+ * Deletes the account and everything Bamio keeps about it (src/lib/server/accounts.ts): the
+ * plan ends at once, then projects, media and every record go, then the Clerk user.
+ */
+function DeleteAccountPage() {
+  const { signOut } = useClerk();
+  const router = useRouter();
+  const toast = useToast();
+  const billing = useSystemStatus()?.billing ?? false;
+  const [understood, setUnderstood] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  async function remove() {
+    setConfirming(false);
+    setDeleting(true);
+    try {
+      await api.deleteAccount();
+    } catch (err) {
+      setDeleting(false);
+      toast({ tone: "error", title: "Couldn’t delete your account", body: err instanceof Error ? err.message : "Check your connection and try again." });
+      return;
+    }
+    // The Clerk user is gone already; signing out clears what the browser still holds.
+    await signOut({ redirectUrl: "/?account=deleted" }).catch(() => router.replace("/?account=deleted"));
+  }
+
+  return (
+    <div className={styles.defaults}>
+      <div className={styles.defaultsHead}>
+        <h2 className="t-heading-md">Delete account</h2>
+        <p className="t-body-sm t-secondary">This deletes your Bamio account and everything in it, for good. It can’t be undone.</p>
+      </div>
+      <ul className={styles.deleteList}>
+        <li>Your projects, uploaded and imported videos, transcripts, clips and exports.</li>
+        {billing ? <li>Your plan ends now, with no refund for the time left, and your card is removed. Past invoices stay with Stripe.</li> : null}
+        <li>Your settings, referral link and the emails Bamio sent you.</li>
+      </ul>
+      <p className="t-body-sm t-secondary">Download any clips you want to keep first.</p>
+      <label className={`choice ${styles.confirm}`}>
+        <input className="check" type="checkbox" checked={understood} disabled={deleting} onChange={(e) => setUnderstood(e.target.checked)} />I understand this deletes everything
+      </label>
+      <div className={styles.actions}>
+        <button className="btn btn-danger" type="button" disabled={!understood || deleting} aria-busy={deleting} onClick={() => setConfirming(true)}>
+          <WarningCircle size={18} aria-hidden />
+          {deleting ? "Deleting…" : "Delete my account"}
+        </button>
+      </div>
+      <ConfirmDialog
+        open={confirming}
+        title="Delete your account?"
+        body="Everything goes now: projects, videos, clips and your plan. This can’t be undone."
+        confirmLabel="Delete everything"
+        cancelLabel="Keep my account"
+        destructive
+        onClose={() => setConfirming(false)}
+        onConfirm={() => void remove()}
+      />
+    </div>
   );
 }

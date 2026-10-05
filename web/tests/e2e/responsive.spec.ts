@@ -95,6 +95,10 @@ test("pages fit phones, tablets and desktops", async ({ page }) => {
     { name: "billing", path: "/billing", ready: (p) => expect(p.getByRole("heading", { level: 2 }).first()).toBeVisible() },
     { name: "clip-defaults", path: "/profile/clip-defaults", ready: (p) => expect(p.getByRole("heading", { name: "Clip defaults" })).toBeVisible() },
     { name: "notifications", path: "/profile/notifications", ready: (p) => expect(p.getByRole("heading", { name: "Notifications" })).toBeVisible() },
+    { name: "delete-account", path: "/profile/delete-account", ready: (p) => expect(p.getByRole("heading", { name: "Delete account" })).toBeVisible() },
+    { name: "terms", path: "/terms", ready: (p) => expect(p.getByRole("heading", { level: 1 })).toBeVisible() },
+    { name: "privacy", path: "/privacy", ready: (p) => expect(p.getByRole("heading", { level: 1 })).toBeVisible() },
+    { name: "takedown", path: "/takedown", ready: (p) => expect(p.getByRole("heading", { level: 1 })).toBeVisible() },
   ]);
 });
 

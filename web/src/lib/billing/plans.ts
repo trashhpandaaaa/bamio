@@ -58,11 +58,10 @@ export const PLANS: Record<PlanId, Plan> = {
       { text: "Auto captions" },
       { text: "1080p export" },
       { text: "No watermark" },
-      soon("AI video reframing"),
-      { text: "Vertical 9:16 clips" },
+      { text: "Vertical, square and wide clips", detail: "9:16, 1:1 or 16:9; drag the picture to reframe" },
       { text: "Basic caption styles" },
-      soon("Basic templates"),
-      soon("1 brand"),
+      { text: "Captions in over 100 languages", detail: "Detected for you, with a time for every word" },
+      { text: "Live stream capture", detail: "YouTube, Twitch and Kick: a part, or follow the whole stream" },
       { text: "1 user" },
       { text: "Basic storage", detail: "Keep up to 50 projects" },
       { text: "Standard processing speed" },
@@ -81,25 +80,14 @@ export const PLANS: Record<PlanId, Plan> = {
     includes: "starter",
     features: [
       { text: "400 AI processing minutes/month" },
-      soon("4K export"),
-      soon("Advanced AI clip selection"),
       { text: "AI virality/quality scoring" },
-      soon("AI-generated hooks"),
       { text: "AI-generated titles" },
-      soon("AI B-roll"),
-      soon("Speaker detection"),
-      soon("Silence & filler-word removal"),
-      soon("Advanced caption styles"),
-      soon("Custom caption styling"),
-      soon("AI face tracking"),
-      soon("Smart reframing"),
-      soon("Social media scheduler"),
-      soon("3 brands"),
-      soon("Multiple social accounts"),
-      soon("2 users"),
       { text: "Priority processing", detail: "Your videos go first in the queue" },
+      soon("4K export"),
+      soon("Silence & filler-word removal"),
+      soon("AI face tracking"),
+      soon("Custom caption styling"),
       { text: "Extended storage", detail: "Keep up to 150 projects" },
-      soon("Advanced templates"),
       { text: "Commercial usage" },
       { text: "Priority support" },
     ],
@@ -115,32 +103,10 @@ export const PLANS: Record<PlanId, Plan> = {
     includes: "pro",
     features: [
       { text: "1,000 AI processing minutes/month" },
-      soon("4K / high-quality export"),
-      soon("Advanced AI clipping"),
-      soon("Advanced virality scoring"),
-      soon("AI hooks & titles"),
-      soon("AI B-roll"),
-      soon("Speaker detection"),
-      soon("Automatic silence/filler removal"),
-      soon("Advanced face tracking"),
-      soon("Advanced smart reframing"),
-      soon("Unlimited caption styles"),
-      soon("Brand kits"),
-      soon("Custom fonts"),
-      soon("Custom logos"),
-      soon("Custom caption templates"),
-      soon("10 brands/client workspaces"),
-      soon("5 team members"),
-      soon("Multiple social accounts"),
-      soon("Team collaboration"),
-      soon("Client approval workflow"),
-      soon("Content calendar"),
-      soon("Social media scheduling"),
-      soon("Advanced analytics"),
       { text: "Priority processing", detail: "Your videos go first in the queue" },
       { text: "Increased storage", detail: "Keep up to 400 projects" },
       { text: "Commercial/client usage" },
-      soon("API access"),
+      soon("Up to 5 team members"),
       { text: "Priority support" },
     ],
   },
@@ -162,6 +128,13 @@ export const quarterSaving = (plan: Plan) => plan.price.month * 3 - plan.price.q
 export function formatPrice(cents: number): string {
   return cents % 100 === 0 ? `$${(cents / 100).toLocaleString("en-US")}` : `$${(cents / 100).toFixed(2)}`;
 }
+
+/**
+ * Trying Bamio without a plan: the first video free, up to this many minutes of it, once per
+ * account (minutes counted over the account's whole life, not monthly), one project at a time.
+ * Only with plans on; a paid or given plan replaces it.
+ */
+export const FREE_TRIAL = { minutes: 30, projects: 1 } as const;
 
 /** What a referrer earns, once per friend whose first payment goes through: credit on their Bamio bill. */
 export const REFERRAL_REWARD_CENTS = 500;
@@ -202,6 +175,8 @@ export type BillingState = {
   canManage: boolean;
   /** The plan was given without paying (plan_grants), for good: no price or renewal. */
   granted: boolean;
+  /** Without a plan, for an account that never had one: the free first video's minutes (FREE_TRIAL), used and given. */
+  trial: { usedSec: number; allowanceSec: number } | null;
 };
 
 /** Whole minutes for people: used rounds up, left rounds down. */

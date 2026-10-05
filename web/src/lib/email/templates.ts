@@ -37,6 +37,8 @@ export const emailSchema = z.discriminatedUnion("template", [
   z.object({ template: z.literal("video-failed"), projectId: z.string(), title: z.string(), error: z.string() }),
   /** A friend the user referred made their first payment. `onBalance`: the credit is on their Stripe balance (else it waits for their first plan). */
   z.object({ template: z.literal("referral-earned"), amountCents: z.number().int().positive(), onBalance: z.boolean() }),
+  /** To superadmins (src/lib/server/alerts.ts): jobs failing, the queue backing up, an account that won't delete. */
+  z.object({ template: z.literal("ops-alert"), title: z.string().max(120), lines: z.array(z.string().max(500)).max(10), path: z.string().startsWith("/") }),
 ]);
 
 export type Email = z.infer<typeof emailSchema>;
@@ -57,6 +59,7 @@ export const EMAIL_CATEGORY: Record<EmailTemplate, EmailCategory> = {
   "video-ready": "videos",
   "video-failed": "videos",
   "referral-earned": "account",
+  "ops-alert": "account",
 };
 
 /** The design tokens emails use (lib/brand-tokens.ts). */
@@ -250,6 +253,14 @@ function draft(email: Email): Draft {
         button: email.onBalance ? { label: "Share your link again", path: "/billing#refer" } : { label: "See plans", path: "/pricing" },
       };
     }
+    case "ops-alert":
+      return {
+        subject: `Bamio alert: ${email.title}`,
+        preview: email.lines[0] ?? email.title,
+        heading: email.title,
+        blocks: email.lines.map((line) => ({ p: line })),
+        button: { label: "Open the admin panel", path: email.path },
+      };
   }
 }
 

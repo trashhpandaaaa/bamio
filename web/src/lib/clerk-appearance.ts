@@ -36,6 +36,9 @@ export const clerkAppearance = {
     card: { boxShadow: "var(--shadow-3)" },
     userButtonAvatarBox: { width: "32px", height: "32px", borderRadius: "10px" },
     userButtonPopoverCard: { boxShadow: "var(--shadow-3)" },
+    // Clerk's own "Delete account" (Security) would delete only the Clerk user, leaving the plan
+    // charging until its webhook arrives: the profile's Delete account page does it all.
+    profileSection__danger: { display: "none" },
   },
 } satisfies NonNullable<ProviderProps["appearance"]>;
 

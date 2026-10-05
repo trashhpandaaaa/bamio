@@ -4,7 +4,7 @@ import Link from "next/link";
 import { FaqList, faqPlain, type FaqItem } from "@/components/site/faq";
 import { JsonLd } from "@/components/site/json-ld";
 import { SiteFooter, SiteHeader, type SiteLink } from "@/components/site/site-chrome";
-import { formatPrice, intervalSchema, planIdSchema, PLANS, quarterSaving } from "@/lib/billing/plans";
+import { formatPrice, FREE_TRIAL, intervalSchema, planIdSchema, PLANS, quarterSaving } from "@/lib/billing/plans";
 import { billingEnabled, billingState } from "@/lib/server/billing";
 import { breadcrumbData, faqData, ORGANIZATION, pageMetadata, softwareData, WEBSITE } from "@/lib/site";
 import { PricingPlans } from "./pricing-plans";
@@ -52,6 +52,10 @@ const FAQ: FaqItem[] = [
     text: "Yes, any time, from Plan & billing. An upgrade starts right away and you pay only the difference; a smaller plan starts when your current period ends. If you cancel, your plan keeps working until the end of the period you paid for.",
   },
   {
+    q: "Can I try Bamio first?",
+    a: `Yes. Your first video is free, up to ${FREE_TRIAL.minutes} minutes of it, with every feature and no watermark. No card needed: sign up and import a video.`,
+  },
+  {
     q: "What does “coming soon” mean?",
     a: "Features Bamio is still building, shown under the plan that will include them. Everything listed as included works today.",
   },
@@ -81,7 +85,7 @@ export default async function PricingPage({ searchParams }: { searchParams: Prom
           <h1 id="pricing-title" className="t-display-xl">
             pick a plan, <span className="hl">start clipping.</span>
           </h1>
-          <p className={styles.lede}>Every plan finds the moments, captions every word and exports 1080p with no watermark. Pay monthly, or every 3 months and save.</p>
+          <p className={styles.lede}>Every plan finds the moments, captions every word and exports 1080p with no watermark. Pay monthly, or every 3 months and save. Your first video is free.</p>
         </section>
 
         <section className="container" aria-label="Plans">

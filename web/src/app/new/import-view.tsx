@@ -1,7 +1,7 @@
 "use client";
 
 import { useUser } from "@clerk/nextjs";
-import { CaretDown, Clock, CloudArrowUp, FilmStrip, Info, LinkSimple, WarningCircle, X } from "@phosphor-icons/react";
+import { CaretDown, Clock, CloudArrowUp, FilmStrip, Gift, Info, LinkSimple, WarningCircle, X } from "@phosphor-icons/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
@@ -9,7 +9,7 @@ import { PlatformIcon } from "@/components/platform-icon";
 import { useToast } from "@/components/toast";
 import { useBilling } from "@/hooks/use-billing";
 import { useSystemStatus } from "@/hooks/use-project";
-import { minutesLeft } from "@/lib/billing/plans";
+import { FREE_TRIAL, minutesLeft } from "@/lib/billing/plans";
 import { api, isPlanError, uploadFile } from "@/lib/clips/api";
 import { LanguageSelect } from "@/components/language-select";
 import { ASPECT_LABEL, CAPTION_STYLE_LABEL, CLIP_LENGTH_LABEL, formatBytes } from "@/lib/clips/labels";
@@ -62,10 +62,12 @@ function ImportForm({ defaults, initialUrl, initialMode }: { defaults: ClipDefau
 
   const aiOn = status?.ai.configured !== false;
   const linksOn = status?.ytdlp !== null;
-  // Plans (with Stripe on): importing needs one, and uses its AI minutes.
+  // Plans (with Stripe on): importing needs one, and uses its AI minutes; a new account has its first video free (the trial's minutes).
   const billingOn = status?.billing === true;
   const { billing } = useBilling({ enabled: billingOn });
-  const noPlan = billingOn && billing !== null && !billing.active;
+  const trialLeft = billing?.trial ? minutesLeft({ ...billing.trial, resetsAt: 0 }) : null;
+  const onTrial = trialLeft !== null && trialLeft > 0;
+  const noPlan = billingOn && billing !== null && !billing.active && !onTrial;
   const set = <K extends keyof ClipDefaults>(key: K, value: ClipDefaults[K]) => setOptions((o) => ({ ...o, [key]: value }));
   const fail = (err: unknown, fallback: string) => {
     setFormError(err instanceof Error ? err.message : fallback);
@@ -148,7 +150,7 @@ function ImportForm({ defaults, initialUrl, initialMode }: { defaults: ClipDefau
   const range = mode === "link" && info && !info.live ? partRange() : undefined;
   const neededSec =
     mode === "upload" ? (file ? fileSec : null) : !info || info.live ? null : typeof range === "object" ? range.end - range.start : usePart ? null : info.durationSec;
-  const left = billing?.usage ? minutesLeft(billing.usage) : null;
+  const left = billing?.usage ? minutesLeft(billing.usage) : onTrial ? trialLeft : null;
   const short = neededSec !== null && left !== null && Math.ceil(neededSec / 60) > left + 1;
 
   async function submitLink() {
@@ -252,10 +254,21 @@ function ImportForm({ defaults, initialUrl, initialMode }: { defaults: ClipDefau
         <div className={`notice is-warning ${styles.planNotice}`}>
           <WarningCircle size={20} weight="fill" aria-hidden />
           <p>
-            <strong>{billing?.plan ? "Your plan has ended" : "Choose a plan to import videos"}</strong>
+            <strong>{billing?.plan ? "Your plan has ended" : billing?.trial ? "You’ve used your free video" : "Choose a plan to import videos"}</strong>
             Every plan finds the moments, captions every word and exports 1080p with no watermark. Your projects stay as they are.
           </p>
           <Link href="/pricing" className="btn btn-volt btn-sm">
+            See plans
+          </Link>
+        </div>
+      ) : onTrial && billing?.trial && billing.trial.usedSec === 0 ? (
+        <div className={`notice ${styles.planNotice}`} role="status">
+          <Gift size={20} weight="fill" aria-hidden />
+          <p>
+            <strong>Your first video is free</strong>
+            Up to {FREE_TRIAL.minutes} minutes of it, with every feature and no watermark. No card needed.
+          </p>
+          <Link href="/pricing" className="btn btn-secondary btn-sm">
             See plans
           </Link>
         </div>
@@ -539,13 +552,19 @@ function ImportForm({ defaults, initialUrl, initialMode }: { defaults: ClipDefau
             <p className={styles.minutes} data-short={short ? "" : undefined}>
               <Clock size={16} aria-hidden />
               <span>
-                {neededSec === null
-                  ? `${left.toLocaleString()} AI ${left === 1 ? "minute" : "minutes"} left this month.`
-                  : short
-                    ? `This needs about ${Math.ceil(neededSec / 60).toLocaleString()} AI minutes, and ${left.toLocaleString()} are left this month. ${mode === "upload" ? "Upload a shorter video" : "Import a part of it"}, or upgrade.`
-                    : `Uses about ${Math.max(1, Math.ceil(neededSec / 60)).toLocaleString()} of your ${left.toLocaleString()} AI minutes left this month.`}{" "}
-                <Link href={left < 30 || short ? "/pricing" : "/billing"} className="link">
-                  {left < 30 || short ? "Get more" : "Your plan"}
+                {onTrial && !billing?.usage
+                  ? neededSec === null
+                    ? `${left.toLocaleString()} free ${left === 1 ? "minute" : "minutes"} left.`
+                    : short
+                      ? `This needs about ${Math.ceil(neededSec / 60).toLocaleString()} minutes, and your free trial has ${left.toLocaleString()} left. ${mode === "upload" ? "Upload a shorter video" : "Import a part of it"}, or choose a plan.`
+                      : `Uses about ${Math.max(1, Math.ceil(neededSec / 60)).toLocaleString()} of your ${left.toLocaleString()} free minutes.`
+                  : neededSec === null
+                    ? `${left.toLocaleString()} AI ${left === 1 ? "minute" : "minutes"} left this month.`
+                    : short
+                      ? `This needs about ${Math.ceil(neededSec / 60).toLocaleString()} AI minutes, and ${left.toLocaleString()} are left this month. ${mode === "upload" ? "Upload a shorter video" : "Import a part of it"}, or upgrade.`
+                      : `Uses about ${Math.max(1, Math.ceil(neededSec / 60)).toLocaleString()} of your ${left.toLocaleString()} AI minutes left this month.`}{" "}
+                <Link href={onTrial || left < 30 || short ? "/pricing" : "/billing"} className="link">
+                  {onTrial ? "Plans" : left < 30 || short ? "Get more" : "Your plan"}
                 </Link>
               </span>
             </p>

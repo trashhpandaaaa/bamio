@@ -87,16 +87,45 @@ test.describe("plans", () => {
     }
   });
 
-  test("without a plan, importing waits for one", async ({ page }) => {
-    await setPlan(id, null);
+  test("a new account's first video is free, up to 30 minutes", async ({ page }) => {
+    test.setTimeout(5 * 60_000);
+    await clearPlan(id);
+    // The trial keeps one project at a time: start from none (a failed run may have left one).
+    for (const p of (await (await page.request.get("/api/projects")).json()) as { id: string }[]) await page.request.delete(`/api/projects/${p.id}`);
     await page.goto("/new");
-    await expect(page.getByText("Choose a plan to import videos")).toBeVisible();
+    await expect(page.getByText("Your first video is free")).toBeVisible();
+    await expect(page.getByText("30 free minutes left.")).toBeVisible();
+    await page.getByRole("button", { name: "Upload a file" }).click();
+    await page.locator('input[type="file"]').setInputFiles(SAMPLE_VIDEO);
+    await expect(page.getByText("Uses about 1 of your 30 free minutes.")).toBeVisible();
+    await page.screenshot({ path: "qa/billing/trial-import.png", fullPage: true });
+    await page.getByRole("button", { name: "Import and find clips" }).click();
+    await page.waitForURL(/\/projects\/[0-9a-f-]{36}$/, { timeout: 90_000 });
+    const api = new URL(page.url()).pathname.replace("/projects/", "/api/projects/");
+    try {
+      await expect.poll(async () => ((await (await page.request.get(api)).json()) as { job: { status: string } }).job.status, { timeout: 180_000 }).toBe("ready");
+      await page.goto("/billing");
+      await expect(page.getByRole("heading", { name: "Your free trial" })).toBeVisible();
+      await expect(page.getByText("29 of 30 minutes left")).toBeVisible(); // the 40 s sample counts as a minute
+      await page.screenshot({ path: "qa/billing/trial-billing.png", fullPage: true });
+      // One project at a time: the next import waits until this one is deleted (or a plan is chosen).
+      const second = await page.request.post("/api/projects/upload", { data: { fileName: "b.mp4", size: 1000, findClips: false, clipLength: "short", language: "auto" } });
+      expect(second.status()).toBe(409);
+    } finally {
+      expect((await page.request.delete(api)).status()).toBe(204);
+    }
+  });
+
+  test("once the free video is used, importing waits for a plan", async ({ page }) => {
+    await setPlan(id, null, 30 * 60);
+    await page.goto("/new");
+    await expect(page.getByText("You’ve used your free video")).toBeVisible();
     await page.getByRole("button", { name: "Upload a file" }).click();
     await page.locator('input[type="file"]').setInputFiles(SAMPLE_VIDEO);
     await expect(page.getByRole("button", { name: "Import and find clips" })).toBeDisabled();
 
     await page.goto("/billing");
-    await expect(page.getByRole("heading", { name: "No plan yet" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "You’ve used your free video" })).toBeVisible();
 
     // Buying goes to Stripe, which refuses this server's fake key; the page says so.
     await page.goto("/pricing");

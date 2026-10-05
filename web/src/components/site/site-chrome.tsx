@@ -4,6 +4,7 @@ import { Wordmark } from "@/components/brand";
 import { MobileMenu } from "@/components/landing/mobile-menu";
 import { FooterAccountLinks, ProjectsLink, SignInLink } from "@/components/site/account-links";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { COMPANY, LEGAL_PAGES } from "@/lib/legal";
 import { USE_CASES } from "@/lib/site";
 import styles from "./site-chrome.module.css";
 
@@ -94,6 +95,15 @@ export function SiteFooter({ links, roomForBar = false, credit }: { links: SiteL
           <p>
             Only clip videos you own or have permission to use. Bamio transcribes videos itself; Google Gemini picks the clips.{credit ? ` ${credit}` : null}
           </p>
+          {COMPANY.ready ? (
+            <nav className={styles.legal} aria-label="Legal">
+              {LEGAL_PAGES.map((p) => (
+                <Link key={p.href} href={p.href}>
+                  {p.label}
+                </Link>
+              ))}
+            </nav>
+          ) : null}
           <ThemeToggle />
         </div>
       </div>

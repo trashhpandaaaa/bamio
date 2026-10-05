@@ -1,0 +1,155 @@
+# Every push to main and every pull request: typecheck, lint and unit tests (with Postgres), the
+# production build, the Docker image, and the end-to-end suite on Chromium (with mock AI).
+# The e2e job needs the Clerk development instance's keys as repository secrets
+# (Settings > Secrets and variables > Actions): CLERK_SECRET_KEY (sk_test_...) and
+# CLERK_PUBLISHABLE_KEY (pk_test_...). Without them it's skipped, and the rest still runs.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: web
+
+env:
+  # The same Node as the Docker image (web/Dockerfile).
+  NODE_VERSION: 24.20.0
+  # Any well-formed key lets the build run; only the e2e job talks to Clerk.
+  BUILD_CLERK_KEY: pk_test_ZXhhbXBsZS5jbGVyay5hY2NvdW50cy5kZXYk
+
+jobs:
+  check:
+    name: Check and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: bamio_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/bamio_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - name: Typecheck, lint, unit tests
+        run: npm run check
+      - name: Production build
+        run: npm run build
+        env:
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ env.BUILD_CLERK_KEY }}
+      - name: Worker bundle
+        run: npm run build:worker
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: web
+          push: false
+          build-args: NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${{ env.BUILD_CLERK_KEY }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  secrets:
+    name: E2E secrets present
+    runs-on: ubuntu-latest
+    outputs:
+      clerk: ${{ steps.check.outputs.clerk }}
+    steps:
+      - id: check
+        working-directory: .
+        env:
+          SECRET: ${{ secrets.CLERK_SECRET_KEY }}
+        run: echo "clerk=$([ -n "$SECRET" ] && echo yes || echo no)" >> "$GITHUB_OUTPUT"
+
+  e2e:
+    name: End to end (Chromium)
+    needs: [check, secrets]
+    if: needs.secrets.outputs.clerk == 'yes'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: bamio
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/bamio
+      CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+      # Test servers: mock AI, plans off, emails written but never sent.
+      BAMIO_AI_MOCK: "1"
+      BAMIO_BILLING: "off"
+      BAMIO_EMAIL: preview
+      BAMIO_SUPERADMINS: bamio-e2e+clerk_test@example.com
+      E2E_ADMIN: "1"
+      E2E_CHANNEL: chromium
+      E2E_PORT: "3100"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      # The English and language-detection speech models (the suite transcribes its sample for real).
+      - uses: actions/cache@v4
+        with:
+          path: web/.models
+          key: speech-models-${{ hashFiles('web/workers/speech-models.mjs') }}
+      - name: "yt-dlp (no models: the suite fetches the ones it needs)"
+        run: npm run setup:media
+        env:
+          BAMIO_PREFETCH: none
+      - name: Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Database
+        run: npm run db:migrate
+      - name: Build
+        run: npm run build
+      - name: Start the test server
+        run: |
+          nohup npx next start -p 3100 > server.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf http://localhost:3100/api/health > /dev/null && exit 0; sleep 2; done
+          cat server.log; exit 1
+      - name: End-to-end tests
+        run: npm run test:e2e
+      - name: Server log
+        if: failure()
+        run: cat server.log
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-results
+          path: |
+            web/test-results
+            web/qa
+          retention-days: 7

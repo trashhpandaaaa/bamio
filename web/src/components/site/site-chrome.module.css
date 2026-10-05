@@ -23,6 +23,9 @@
 .footerNav a:hover { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
 .footerBottom { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding-top: 24px; border-top: 1px solid var(--line); }
 .footerBottom p { margin: 0; max-width: 70ch; font: var(--t-caption); color: var(--text-tertiary); }
+.legal { display: flex; flex-wrap: wrap; gap: 4px 16px; font: var(--t-caption); }
+.legal a { display: inline-flex; align-items: center; min-height: 24px; color: var(--text-secondary); text-decoration: none; }
+.legal a:hover { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
 
 /* Tablets: the bar's links would crowd the sign-in buttons; they move into the menu. */
 @media (max-width: 899px) {

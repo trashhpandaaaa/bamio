@@ -9,6 +9,7 @@ import {
   assertCanProcess,
   assertPlan,
   billingState,
+  closeBilling,
   hasUsage,
   isWorking,
   minutesNotice,
@@ -303,27 +304,46 @@ describe("plan limits", () => {
     await recordUsage(user, "p1", 600);
     expect(await hasUsage(user, "p1")).toBe(false);
     expect(await billingState(user)).toMatchObject({ enabled: false, active: false, projects: { count: 0, limit: 100 } });
-    // A key with BAMIO_BILLING=off (the e2e test server) is off too.
+    // A key with BAMIO_BILLING=off (the e2e test server) is off too: nothing is limited, and deleting an account never calls Stripe.
     process.env.STRIPE_SECRET_KEY = "sk_test_unit";
     process.env.BAMIO_BILLING = "off";
     try {
       await expect(assertCanProcess("user_noplan")).resolves.toBeUndefined();
+      await expect(closeBilling("user_noplan")).resolves.toBeUndefined();
       expect((await billingState("user_noplan")).enabled).toBe(false);
     } finally {
       delete process.env.BAMIO_BILLING;
     }
   });
 
-  it("need a plan once billing is on", async () => {
+  it("give a new account its first video free, then need a plan", async () => {
     process.env.STRIPE_SECRET_KEY = "sk_test_unit";
-    await expect(assertCanProcess("user_noplan")).rejects.toMatchObject({ status: 402, code: "plan_required" });
-    await expect(assertPlan("user_noplan")).rejects.toMatchObject({ status: 402, code: "plan_required" });
-    expect(await secondsLeft("user_noplan")).toBe(0);
-    expect(await billingState("user_noplan")).toMatchObject({ enabled: true, active: false, plan: null, usage: null, canManage: false });
-    // An ended plan is shown, but doesn't work.
+    const fresh = "user_trial";
+    await db()`delete from usage_entries where user_id = ${fresh}`;
+    // Up to 30 minutes of video, with AI on it, one project at a time.
+    await expect(assertCanProcess(fresh, { sec: 25 * 60, source: "link" })).resolves.toBeUndefined();
+    await expect(assertCanProcess(fresh, { sec: 45 * 60, source: "upload" })).rejects.toMatchObject({
+      status: 402,
+      code: "minutes_short",
+      message: expect.stringContaining("your free trial has 30 minutes left. Upload a shorter video"),
+    });
+    await expect(assertPlan(fresh)).resolves.toBeUndefined();
+    expect(await secondsLeft(fresh)).toBe(30 * 60);
+    expect(await projectLimit(fresh)).toBe(1);
+    expect(await queuePriority(fresh)).toBe(0);
+    expect(await billingState(fresh)).toMatchObject({ enabled: true, active: false, plan: null, usage: null, trial: { usedSec: 0, allowanceSec: 1800 }, projects: { limit: 1 } });
+    // Its minutes count over the account's whole life, and once used they're gone.
+    await recordUsage(fresh, "p1", 28 * 60);
+    expect(await secondsLeft(fresh)).toBe(2 * 60);
+    await recordUsage(fresh, "p2", 2 * 60);
+    await expect(assertCanProcess(fresh)).rejects.toMatchObject({ status: 402, code: "trial_used" });
+    expect((await billingState(fresh)).trial).toEqual({ usedSec: 1800, allowanceSec: 1800 });
+    // An account that had a plan doesn't get a trial when it ends: its plan is shown, and doesn't work.
     await givePlan("user_ended", "pro", { status: "canceled" });
     await expect(assertCanProcess("user_ended")).rejects.toMatchObject({ code: "plan_required" });
-    expect(await billingState("user_ended")).toMatchObject({ active: false, plan: "pro", status: "canceled", canManage: true });
+    await expect(assertPlan("user_ended")).rejects.toMatchObject({ code: "plan_required" });
+    expect(await secondsLeft("user_ended")).toBe(0);
+    expect(await billingState("user_ended")).toMatchObject({ active: false, plan: "pro", status: "canceled", canManage: true, trial: null });
   });
 
   it("count AI minutes once per import, and stop at the plan's minutes", async () => {
