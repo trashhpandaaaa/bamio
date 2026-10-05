@@ -9,7 +9,7 @@ You need: a DigitalOcean account, a domain (or see "No domain yet" below), and t
 In DigitalOcean: **Create → Droplets**.
 
 - **Image:** Ubuntu 24.04 (LTS) x64.
-- **Size:** Basic, at least **2 vCPUs / 4 GB RAM**. 4 vCPUs / 8 GB transcribes about twice as fast; you can resize later. Disk: the plan's disk (80 GB or more) holds a lot of video.
+- **Size:** Basic, at least **2 vCPUs / 4 GB RAM**. 4 vCPUs / 8 GB transcribes about twice as fast; you can resize later. Each transcription holds about 1 GB, so on 4 GB put `BAMIO_IMPORT_SLOTS=1` in `.env` (one import at a time): with two at once, plus a followed stream's captions, the server swaps and every job crawls (seen on 2026-10-05: waits of 2 to 3 hours). With 8 GB, two at a time is fine. Disk: the plan's disk (80 GB or more) holds a lot of video.
 - **Region:** the one closest to your users.
 - **Authentication:** SSH key (add yours; on Windows, `ssh-keygen` in PowerShell makes one, and `type $env:USERPROFILE\.ssh\id_ed25519.pub` shows the public key to paste).
 - **Backups:** worth switching on (weekly copies of the whole disk, videos included).
