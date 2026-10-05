@@ -1,6 +1,6 @@
 # Bamio design status
 
-Last updated: 2026-10-04 (the admin panel; more AI clips ranked by hype)
+Last updated: 2026-10-05 (full QA pass: Stripe webhook events, static marketing pages, accessibility, deploy smoothness)
 
 ## Current phase
 
@@ -103,6 +103,24 @@ The user pasted a production-readiness checklist (keys, Postgres, S3/R2, Redis a
 - **Workers** (`worker.ts`): pools for imports (2 at once), exports (2) and streams (4), set with `BAMIO_*_SLOTS`. Each kind has a time limit (import 8 h, find clips and transcribe again 6 h, export 2 h, follow its maximum plus 2 h). On SIGTERM a worker stops claiming, aborts its jobs and hands them back without counting an attempt. The web server runs a worker itself (`instrumentation.ts`) unless `BAMIO_WORKER=off`; then `node dist/worker.mjs` (esbuild bundle, `npm run build:worker`) runs on any machine with the same environment. Job handlers were made safe to run again: an import that finds its video already prepared goes straight to transcription, and a followed stream resumed by another worker finishes what was captured.
 - **Health and deploy:** `GET /api/health` (public, nothing about users) reports the database, storage, media tools and the queue (waiting, running, oldest wait) with 200 or 503. A database that can't be reached gives a 503 "can't reach its database" everywhere. `web/Dockerfile` (one image for both roles: Node 24 slim, tini, a non-root user, migrations on start, a health check) and `web/compose.yaml` (Postgres 18, MinIO and its bucket, a web server that only queues, a worker; `--scale worker=N`).
 - **Decision: a Postgres queue instead of Redis and BullMQ.** Same guarantees for this load (durable, leased, retried, prioritised, cancellable), one less service to run and back up, and a job is queued in the same transaction as the project change that asks for it, so neither can exist without the other. `queue.ts` is small, so it can be swapped if volume ever needs it. Redis and Docker weren't available on this machine either.
+
+### Full QA pass (2026-10-05)
+
+The user asked for a full QA report and every problem fixed. Checked: production data, logs, Stripe, YouTube access, headers, sitemap, share images, Lighthouse on bamio.app, every automated suite, a new sweep of every screen in both themes, and real live streams (YouTube, Twitch, Kick).
+
+Found and fixed:
+
+- **Stripe's live webhook lacked the subscription events.** It had been made by hand in the dashboard with 18 events, none of them `checkout.session.completed` or `customer.subscription.*`. Both subscriptions so far were still saved (the billing page reads Stripe when people come back from checkout), but cancellations, failed renewals and their emails would have reached Bamio late or not at all. The missing events were added to the endpoint (signing secret kept). `WEBHOOK_EVENTS` in billing.ts is now the list, a unit test keeps `scripts/setup-stripe.mjs` equal to it, and the admin Money page warns when the endpoint misses any (`adminWebhookCheck`).
+- **Marketing pages were rendered on every request** (`no-store`, about 0.45 s before the first byte): the site header used Clerk's `<Show>` in a server component, which reads the session. The signed-in links moved to client components (`account-links.tsx`); `/` and the four use-case pages are static again (cacheable, and the back/forward cache works). Pricing stays dynamic (it shows the visitor's own plan).
+- **Phone load (Lighthouse mobile 68, largest paint 5.9 s):** the hero headline faded in from invisible, so its paint waited behind the scripts. It now rises without fading. Clerk's domain is preconnected (decoded from the publishable key).
+- **Contrast:** the Twitch page's moment finder faded the lines outside the moment to 45% (2.1:1 on the dark panel); they now use the tertiary text colour (4.5:1 or more). axe's flag on the editor's "Pop" sample measures its black outline, not the volt fill people see: excluded in the sweep, with the reason.
+- **Security and deploys:** HSTS header (one year). Caddy holds requests for up to 30 s while the app restarts (deploys showed a few seconds of 502s), and plain http redirects to `https://bamio.app/` (Caddy's own redirect added `:443`). Docker's build cache had reached 27 GB of the 77 GB disk: DEPLOY.md now prunes it after each update.
+- **Admin:** "new users in 7 days" said 100 when it could only read 100; it says 100+.
+- **Tests:** a new opt-in sweep (`E2E_SWEEP=1`: console errors, crashes, failed requests, axe WCAG 2.1 AA, light and dark); `E2E_BASE_URL` runs read-only tests against the live site; the Twitch capture-from-history test skips (instead of hanging 15 minutes) on a stream without a VOD, which `twitch.tv/bobross` is; the admin cancel test gets 30 s (its first call loads the whole job system).
+
+Checked and fine: YouTube from the server with its cookies (the app's `--js-runtimes node` solves YouTube's challenge), Clerk production keys, swap, firewall, the nightly database dump, every sitemap page, share image and icon; Lighthouse accessibility, best practices and SEO at 100, desktop performance 96; live capture and follow on YouTube (Sky News) and Kick (ESL), follow on Twitch.
+
+Open (the user's call): backups live on the Droplet itself (turn on DigitalOcean's weekly Droplet backups, or copy the dumps elsewhere); seven old unnamed prices in Stripe could be archived; Lighthouse's experimental "say what you see" check notes that the wordmark's visible text ("bamıo", with a dotless ı) isn't in its name ("Bamio home"), with no effect on the score.
 
 ### Admin panel (2026-10-04)
 

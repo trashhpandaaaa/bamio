@@ -1,10 +1,9 @@
-import { Show } from "@clerk/nextjs";
 import Link from "next/link";
 import { AuthControls } from "@/components/auth-controls";
 import { Wordmark } from "@/components/brand";
 import { MobileMenu } from "@/components/landing/mobile-menu";
+import { FooterAccountLinks, ProjectsLink, SignInLink } from "@/components/site/account-links";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { billingEnabled } from "@/lib/server/billing";
 import { USE_CASES } from "@/lib/site";
 import styles from "./site-chrome.module.css";
 
@@ -34,9 +33,7 @@ export function SiteHeader({ links, menu = links, current }: { links: SiteLink[]
           {links.map((link) => (
             <SiteAnchor key={link.href} link={link} current={current} />
           ))}
-          <Show when="signed-in">
-            <Link href="/projects">Your projects</Link>
-          </Show>
+          <ProjectsLink />
         </nav>
         <div className={styles.topAuth}>
           <AuthControls />
@@ -44,12 +41,8 @@ export function SiteHeader({ links, menu = links, current }: { links: SiteLink[]
             {menu.map((link) => (
               <SiteAnchor key={link.href} link={link} current={current} />
             ))}
-            <Show when="signed-in">
-              <Link href="/projects">Your projects</Link>
-            </Show>
-            <Show when="signed-out">
-              <Link href="/sign-in">Sign in</Link>
-            </Show>
+            <ProjectsLink />
+            <SignInLink />
           </MobileMenu>
         </div>
       </div>
@@ -93,30 +86,7 @@ export function SiteFooter({ links, roomForBar = false, credit }: { links: SiteL
           <div>
             <p className={styles.footerTitle}>Your account</p>
             <ul>
-              <Show when="signed-out">
-                <li>
-                  <Link href="/sign-in">Sign in</Link>
-                </li>
-                <li>
-                  <Link href="/sign-up">Sign up</Link>
-                </li>
-              </Show>
-              <Show when="signed-in">
-                <li>
-                  <Link href="/projects">Your projects</Link>
-                </li>
-                <li>
-                  <Link href="/new">Import a video</Link>
-                </li>
-                <li>
-                  <Link href="/profile/clip-defaults">Clip defaults</Link>
-                </li>
-                {billingEnabled() ? (
-                  <li>
-                    <Link href="/billing">Plan &amp; billing</Link>
-                  </li>
-                ) : null}
-              </Show>
+              <FooterAccountLinks />
             </ul>
           </div>
         </nav>

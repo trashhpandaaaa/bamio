@@ -48,14 +48,28 @@ export const viewport: Viewport = {
   ],
 };
 
+/**
+ * Clerk’s frontend API, from the publishable key ("pk_live_" + base64 of "clerk.example.com$"): its
+ * scripts load on every page, so the connection opens while the page is still arriving.
+ */
+function clerkOrigin(): string | null {
+  const encoded = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.split("_")[2] ?? "";
+  const host = Buffer.from(encoded, "base64").toString("utf8").replace(/\$$/, "");
+  return /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(host) ? `https://${host}` : null;
+}
+
 /* Applies the saved theme before first paint so there is no flash. */
 const themeScript = `try{var t=localStorage.getItem("bamio-theme");if(t==="paper"||t==="night")document.documentElement.dataset.theme=t}catch(e){}`;
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  const clerk = clerkOrigin();
   return (
     <html lang="en" className={`${bricolage.variable} ${geistMono.variable}`} data-scroll-behavior="smooth" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+        {/* Scripts (CORS) and the session calls (with cookies) use separate connections. */}
+        {clerk ? <link rel="preconnect" href={clerk} crossOrigin="anonymous" /> : null}
+        {clerk ? <link rel="preconnect" href={clerk} /> : null}
       </head>
       <body>
         <ClerkProvider

@@ -9,7 +9,17 @@
 
 {$DOMAIN} {
 	encode zstd gzip
-	reverse_proxy app:3000
+	# While the app restarts (an update), requests wait for it, up to 30 s, instead of failing.
+	reverse_proxy app:3000 {
+		lb_try_duration 30s
+		lb_try_interval 250ms
+	}
+}
+
+# Plain http to the https address (Caddy's own redirect names the port: https://DOMAIN:443/).
+# Certificate challenges over http are still answered: Caddy handles them before any site.
+http://{$DOMAIN}, http://www.{$DOMAIN} {
+	redir https://{$DOMAIN}{uri} permanent
 }
 
 # www.DOMAIN (when its DNS points here) goes to the one canonical address, keeping the path.

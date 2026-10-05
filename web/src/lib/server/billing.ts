@@ -623,6 +623,19 @@ export function verifyWebhook(payload: string, signature: string | null): Stripe
   }
 }
 
+/** The Stripe events handleWebhook acts on. scripts/setup-stripe.mjs subscribes the endpoint to the same list (a unit test keeps them equal). */
+export const WEBHOOK_EVENTS = [
+  "checkout.session.completed",
+  "customer.subscription.created",
+  "customer.subscription.updated",
+  "customer.subscription.deleted",
+  "customer.subscription.paused",
+  "customer.subscription.resumed",
+  "customer.subscription.pending_update_applied",
+  "customer.subscription.pending_update_expired",
+  "invoice.paid",
+] as const;
+
 /** Keep the billing record in step with Stripe. Subscriptions are read fresh from Stripe, so events arriving out of order don't matter. */
 export async function handleWebhook(event: Stripe.Event): Promise<void> {
   try {
@@ -720,6 +733,27 @@ export type AdminPromoCode = {
   amountOffCents: number | null;
   duration: string | null;
 };
+
+export type WebhookCheck = { url: string; found: boolean; enabled: boolean; missing: string[] };
+
+/**
+ * Whether Stripe's webhook for this site (BAMIO_APP_URL) is on and sends every event Bamio acts
+ * on. An endpoint made by hand in the dashboard once lacked the subscription events, so plan
+ * changes reached Bamio only when it next read Stripe itself. Null with plans off or no BAMIO_APP_URL.
+ */
+export async function adminWebhookCheck(): Promise<WebhookCheck | null> {
+  const base = process.env.BAMIO_APP_URL?.replace(/\/+$/, "");
+  if (!billingEnabled() || !base) return null;
+  const url = `${base}/api/billing/webhook`;
+  try {
+    const found = (await stripe().webhookEndpoints.list({ limit: 100 })).data.find((e) => e.url === url);
+    if (!found) return { url, found: false, enabled: false, missing: [...WEBHOOK_EVENTS] };
+    const missing = found.enabled_events.includes("*") ? [] : WEBHOOK_EVENTS.filter((e) => !found.enabled_events.includes(e));
+    return { url, found: true, enabled: found.status === "enabled", missing };
+  } catch (err) {
+    stripeError(err);
+  }
+}
 
 /** The promotion codes in Stripe (made and switched off in the Stripe Dashboard). Null with plans off. */
 export async function adminPromoCodes(): Promise<AdminPromoCode[] | null> {

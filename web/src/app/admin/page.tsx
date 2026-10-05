@@ -23,7 +23,7 @@ export default async function AdminOverviewPage() {
         <div className={styles.stat}>
           <span className={styles.kicker}>Users</span>
           <span className={styles.big}>{o.users ? count(o.users.total) : "—"}</span>
-          <p>{o.users ? `${count(o.users.new7d)} new in the last 7 days` : "Couldn’t reach Clerk"}</p>
+          <p>{o.users ? `${count(o.users.new7d)}${o.users.new7dMore ? "+" : ""} new in the last 7 days` : "Couldn’t reach Clerk"}</p>
         </div>
         <div className={styles.stat}>
           <span className={styles.kicker}>Paying</span>

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -13,6 +14,7 @@ import {
   minutesNotice,
   planOfPrice,
   projectLimit,
+  WEBHOOK_EVENTS,
   queuePriority,
   recordUsage,
   saveSubscription,
@@ -26,6 +28,15 @@ import { db } from "@/lib/server/db";
 import { limiter } from "@/lib/server/limiter";
 
 const utc = (s: string) => Date.parse(`${s}Z`);
+
+describe("webhook", () => {
+  it("has Stripe send exactly the events Bamio acts on", () => {
+    const script = readFileSync("scripts/setup-stripe.mjs", "utf8");
+    const start = script.indexOf("const EVENTS = [");
+    const listed = [...script.slice(start, script.indexOf("];", start)).matchAll(/"([a-z_.]+)"/g)].map((m) => m[1]);
+    expect(listed).toEqual([...WEBHOOK_EVENTS]);
+  });
+});
 
 describe("plans", () => {
   it("has the prices and minutes of the pricing sheet", () => {

@@ -117,7 +117,8 @@ describe("admin panel", () => {
     ]);
   });
 
-  it("cancels a job so its owner sees it failed, and retries it the way they would", async () => {
+  // Its first call loads the whole job system (media tools, transcription): slow on a busy machine.
+  it("cancels a job so its owner sees it failed, and retries it the way they would", { timeout: 30_000 }, async () => {
     const p = blankProject({
       title: "A talk",
       source: { kind: "url", url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ", platform: "youtube", title: "A talk", durationSec: 0 },

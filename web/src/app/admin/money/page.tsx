@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { formatPrice, PLANS } from "@/lib/billing/plans";
 import { grantList, listPriceMrr, planCounts, referralTotals, requireAdmin, usersById } from "@/lib/server/admin";
-import { adminPromoCodes, adminRevenue, billingEnabled } from "@/lib/server/billing";
+import { adminPromoCodes, adminRevenue, adminWebhookCheck, billingEnabled } from "@/lib/server/billing";
 import { PRIVATE_PAGE } from "@/lib/site";
 import { AdminShell } from "../admin-shell";
 import { count, when } from "../format";
@@ -15,12 +15,13 @@ const failed = (err: unknown) => ({ error: err instanceof Error ? err.message : 
 /** Plans and what they bring in, money from Stripe, promo codes, free plans and referrals. */
 export default async function AdminMoneyPage() {
   const admin = await requireAdmin();
-  const [plans, revenue, promos, grants, referrals] = await Promise.all([
+  const [plans, revenue, promos, grants, referrals, webhook] = await Promise.all([
     planCounts(),
     adminRevenue().catch(failed),
     adminPromoCodes().catch(failed),
     grantList(),
     referralTotals(),
+    adminWebhookCheck().catch(failed),
   ]);
   const users = await usersById([...grants.map((g) => g.userId), ...referrals.top.map((r) => r.referrer_user_id)]);
   const total = plans.reduce((n, p) => ({ active: n.active + p.active, pastDue: n.pastDue + p.pastDue, ending: n.ending + p.ending }), { active: 0, pastDue: 0, ending: 0 });
@@ -31,6 +32,18 @@ export default async function AdminMoneyPage() {
       title="Money"
       lede={billingEnabled() ? "Subscriptions from Bamio’s records (Stripe keeps them current); money paid, from Stripe." : "Plans and payments are off on this server."}
     >
+      {webhook && "error" in webhook ? (
+        <p className={styles.alert}>Couldn’t check Stripe’s webhook: {webhook.error}</p>
+      ) : webhook && (!webhook.found || !webhook.enabled || webhook.missing.length > 0) ? (
+        <p className={styles.alert} role="status">
+          {!webhook.found
+            ? `Stripe has no webhook for ${webhook.url}, so plan changes reach Bamio only when it next reads Stripe.`
+            : !webhook.enabled
+              ? `Stripe’s webhook for ${webhook.url} is switched off.`
+              : `Stripe’s webhook doesn’t send ${webhook.missing.join(", ")}.`}{" "}
+          Fix it with <code>npm run stripe:setup -- --webhook https://your.domain</code> (keeps the signing secret).
+        </p>
+      ) : null}
       <section className={styles.stats} aria-label="Money in">
         <div className={styles.stat}>
           <span className={styles.kicker}>Monthly, at list prices</span>

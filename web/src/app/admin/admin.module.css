@@ -80,3 +80,5 @@
 .segLink[aria-current="page"] { background: var(--surface-raised); color: var(--text); box-shadow: var(--shadow-1), inset 0 0 0 1px var(--line); }
 .segNav { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
 .plainList { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; font: var(--t-body-sm); overflow-wrap: anywhere; }
+.alert { margin: 0; padding: 14px 16px; border-radius: var(--r-md); background: var(--warning-bg); color: var(--warning); font: var(--t-body-sm); overflow-wrap: anywhere; }
+.alert code { font: var(--t-mono); }

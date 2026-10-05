@@ -159,7 +159,8 @@ export async function planCounts(): Promise<PlanCounts> {
 export const listPriceMrr = (counts: PlanCounts) => counts.reduce((sum, c) => sum + c.active * (c.interval === "month" ? PLANS[c.plan].price.month : PLANS[c.plan].price.quarter / 3), 0);
 
 export type Overview = {
-  users: { total: number; new7d: number } | null;
+  /** new7dMore: at least that many (only the newest 100 are read). */
+  users: { total: number; new7d: number; new7dMore: boolean } | null;
   plans: PlanCounts;
   grants: number;
   projects: { total: number; today: number; week: number };
@@ -178,7 +179,8 @@ export async function overview(): Promise<Overview> {
       const clerk = await clerkClient();
       const total = await clerk.users.getCount();
       const recent = await clerk.users.getUserList({ orderBy: "-created_at", limit: 100 });
-      return { total, new7d: recent.data.filter((u) => u.createdAt >= now - 7 * DAY).length };
+      const new7d = recent.data.filter((u) => u.createdAt >= now - 7 * DAY).length;
+      return { total, new7d, new7dMore: new7d === recent.data.length && recent.data.length === 100 };
     })().catch(() => null),
     planCounts(),
     sql<{ n: number }[]>`select count(*)::int as n from plan_grants`,

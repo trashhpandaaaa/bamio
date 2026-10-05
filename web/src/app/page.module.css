@@ -3,7 +3,9 @@
 /* ---------- Hero: the headline, then the link field itself, then the demo ---------- */
 .hero { padding-top: 72px; }
 .heroCopy { display: grid; justify-items: center; gap: 22px; text-align: center; }
-.heroCopy h1 { max-width: 13ch; text-wrap: balance; animation: rise var(--dur-scene) var(--ease-out) both; }
+/* The headline rises without fading: it is the page’s largest paint, and an element that starts invisible
+   counts as painted only once its fade begins, which on a slow phone waits behind the scripts. */
+.heroCopy h1 { max-width: 13ch; text-wrap: balance; animation: lift var(--dur-scene) var(--ease-out) both; }
 .lede { margin: 0; max-width: 46ch; font: var(--t-body-lg); color: var(--text-secondary); animation: rise var(--dur-scene) var(--ease-out) 80ms both; }
 .heroAction {
   display: grid; grid-template-columns: minmax(0, 620px) auto auto; align-items: start; gap: 14px; width: 100%; justify-content: center; margin-top: 10px;
@@ -13,6 +15,7 @@
 .upload { --btn-h: 64px; }
 .demo { margin-top: 56px; animation: rise var(--dur-scene) var(--ease-out) 260ms both; }
 @keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+@keyframes lift { from { transform: translateY(14px); } to { transform: none; } }
 
 /* ---------- Sections ---------- */
 .section { padding-top: 120px; }

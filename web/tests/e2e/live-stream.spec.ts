@@ -37,6 +37,12 @@ async function startCapture(page: Page, url: string, mode: "part" | "follow" = "
   if (mode === "part") await page.getByRole("button", { name: "Capture a part" }).click();
 }
 
+/** Skips a capture that needs to start in the past when the stream keeps no history (a Twitch channel without past broadcasts, YouTube without rewind). */
+async function needHistory(page: Page) {
+  await expect(page.getByLabel("Keep recording for")).toBeVisible();
+  test.skip((await page.getByLabel("Start from").count()) === 0, "This stream keeps no history to start from: use a channel that saves past broadcasts (or a YouTube stream with rewind).");
+}
+
 async function waitReady(page: Page) {
   await page.waitForURL(/\/projects\/[0-9a-f-]{36}$/, { timeout: 60_000 });
   const api = new URL(page.url()).pathname.replace("/projects/", "/api/projects/");
@@ -64,6 +70,7 @@ test("Twitch: capture the last minute from the stream's VOD", async ({ page }) =
   test.skip(!url, "Set E2E_LIVE_TWITCH to a live Twitch channel.");
   test.setTimeout(900_000);
   await startCapture(page, url!);
+  await needHistory(page);
   await page.getByLabel("Start from").selectOption({ label: "1 min ago" });
   await page.getByLabel("Keep recording for").selectOption({ label: "Stop at now" });
   await expect(page.getByText("Captures the last 1 min.")).toBeVisible();
@@ -77,6 +84,7 @@ test("YouTube: capture the last minute from the stream's history", async ({ page
   test.skip(!url, "Set E2E_LIVE_YOUTUBE to a live YouTube stream with rewind (DVR) on.");
   test.setTimeout(900_000);
   await startCapture(page, url!);
+  await needHistory(page);
   await page.getByLabel("Start from").selectOption({ label: "1 min ago" });
   await page.getByLabel("Keep recording for").selectOption({ label: "Stop at now" });
   await page.getByRole("button", { name: "Capture", exact: true }).click();

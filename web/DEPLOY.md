@@ -147,7 +147,20 @@ After pushing changes to GitHub:
 cd ~/bamio && git pull && cd web && docker compose up -d --build
 ```
 
-The database is updated automatically when the app starts. Imports that are running are handed back and resume after the restart.
+The database is updated automatically when the app starts. Imports that are running are handed back and resume after the restart, and while the app restarts Caddy holds requests for up to 30 s instead of failing them.
+
+If `Caddyfile` changed, check it, then restart Caddy (a second without HTTPS). It's mounted as a single file, which `git pull` replaces, so a running Caddy keeps seeing the old one until it restarts:
+
+```bash
+docker run --rm -e DOMAIN=example.com -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+docker compose restart caddy
+```
+
+Each build leaves layers behind (Docker's build cache grew to 27 GB in three days). Keep the last few gigabytes, which still make the next build quick:
+
+```bash
+docker builder prune -f --keep-storage 5gb
+```
 
 ## Backups
 
