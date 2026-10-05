@@ -55,6 +55,13 @@ test("the demos play stock footage, and show stills to visitors who want less mo
   await expect.poll(playing, { timeout: 20_000 }).toBe(true);
   // Footage off screen isn't playing (or even loaded).
   await expect(page.locator("#languages video")).toHaveCount(0);
+  // The gaming clip reel plays once it's scrolled to, each clip with its caption.
+  const reel = page.getByRole("list", { name: "Example clips from gaming streams" });
+  await reel.scrollIntoViewIfNeeded();
+  await expect(reel.getByRole("listitem")).toHaveCount(6);
+  await expect
+    .poll(() => reel.locator("video").evaluateAll((videos) => videos.filter((v) => !(v as HTMLVideoElement).paused && (v as HTMLVideoElement).currentTime > 0.2).length), { timeout: 20_000 })
+    .toBeGreaterThan(0);
 
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.reload();

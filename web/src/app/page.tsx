@@ -3,6 +3,7 @@ import Link from "next/link";
 import { AiMark } from "@/components/brand";
 import { CaptionStudio } from "@/components/landing/caption-studio";
 import { ClipFlow } from "@/components/landing/clip-flow";
+import { ClipReel } from "@/components/landing/clip-reel";
 import { LanguageCard, LiveCard } from "@/components/landing/feature-cards";
 import { LinkForm } from "@/components/landing/link-form";
 import { MomentFinder } from "@/components/landing/moment-finder";
@@ -94,6 +95,18 @@ export default function Home() {
           </div>
           <div className={`container ${styles.demo}`}>
             <ClipFlow />
+          </div>
+        </section>
+
+        <section id="clips" className={`container ${styles.section}`} aria-labelledby="clips-title">
+          <div className={`${styles.head} reveal`}>
+            <h2 id="clips-title" className="t-display-lg">
+              the plays worth <span className="hl">posting.</span>
+            </h2>
+            <p className={styles.sub}>Bamio pulls the clutches, the rage and the close calls out of hours of gameplay, then cuts them vertical and captions every word.</p>
+          </div>
+          <div className="reveal">
+            <ClipReel />
           </div>
         </section>
 

@@ -7,15 +7,18 @@ import styles from "./footage.module.css";
 /*
  * Real footage for the landing page's demos: short silent loops of stock video from Mixkit
  * (Stock Video Free License: free for commercial use, no credit required; we credit it in the
- * footer). Made by scripts/encode-landing-footage.sh into public/landing/: a 960x540 loop as
- * WebM and MP4, stills of it at a few seconds in, and for the podcast a 10-frame filmstrip.
+ * footer). Made by scripts/landing-footage.mjs into public/landing/: a 960x540 loop as
+ * WebM and MP4, stills of it at a few seconds in, and for the podcast a 10-frame filmstrip; the
+ * clip reel's six gaming moments as 360x640 vertical loops.
  *
  * A still shows until the footage is on screen and the page has finished loading (so a loop
  * never competes with the page's first picture); then the loop plays (from `at` seconds in).
  * With reduced motion, or data saving on, the stills stay.
  */
 
-export type FootageName = "podcast" | "stream";
+/** The reel's clips are vertical (360x640) already: shown as they are, with a still of their first frame. */
+export const REEL_FOOTAGE = ["reel-clutch", "reel-shooter", "reel-hype", "reel-racer", "reel-rage", "reel-vr"] as const;
+export type FootageName = "podcast" | "stream" | (typeof REEL_FOOTAGE)[number];
 
 /** Where the people are, as a share of the frame's width (for 9:16 crops; the camera drifts a little, so these keep each face in all of the loop). */
 export const FOCUS = {
@@ -25,10 +28,10 @@ export const FOCUS = {
   stream: { face: 0.53 },
 } as const;
 
-/** Seconds into each loop that have a still. */
-const STILLS: Record<FootageName, readonly number[]> = { podcast: [0, 3, 6], stream: [0] };
+/** Seconds into each loop that have a still (the rest have one, at 0). */
+const STILLS: Partial<Record<FootageName, readonly number[]>> = { podcast: [0, 3, 6] };
 
-const still = (name: FootageName, at: number) => `/landing/${name}-${STILLS[name].includes(at) ? at : 0}.webp`;
+const still = (name: FootageName, at: number) => `/landing/${name}-${STILLS[name]?.includes(at) ? at : 0}.webp`;
 
 /** True once the page has loaded (its images included). */
 const pageLoaded = {

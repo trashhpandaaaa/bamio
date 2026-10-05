@@ -1,6 +1,6 @@
 # Bamio design status
 
-Last updated: 2026-10-05 (before real users: account deletion, legal pages, free first video, trimmed pricing, Sentry, JSON logs, alerts, CI)
+Last updated: 2026-10-05 (a gaming clip reel on the homepage)
 
 ## Current phase
 
@@ -103,6 +103,16 @@ The user pasted a production-readiness checklist (keys, Postgres, S3/R2, Redis a
 - **Workers** (`worker.ts`): pools for imports (2 at once), exports (2) and streams (4), set with `BAMIO_*_SLOTS`. Each kind has a time limit (import 8 h, find clips and transcribe again 6 h, export 2 h, follow its maximum plus 2 h). On SIGTERM a worker stops claiming, aborts its jobs and hands them back without counting an attempt. The web server runs a worker itself (`instrumentation.ts`) unless `BAMIO_WORKER=off`; then `node dist/worker.mjs` (esbuild bundle, `npm run build:worker`) runs on any machine with the same environment. Job handlers were made safe to run again: an import that finds its video already prepared goes straight to transcription, and a followed stream resumed by another worker finishes what was captured.
 - **Health and deploy:** `GET /api/health` (public, nothing about users) reports the database, storage, media tools and the queue (waiting, running, oldest wait) with 200 or 503. A database that can't be reached gives a 503 "can't reach its database" everywhere. `web/Dockerfile` (one image for both roles: Node 24 slim, tini, a non-root user, migrations on start, a health check) and `web/compose.yaml` (Postgres 18, MinIO and its bucket, a web server that only queues, a worker; `--scale worker=N`).
 - **Decision: a Postgres queue instead of Redis and BullMQ.** Same guarantees for this load (durable, leased, retried, prioritised, cancellable), one less service to run and back up, and a job is queued in the same transaction as the project change that asks for it, so neither can exist without the other. `queue.ts` is small, so it can be swapped if volume ever needs it. Redis and Docker weren't available on this machine either.
+
+### Gaming clip reel on the homepage (2026-10-05, later)
+
+The user asked for real gameplay clips from a few streamers on the homepage, to make it more attractive. Streamers' clips weren't used: their footage and faces are theirs (and partly the game publishers'), and a sales page would read as their endorsement. The user chose licensed stock gameplay instead.
+
+- **The reel** (`components/landing/clip-reel.tsx`), a new section right after the hero ("the plays worth posting."): six 9:16 phones side by side, every other one lower; a row to swipe below 1100px (focusable, so the keyboard scrolls it). Each clip loops silently with Bamio's own "pop" captions word by word (`DemoCaption`, the export's sizes), and below it a title, a score and "0:41 from a 3 h 12 min stream". They're examples (the list is labelled "Example clips from gaming streams"; the footer credits Mixkit).
+- **Footage**: six Mixkit videos (Stock Video Free License): a celebration (#51612), an over-the-shoulder sci-fi shooter (#5444), a gamer who goes from focused to shouting (#45814), a neon racing flythrough (#5399), a gamer yelling at the screen (#45735) and a VR player (#40464, filmed vertical). Rejected: clips showing a famous game on screen (a battle royale in #43532 and #43599, a kart racer in #2975) or a brand-name controller (#23501), and an esports shot whose camera drifts between players (#43538). `scripts/landing-footage.mjs reel` crops each to 9:16 where the face or screen stays in frame for the whole loop, at 360x640 (about 120 to 400 KB each, 1.5 MB in all as WebM).
+- **Weight**: a clip loads and plays only while it's on screen and after the page has loaded (`Footage`); with reduced motion or data saving it stays a still with the caption shown whole. The landing e2e test checks the reel plays once scrolled to.
+
+Verified: typecheck and lint, the build, the landing tests, the layout check at 320 to 1440, and the public sweep in both themes (no findings).
 
 ### Before real users (2026-10-05, later)
 
