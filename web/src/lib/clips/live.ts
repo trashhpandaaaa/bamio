@@ -44,6 +44,21 @@ export const FOLLOW_PIECE_SEC = { min: 60, max: 600 };
 /** Following: look for AI clips once this much new speech is transcribed (and when it ends). */
 export const FOLLOW_FIND_EVERY_SEC = 40 * 60;
 
+/** Past the AI minutes left, as much as an import may go over (a minute). */
+export const FOLLOW_GRACE_SEC = 60;
+
+/**
+ * How much of a stream following may record, from the AI minutes left when it starts
+ * (`leftSec`; Infinity with plans off): no further back than that, and it stops once that
+ * much is recorded. The minutes themselves are counted only as captions catch up, which can
+ * lag far behind the recording, so the recording is what's capped (the free trial's 30
+ * minutes are 30 minutes of stream, not 12 hours of it with 30 captioned).
+ */
+export function followLimits(leftSec: number, backSec: number): { backSec: number; stopAtSec: number } {
+  const left = Math.max(0, leftSec);
+  return { backSec: Math.max(0, Math.min(backSec, left)), stopAtSec: Math.min(LIMITS.maxFollowSec, left + FOLLOW_GRACE_SEC) };
+}
+
 /**
  * Which phrases of a piece transcribed from `from` to `to` (seconds in the video) to keep,
  * and where the next piece starts. The end of a piece may cut a word, so unless it's the

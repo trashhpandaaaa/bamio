@@ -15,7 +15,7 @@ import { activeJobs, enqueue, requestCancel, requestStop, waitForIdle, type JobK
 import type { KindSpec, Pool } from "@/lib/server/worker";
 import { downloadUrl, extractAudioChunks, extractFrame, prepareSource, probe, renderClip } from "@/lib/server/media";
 import { relocateAiClips } from "@/lib/clips/relocate";
-import { commitPiece, FOLLOW_FIND_EVERY_SEC, FOLLOW_PIECE_SEC } from "@/lib/clips/live";
+import { commitPiece, FOLLOW_FIND_EVERY_SEC, FOLLOW_PIECE_SEC, followLimits } from "@/lib/clips/live";
 import { mergeLoudness } from "@/lib/clips/loudness";
 import { followLive, recordLive, sleep, type FollowEnd } from "@/lib/server/live";
 import { clearLive, liveCaptured, liveDir, liveSnapshot, syncLive } from "@/lib/server/live-media";
@@ -552,7 +552,10 @@ async function followProject(userId: string, projectId: string, signal: AbortSig
     await clearLive(userId, projectId);
     await mkdir(work.dir, { recursive: true });
     await job.set("recording", 0, "Connecting to the stream");
-    capture = followLive(project.source, dir, { backSec: follow.backSec, signal, stopSignal: stop.signal }).then(
+    // No more of the stream than the AI minutes left (the free trial's 30): the recording is
+    // capped, since the minutes are counted only as the captions catch up.
+    const limit = followLimits(await secondsLeft(userId), follow.backSec);
+    capture = followLive(project.source, dir, { backSec: limit.backSec, signal, stopSignal: stop.signal }).then(
       (reason) => {
         ended = reason;
       },
@@ -597,6 +600,10 @@ async function followProject(userId: string, projectId: string, signal: AbortSig
         known = captured;
         await mutateProject(userId, projectId, (cur) => ({ ...cur, source: { ...cur.source, durationSec: captured } }));
       }
+      if (captured >= limit.stopAtSec && !stop.signal.aborted) {
+        stop.abort();
+        await mutateProject(userId, projectId, (cur) => ({ ...cur, job: { ...cur.job, warning: MINUTES_OUT } }));
+      }
       if (!captions && Date.now() >= pausedUntil) {
         captions = followWork(userId, projectId, false, signal, () => stop.abort())
           .then(() => clearCaptionsPaused(userId, projectId))
@@ -639,7 +646,7 @@ async function followProject(userId: string, projectId: string, signal: AbortSig
 }
 
 const CAPTIONS_PAUSED = "Captions paused:";
-const MINUTES_OUT = "This month’s AI minutes ran out, so Bamio stopped following the stream and captioning it. Upgrade on the Pricing page for more.";
+const MINUTES_OUT = "Your AI minutes ran out, so Bamio stopped following the stream. Everything recorded so far is kept. Pricing has plans with more minutes.";
 
 async function clearCaptionsPaused(userId: string, projectId: string) {
   await mutateProject(userId, projectId, (cur) => (cur.job.warning?.startsWith(CAPTIONS_PAUSED) ? { ...cur, job: { ...cur.job, warning: undefined } } : cur));

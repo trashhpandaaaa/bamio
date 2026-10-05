@@ -1,6 +1,6 @@
 # Bamio design status
 
-Last updated: 2026-10-05 (a gaming clip reel on the homepage)
+Last updated: 2026-10-05 (a gaming clip reel on the homepage; the free trial caps followed streams; one import at a time)
 
 ## Current phase
 
@@ -103,6 +103,11 @@ The user pasted a production-readiness checklist (keys, Postgres, S3/R2, Redis a
 - **Workers** (`worker.ts`): pools for imports (2 at once), exports (2) and streams (4), set with `BAMIO_*_SLOTS`. Each kind has a time limit (import 8 h, find clips and transcribe again 6 h, export 2 h, follow its maximum plus 2 h). On SIGTERM a worker stops claiming, aborts its jobs and hands them back without counting an attempt. The web server runs a worker itself (`instrumentation.ts`) unless `BAMIO_WORKER=off`; then `node dist/worker.mjs` (esbuild bundle, `npm run build:worker`) runs on any machine with the same environment. Job handlers were made safe to run again: an import that finds its video already prepared goes straight to transcription, and a followed stream resumed by another worker finishes what was captured.
 - **Health and deploy:** `GET /api/health` (public, nothing about users) reports the database, storage, media tools and the queue (waiting, running, oldest wait) with 200 or 503. A database that can't be reached gives a 503 "can't reach its database" everywhere. `web/Dockerfile` (one image for both roles: Node 24 slim, tini, a non-root user, migrations on start, a health check) and `web/compose.yaml` (Postgres 18, MinIO and its bucket, a web server that only queues, a worker; `--scale worker=N`).
 - **Decision: a Postgres queue instead of Redis and BullMQ.** Same guarantees for this load (durable, leased, retried, prioritised, cancellable), one less service to run and back up, and a job is queued in the same transaction as the project change that asks for it, so neither can exist without the other. `queue.ts` is small, so it can be swapped if volume ever needs it. Redis and Docker weren't available on this machine either.
+
+### Free trial: following a stream capped too, and one import at a time (2026-10-05, later)
+
+- **The trial's 30 minutes now cap a followed stream's recording.** Imports and "capture a part" were already refused past the minutes left, but following counted minutes only as captions caught up, and stopped captioning (not recording) when they ran out: a trial account could record up to 12 hours (`LIMITS.maxFollowSec`) of a stream, captioned for 30, and clip all of it. Now `followLimits` (`src/lib/clips/live.ts`) takes the minutes left when following starts: no further back than that, and the recording stops once that much (plus the import's minute of grace) is captured, with a note on the project. Paid plans get the same rule (Pro's 400 minutes: 6 h 41 min of stream). The import page says so ("or 30 min (your minutes left) are captured").
+- **The free trial brought real users, and the 4 GB Droplet couldn't keep up.** Seven accounts imported within a few hours; with two transcriptions at once (about 1 GB each) plus a followed stream's captions, the server swapped and imports waited 2 to 3 hours (the new alerts emailed the superadmin 5 times). Production now runs `BAMIO_IMPORT_SLOTS=1`; DEPLOY.md says so for 4 GB. With more users, the next step is the 8 GB / 4 vCPU Droplet (two at a time again), or a separate worker machine.
 
 ### Gaming clip reel on the homepage (2026-10-05, later)
 

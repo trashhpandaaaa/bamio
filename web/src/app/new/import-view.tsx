@@ -386,6 +386,7 @@ function ImportForm({ defaults, initialUrl, initialMode }: { defaults: ClipDefau
                   onRecord={setRecord}
                   disabled={submitting}
                   problem={liveProblem}
+                  leftSec={left === null ? null : left * 60}
                 />
               ) : null}
 
@@ -644,6 +645,7 @@ function LiveCapture({
   onRecord,
   disabled,
   problem,
+  leftSec,
 }: {
   live: NonNullable<InspectResult["live"]>;
   mode: "follow" | "part";
@@ -654,6 +656,8 @@ function LiveCapture({
   onRecord: (s: number) => void;
   disabled: boolean;
   problem: string | null;
+  /** AI minutes left (seconds), when plans are on: following takes no more of the stream than that. */
+  leftSec: number | null;
 }) {
   const id = useId();
   const rewindChoices: number[] = REWIND_CHOICES.filter((s) => s <= live.rewindSec);
@@ -668,7 +672,13 @@ function LiveCapture({
         : `Records the next ${formatSpan(record)}.`
     : `Records the next ${formatSpan(record)}, plus the last few seconds the stream still has.`;
 
-  const followFrom = live.followFromStart
+  // With plans on, no further back than the minutes left (the server holds it there too: followLimits).
+  const cappedBack = leftSec !== null && leftSec < live.followBackSec;
+  const followFrom = cappedBack
+    ? leftSec >= 60
+      ? `Starts ${formatSpan(leftSec)} back (your minutes left)`
+      : "Starts now"
+    : live.followFromStart
     ? "Starts at the beginning of the stream"
     : live.followBackSec >= 60
       ? `Starts ${formatSpan(live.followBackSec)} back${live.canRewind ? ", as far as the stream keeps" : ""}`
@@ -689,7 +699,8 @@ function LiveCapture({
       </div>
       {mode === "follow" ? (
         <p className="field-help">
-          {followFrom} and keeps adding to it until the stream ends, you stop, or {formatSpan(LIMITS.maxFollowSec)} are captured. You can clip, edit and
+          {followFrom} and keeps adding to it until the stream ends, you stop, or{" "}
+          {leftSec !== null && leftSec < LIMITS.maxFollowSec ? `${formatSpan(Math.max(60, leftSec))} (your minutes left)` : formatSpan(LIMITS.maxFollowSec)} are captured. You can clip, edit and
           export while it grows; captions and AI clips follow along.
         </p>
       ) : (

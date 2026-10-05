@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { commitPiece, formatSpan, liveCaptureProblem, vodRange } from "@/lib/clips/live";
+import { commitPiece, followLimits, formatSpan, liveCaptureProblem, vodRange } from "@/lib/clips/live";
 import { inputChoices, parsePlaylistWindow, segmentAt } from "@/lib/server/hls";
 import { chooseRecording, followStart, playlistStart, usableRewind } from "@/lib/server/live";
 
@@ -92,6 +92,20 @@ describe("live playlists", () => {
 });
 
 describe("following a stream", () => {
+  it("records no more of it than the AI minutes left (the free trial: 30 minutes of stream, not 12 hours)", () => {
+    // The free trial, untouched: 30 minutes back at most, and it stops after 31 minutes recorded.
+    expect(followLimits(30 * 60, 6 * 3600)).toEqual({ backSec: 30 * 60, stopAtSec: 31 * 60 });
+    // A stream that keeps little history starts where it can.
+    expect(followLimits(30 * 60, 20)).toEqual({ backSec: 20, stopAtSec: 31 * 60 });
+    // Minutes nearly gone: barely any; none left: only the minute of grace.
+    expect(followLimits(90, 3600)).toEqual({ backSec: 90, stopAtSec: 150 });
+    expect(followLimits(0, 3600)).toEqual({ backSec: 0, stopAtSec: 60 });
+    // Pro's 400 minutes: 6 h 41 min of stream. Team's 1,000, or plans off: the usual 12 hours.
+    expect(followLimits(400 * 60, 3600)).toEqual({ backSec: 3600, stopAtSec: 401 * 60 });
+    expect(followLimits(1000 * 60, 3600)).toEqual({ backSec: 3600, stopAtSec: 12 * 3600 });
+    expect(followLimits(Infinity, 6 * 3600)).toEqual({ backSec: 6 * 3600, stopAtSec: 12 * 3600 });
+  });
+
   const hour = 3600;
 
   it("starts at the stream's start when it can, else as far back as allowed", () => {
