@@ -59,6 +59,9 @@ async function sweep(page: Page, screens: Screen[], findings: Finding[]) {
         }
         scrollTo(0, 0);
         await new Promise((r) => setTimeout(r, 1500));
+        // A demo still fading a clip in would be measured half transparent: let transitions end (loops never do, so not those).
+        const fades = document.getAnimations().filter((a) => a instanceof CSSTransition);
+        await Promise.race([Promise.allSettled(fades.map((a) => a.finished)), new Promise((r) => setTimeout(r, 5000))]);
       });
       await page.addScriptTag({ path: AXE });
       const violations = await page.evaluate(async () => {

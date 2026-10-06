@@ -222,7 +222,7 @@ export default function Home() {
             <article className={styles.feature}>
               <LanguageCard />
               <h3 className="t-heading-md">Every language, detected</h3>
-              <p>Nepali, Hindi, Japanese, Arabic and 100 more, detected for you. Mixed with English? Each part is written in its own script.</p>
+              <p>Spanish, Chinese, Japanese, Korean, Portuguese and 100 more, detected for you. Mixed with English? Each part is written in its own script.</p>
             </article>
             <article className={styles.feature}>
               <LiveCard />

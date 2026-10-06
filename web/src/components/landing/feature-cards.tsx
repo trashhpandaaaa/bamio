@@ -4,6 +4,7 @@ import { Pause, Play, TwitchLogo } from "@phosphor-icons/react";
 import { useEffect, useId, useRef, useState } from "react";
 import { AiMark } from "@/components/brand";
 import { languageName } from "@/lib/clips/languages";
+import { joinWords } from "@/lib/clips/logic";
 import { useInView, useReducedMotion } from "@/hooks/use-motion";
 import { DemoCaption } from "./demo-caption";
 import { FOCUS, Footage, FootageCrop } from "./footage";
@@ -11,13 +12,17 @@ import styles from "./feature-cards.module.css";
 
 /* The two cards under "every language": captions in many scripts, and following a live stream. */
 
-/** "Let's start today's video", as creators say it. Nepali mixes in English, as speakers often do. */
+/**
+ * "Let's start today's video", as creators say it, in some of the most spoken languages.
+ * Written the way Bamio's captions come out: Chinese, Japanese and Korean without punctuation
+ * (Chinese and Japanese without spaces between words: DemoCaption joins them).
+ */
 const SAMPLES = [
-  { lang: "ne", words: ["okay", "guys,", "आजको", "भिडियो", "सुरु", "गरौं"] },
-  { lang: "hi", words: ["आज", "का", "वीडियो", "शुरू", "करते", "हैं"] },
-  { lang: "ja", words: ["今日の", "動画を", "始めましょう"] },
-  { lang: "ar", words: ["لنبدأ", "فيديو", "اليوم"] },
   { lang: "es", words: ["Empecemos", "el", "video", "de", "hoy."] },
+  { lang: "zh", words: ["我们", "开始", "今天的", "视频", "吧"] },
+  { lang: "ja", words: ["今日の", "動画を", "始めましょう"] },
+  { lang: "ko", words: ["오늘", "영상", "시작해", "볼게요"] },
+  { lang: "pt", words: ["Vamos", "começar", "o", "vídeo", "de", "hoje."] },
   { lang: "en", words: ["Let’s", "start", "today’s", "video."] },
 ];
 
@@ -75,7 +80,7 @@ export function LanguageCard() {
               className={styles.phone}
               data-pos={center ? "center" : offset < 0 ? "left" : "right"}
               role={center ? "img" : undefined}
-              aria-label={center ? `A clip captioned in ${languageName(s.lang)}: ${s.words.join(" ")}` : undefined}
+              aria-label={center ? `A clip captioned in ${languageName(s.lang)}: ${joinWords(s.words)}` : undefined}
               aria-hidden={center ? undefined : true}
             >
               {/* The middle phone plays; the ones beside it are stills of the other host. */}
