@@ -1,0 +1,36 @@
+/* The Clippers page: a headline, then a wall of cards, as many across as fit. */
+.hero { display: grid; justify-items: start; gap: 20px; padding-top: 72px; }
+.hero h1 { margin: 0; max-width: 14ch; text-wrap: balance; }
+.lede { margin: 0; max-width: 54ch; font: var(--t-body-lg); color: var(--text-secondary); }
+
+.wall { padding-top: 64px; padding-bottom: 112px; }
+.grid { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr)); gap: 16px; }
+
+/* A column, with the channel link at the bottom, so the links of a row line up whatever the cards say. */
+.card {
+  display: flex; flex-direction: column; gap: 16px; min-width: 0; padding: 24px;
+  border-radius: var(--r-lg); background: var(--surface); border: 1px solid var(--line);
+}
+.who { display: flex; align-items: center; gap: 14px; min-width: 0; }
+/* A little larger than the app's large avatar: the picture is the card's face. */
+.avatar { width: 56px; height: 56px; font-size: 22px; border-radius: var(--r-md); }
+.id { display: grid; gap: 4px; min-width: 0; }
+.name { margin: 0; font: var(--t-heading-sm); letter-spacing: -.01em; color: var(--text); overflow-wrap: anywhere; }
+.count { margin: 0; font: var(--t-caption); color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+.bio { margin: 0; font: var(--t-body-sm); color: var(--text-secondary); overflow-wrap: anywhere; }
+
+/* Their channel: a pill that links out. */
+.channel {
+  align-self: flex-start; margin-top: auto; display: inline-flex; align-items: center; gap: 8px; max-width: 100%; min-height: 36px; padding: 0 14px;
+  border-radius: var(--r-pill); background: var(--surface-sunken); color: var(--text); text-decoration: none; font: var(--t-label-sm);
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+.channel:hover { background: color-mix(in srgb, var(--volt) 22%, var(--surface-sunken)); }
+.channel svg { flex: none; }
+.handle { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (max-width: 767px) {
+  .hero { padding-top: 40px; }
+  .wall { padding-top: 40px; padding-bottom: 72px; }
+  .card { padding: 20px; }
+}

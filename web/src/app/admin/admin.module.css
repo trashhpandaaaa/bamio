@@ -82,3 +82,5 @@
 .plainList { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; font: var(--t-body-sm); overflow-wrap: anywhere; }
 .alert { margin: 0; padding: 14px 16px; border-radius: var(--r-md); background: var(--warning-bg); color: var(--warning); font: var(--t-body-sm); overflow-wrap: anywhere; }
 .alert code { font: var(--t-mono); }
+/* A person in a table cell: their picture beside their name. */
+.person { display: inline-flex; align-items: center; gap: 10px; }

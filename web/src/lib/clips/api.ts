@@ -1,4 +1,5 @@
 import type { BillingState, Interval, PlanId, ReferralState } from "@/lib/billing/plans";
+import type { MyClipper } from "@/lib/profile/clipper";
 import type {
   ClipEdit,
   ClipLength,
@@ -87,6 +88,12 @@ export const api = {
   checkout: (plan: PlanId, interval: Interval) => request<{ url: string }>("POST", "/api/billing/checkout", { plan, interval }),
   /** The Stripe billing portal page to send the browser to; with a plan, it opens on switching to it. */
   billingPortal: (target?: { plan: PlanId; interval: Interval }) => request<{ url: string }>("POST", "/api/billing/portal", target ?? {}),
+  /** The user's entry on the Clippers page: read it (null: not listed), save it (it then waits for approval), or take it down. */
+  clipper: {
+    get: (signal?: AbortSignal) => request<MyClipper | null>("GET", "/api/clipper", undefined, signal),
+    save: (input: { name: string; bio: string; link: string }) => request<MyClipper>("PUT", "/api/clipper", input),
+    remove: () => request<void>("DELETE", "/api/clipper"),
+  },
   /** Delete the signed-in account and everything in it. */
   deleteAccount: () => request<void>("DELETE", "/api/account", { confirm: "delete" }),
   /** The admin panel’s changes (the server checks the role). */
@@ -95,6 +102,7 @@ export const api = {
     job: (id: number, action: "retry" | "cancel") => request<{ ok: true }>("POST", `/api/admin/jobs/${id}`, { action }),
     addAdmin: (email: string) => request<{ userId: string; email: string }>("POST", "/api/admin/admins", { email }),
     removeAdmin: (userId: string) => request<{ ok: true }>("DELETE", `/api/admin/admins/${encodeURIComponent(userId)}`),
+    clipper: (userId: string, action: "approve" | "hide") => request<{ ok: true }>("POST", `/api/admin/clippers/${encodeURIComponent(userId)}`, { action }),
   },
 };
 

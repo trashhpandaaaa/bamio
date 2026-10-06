@@ -8,6 +8,7 @@ import styles from "./legal-page.module.css";
 
 const LINKS: SiteLink[] = [
   { href: "/#how", label: "How it works" },
+  { href: "/clippers", label: "Clippers" },
   { href: "/pricing", label: "Pricing" },
   { href: "/#faq", label: "FAQ" },
 ];

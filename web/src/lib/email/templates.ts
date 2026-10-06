@@ -37,6 +37,8 @@ export const emailSchema = z.discriminatedUnion("template", [
   z.object({ template: z.literal("video-failed"), projectId: z.string(), title: z.string(), error: z.string() }),
   /** A friend the user referred made their first payment. `onBalance`: the credit is on their Stripe balance (else it waits for their first plan). */
   z.object({ template: z.literal("referral-earned"), amountCents: z.number().int().positive(), onBalance: z.boolean() }),
+  /** The user asked to be on the Clippers page, and an admin approved it (src/lib/server/clippers.ts). */
+  z.object({ template: z.literal("clipper-approved"), name: z.string().max(80) }),
   /** To superadmins (src/lib/server/alerts.ts): jobs failing, the queue backing up, an account that won't delete. */
   z.object({ template: z.literal("ops-alert"), title: z.string().max(120), lines: z.array(z.string().max(500)).max(10), path: z.string().startsWith("/") }),
 ]);
@@ -60,6 +62,7 @@ export const EMAIL_CATEGORY: Record<EmailTemplate, EmailCategory> = {
   "video-failed": "videos",
   "referral-earned": "account",
   "ops-alert": "account",
+  "clipper-approved": "account",
 };
 
 /** The design tokens emails use (lib/brand-tokens.ts). */
@@ -253,6 +256,17 @@ function draft(email: Email): Draft {
         button: email.onBalance ? { label: "Share your link again", path: "/billing#refer" } : { label: "See plans", path: "/pricing" },
       };
     }
+    case "clipper-approved":
+      return {
+        subject: "You’re on Bamio’s Clippers page",
+        preview: "Your card is live for everyone to see.",
+        heading: "You’re on the Clippers page",
+        blocks: [
+          { p: `Your card is live as “${email.name}”, with your picture, your line about yourself, your channel link and the number of clips you’ve exported.` },
+          { p: "Change it or take it down any time under Profile, Clippers page. Changes are looked at before they show." },
+        ],
+        button: { label: "See the Clippers page", path: "/clippers" },
+      };
     case "ops-alert":
       return {
         subject: `Bamio alert: ${email.title}`,

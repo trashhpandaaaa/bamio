@@ -1,7 +1,7 @@
 "use client";
 
 import { UserProfile, useClerk, useUser } from "@clerk/nextjs";
-import { Bell, Info, Scissors, Trash, WarningCircle } from "@phosphor-icons/react";
+import { Bell, Info, Scissors, Trash, UsersThree, WarningCircle } from "@phosphor-icons/react";
 import { useRouter } from "next/navigation";
 import { useId, useState } from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -13,6 +13,7 @@ import { ASPECT_LABEL, CAPTION_STYLE_LABEL, CLIP_LENGTH_LABEL } from "@/lib/clip
 import { ASPECTS, CAPTION_STYLES, CLIP_LENGTHS } from "@/lib/clips/schema";
 import { clipDefaultsSchema, readClipDefaults, type ClipDefaults } from "@/lib/profile/defaults";
 import { notificationsSchema, readNotifications, type Notifications } from "@/lib/profile/notifications";
+import { ClipperPage } from "./clipper-form";
 import styles from "./profile.module.css";
 
 /** Clerk's profile (name, photo, emails, password, sessions) plus Bamio's clip defaults, email settings and account deletion. */
@@ -24,6 +25,9 @@ export function ProfileView() {
       </UserProfile.Page>
       <UserProfile.Page label="Notifications" url="notifications" labelIcon={<Bell size={16} />}>
         <NotificationsPage />
+      </UserProfile.Page>
+      <UserProfile.Page label="Clippers page" url="clippers" labelIcon={<UsersThree size={16} />}>
+        <ClipperPage />
       </UserProfile.Page>
       {/* Clerk’s own Delete account is hidden (clerk-appearance.ts): this one also ends the plan and removes everything Bamio keeps. */}
       <UserProfile.Page label="Delete account" url="delete-account" labelIcon={<Trash size={16} />}>

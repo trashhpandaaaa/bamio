@@ -39,6 +39,11 @@ export default function PrivacyPage() {
             so the referral counts.
           </li>
           <li>
+            <strong>Your card on the Clippers page,</strong> only if you turn it on in your profile: the name, the line about you and the channel link you give,
+            your profile picture and the number of clips you’ve exported. These are public, on <Link href="/clippers">the Clippers page</Link>, for as long as the
+            card is on.
+          </li>
+          <li>
             <strong>Emails we sent you:</strong> which email, when, and whether it was delivered.
           </li>
           <li>
@@ -111,6 +116,7 @@ export default function PrivacyPage() {
         <ul>
           <li>See and correct your details under Profile.</li>
           <li>Download your clips at any time.</li>
+          <li>Take your card off the Clippers page under Profile, Clippers page: it comes down at once.</li>
           <li>
             <strong>Delete your account</strong> under Profile, Delete account: it ends your plan and deletes your projects, videos, clips and records at once (and from
             backups within 14 days).

@@ -7,6 +7,7 @@ import styles from "./admin.module.css";
 const SECTIONS = [
   { href: "/admin", label: "Overview" },
   { href: "/admin/users", label: "Users" },
+  { href: "/admin/clippers", label: "Clippers" },
   { href: "/admin/jobs", label: "Jobs and errors" },
   { href: "/admin/money", label: "Money" },
 ];

@@ -18,6 +18,7 @@ export const SITE_LINKS: SiteLink[] = [
   { href: "/#how", label: "How it works" },
   { href: "/#captions", label: "Captions" },
   { href: "/#languages", label: "Languages" },
+  { href: "/clippers", label: "Clippers" },
   { href: "/pricing", label: "Pricing" },
   { href: "/#faq", label: "FAQ" },
 ];

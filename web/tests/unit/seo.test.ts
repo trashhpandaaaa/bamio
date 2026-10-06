@@ -10,15 +10,15 @@ describe("search engines", () => {
   it("get every public page in the sitemap, and every page there exists", () => {
     const urls = sitemap().map((e) => e.url);
     const legal = COMPANY.ready ? LEGAL_PAGES.map((p) => `${SITE_URL}${p.href}`) : [];
-    expect(urls).toEqual([SITE_URL, `${SITE_URL}/pricing`, ...USE_CASES.map((u) => `${SITE_URL}${u.href}`), ...legal]);
+    expect(urls).toEqual([SITE_URL, `${SITE_URL}/pricing`, ...USE_CASES.map((u) => `${SITE_URL}${u.href}`), `${SITE_URL}/clippers`, ...legal]);
     for (const u of USE_CASES) expect(existsSync(`src/app${u.href}/page.tsx`), u.href).toBe(true);
     // A new public page needs a place here (and a share image).
     const routes = readdirSync("src/app", { withFileTypes: true })
       .filter((d) => d.isDirectory() && existsSync(`src/app/${d.name}/page.tsx`) && !d.name.startsWith("["))
       .map((d) => `/${d.name}`);
     const privateRoutes = ["/admin", "/billing", "/new", "/projects", "/profile", "/sign-in", "/sign-up"];
-    expect(routes.filter((r) => !privateRoutes.includes(r)).sort()).toEqual(["/pricing", ...USE_CASES.map((u) => u.href), ...LEGAL_PAGES.map((p) => p.href)].sort());
-    for (const u of USE_CASES) expect(existsSync(`src/app${u.href}/opengraph-image.tsx`), u.href).toBe(true);
+    expect(routes.filter((r) => !privateRoutes.includes(r)).sort()).toEqual(["/pricing", "/clippers", ...USE_CASES.map((u) => u.href), ...LEGAL_PAGES.map((p) => p.href)].sort());
+    for (const u of [...USE_CASES, { href: "/clippers" }]) expect(existsSync(`src/app${u.href}/opengraph-image.tsx`), u.href).toBe(true);
   });
 
   it("are kept out of the API and the pages behind sign-in, and told where the sitemap is", () => {

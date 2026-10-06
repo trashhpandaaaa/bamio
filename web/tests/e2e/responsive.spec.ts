@@ -96,6 +96,8 @@ test("pages fit phones, tablets and desktops", async ({ page }) => {
     { name: "clip-defaults", path: "/profile/clip-defaults", ready: (p) => expect(p.getByRole("heading", { name: "Clip defaults" })).toBeVisible() },
     { name: "notifications", path: "/profile/notifications", ready: (p) => expect(p.getByRole("heading", { name: "Notifications" })).toBeVisible() },
     { name: "delete-account", path: "/profile/delete-account", ready: (p) => expect(p.getByRole("heading", { name: "Delete account" })).toBeVisible() },
+    { name: "clippers", path: "/clippers", ready: (p) => expect(p.getByRole("heading", { level: 1 })).toBeVisible() },
+    { name: "profile-clippers", path: "/profile/clippers", ready: (p) => expect(p.getByRole("heading", { name: "Clippers page" })).toBeVisible() },
     { name: "terms", path: "/terms", ready: (p) => expect(p.getByRole("heading", { level: 1 })).toBeVisible() },
     { name: "privacy", path: "/privacy", ready: (p) => expect(p.getByRole("heading", { level: 1 })).toBeVisible() },
     { name: "takedown", path: "/takedown", ready: (p) => expect(p.getByRole("heading", { level: 1 })).toBeVisible() },
@@ -112,6 +114,7 @@ test("the admin panel fits phones, tablets and desktops", async ({ page }) => {
   await audit(page, "admin", [
     { name: "admin", path: "/admin", ready: title },
     { name: "admin-users", path: "/admin/users", ready: title },
+    { name: "admin-clippers", path: "/admin/clippers", ready: title },
     { name: "admin-user", path: `/admin/users/${me}`, ready: title },
     { name: "admin-jobs", path: "/admin/jobs?view=recent", ready: title },
     { name: "admin-emails", path: "/admin/jobs?view=emails", ready: title },

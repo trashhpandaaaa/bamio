@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { formatPrice } from "@/lib/billing/plans";
 import { listPriceMrr, overview, requireAdmin } from "@/lib/server/admin";
+import { clipperCounts } from "@/lib/server/clippers";
 import { PRIVATE_PAGE } from "@/lib/site";
 import { AdminShell } from "./admin-shell";
 import { bytes, count, length } from "./format";
@@ -12,7 +13,7 @@ export const metadata: Metadata = { title: "Admin", robots: PRIVATE_PAGE };
 /** How Bamio is doing right now: people, plans, projects, minutes, the queue, emails, disk. */
 export default async function AdminOverviewPage() {
   const admin = await requireAdmin();
-  const o = await overview();
+  const [o, clippers] = await Promise.all([overview(), clipperCounts()]);
   const paying = o.plans.reduce((n, p) => n + p.active, 0);
   const pastDue = o.plans.reduce((n, p) => n + p.pastDue, 0);
   const diskShare = o.disk && o.disk.totalBytes > 0 ? o.disk.freeBytes / o.disk.totalBytes : null;
@@ -37,6 +38,19 @@ export default async function AdminOverviewPage() {
           <span className={styles.kicker}>Free plans</span>
           <span className={styles.big}>{count(o.grants)}</span>
           <p>Given by hand (plan_grants)</p>
+        </div>
+        <div className={styles.stat}>
+          <span className={styles.kicker}>Clippers page</span>
+          <span className={styles.big}>{count(clippers.approved)}</span>
+          <p>
+            {clippers.pending > 0 ? (
+              <Link className={`${styles.cellLink} ${styles.warn}`} href="/admin/clippers">
+                {count(clippers.pending)} waiting for a look
+              </Link>
+            ) : (
+              "Nobody waiting"
+            )}
+          </p>
         </div>
         <div className={styles.stat}>
           <span className={styles.kicker}>Projects</span>

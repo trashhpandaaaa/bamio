@@ -21,3 +21,6 @@
 .deleteList { margin: 0; padding-left: 20px; display: grid; gap: 6px; font: var(--t-body-sm); color: var(--text-secondary); }
 /* The confirmation box: a 24px target (the design system's checkbox is 20px). */
 .confirm :global(.check) { width: var(--s-6); height: var(--s-6); }
+/* The Clippers page tab: a link inside its description (24px to tap), and a short textarea for the one line. */
+.inlineLink { padding-block: 4px; color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
+.bio { min-height: 72px; }

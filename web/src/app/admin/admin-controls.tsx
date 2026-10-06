@@ -153,3 +153,22 @@ export function RemoveAdminButton({ userId, email }: { userId: string; email: st
     </>
   );
 }
+
+/** Approve someone's card for the Clippers page, or hide it. */
+export function ClipperActions({ userId, name, status }: { userId: string; name: string; status: "pending" | "approved" | "hidden" }) {
+  const { busy, run } = useAction();
+  return (
+    <div className={styles.rowActions}>
+      {status !== "approved" ? (
+        <button className="btn btn-primary btn-sm" type="button" disabled={busy} onClick={() => run(() => api.admin.clipper(userId, "approve"), `${name} is on the Clippers page`)}>
+          Approve
+        </button>
+      ) : null}
+      {status !== "hidden" ? (
+        <button className="btn btn-ghost btn-sm" type="button" disabled={busy} onClick={() => run(() => api.admin.clipper(userId, "hide"), `${name} is hidden`)}>
+          Hide
+        </button>
+      ) : null}
+    </div>
+  );
+}
