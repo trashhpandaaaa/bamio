@@ -1,5 +1,5 @@
 import type { BillingState, Interval, PlanId, ReferralState } from "@/lib/billing/plans";
-import type { MyClipper } from "@/lib/profile/clipper";
+import type { CampaignInput, ClipperInput, JoinedCampaign, MyCampaign, MyClipper } from "@/lib/campaigns/schema";
 import type {
   ClipEdit,
   ClipLength,
@@ -47,6 +47,7 @@ async function request<T>(method: string, url: string, body?: unknown, signal?: 
 }
 
 const base = (id: string) => `/api/projects/${encodeURIComponent(id)}`;
+const campaignBase = (slug: string) => `/api/campaigns/${encodeURIComponent(slug)}`;
 
 export type ClipPatch = { title?: string; start?: number; end?: number; edit?: Partial<ClipEdit> };
 
@@ -88,11 +89,18 @@ export const api = {
   checkout: (plan: PlanId, interval: Interval) => request<{ url: string }>("POST", "/api/billing/checkout", { plan, interval }),
   /** The Stripe billing portal page to send the browser to; with a plan, it opens on switching to it. */
   billingPortal: (target?: { plan: PlanId; interval: Interval }) => request<{ url: string }>("POST", "/api/billing/portal", target ?? {}),
-  /** The user's entry on the Clippers page: read it (null: not listed), save it (it then waits for approval), or take it down. */
+  /** Who the user is in campaigns (null: they've never joined one): the name and channel shown, and how to pay them. */
   clipper: {
     get: (signal?: AbortSignal) => request<MyClipper | null>("GET", "/api/clipper", undefined, signal),
-    save: (input: { name: string; bio: string; link: string }) => request<MyClipper>("PUT", "/api/clipper", input),
-    remove: () => request<void>("DELETE", "/api/clipper"),
+    save: (input: ClipperInput) => request<MyClipper>("PUT", "/api/clipper", input),
+  },
+  /** Clipping campaigns (/clippers), for the signed-in clipper. Each change answers with their new place in the campaign. */
+  campaigns: {
+    mine: (signal?: AbortSignal) => request<JoinedCampaign[]>("GET", "/api/campaigns/mine", undefined, signal),
+    me: (slug: string, signal?: AbortSignal) => request<MyCampaign>("GET", `${campaignBase(slug)}/me`, undefined, signal),
+    join: (slug: string, input: ClipperInput) => request<MyCampaign>("POST", `${campaignBase(slug)}/join`, input),
+    sendClip: (slug: string, url: string) => request<MyCampaign>("POST", `${campaignBase(slug)}/clips`, { url }),
+    withdrawClip: (slug: string, clipId: number) => request<MyCampaign>("DELETE", `${campaignBase(slug)}/clips/${clipId}`),
   },
   /** Delete the signed-in account and everything in it. */
   deleteAccount: () => request<void>("DELETE", "/api/account", { confirm: "delete" }),
@@ -102,7 +110,17 @@ export const api = {
     job: (id: number, action: "retry" | "cancel") => request<{ ok: true }>("POST", `/api/admin/jobs/${id}`, { action }),
     addAdmin: (email: string) => request<{ userId: string; email: string }>("POST", "/api/admin/admins", { email }),
     removeAdmin: (userId: string) => request<{ ok: true }>("DELETE", `/api/admin/admins/${encodeURIComponent(userId)}`),
-    clipper: (userId: string, action: "approve" | "hide") => request<{ ok: true }>("POST", `/api/admin/clippers/${encodeURIComponent(userId)}`, { action }),
+    createCampaign: (campaign: CampaignInput) => request<{ id: string; slug: string }>("POST", "/api/admin/campaigns", campaign),
+    updateCampaign: (id: string, campaign: CampaignInput) => request<{ ok: true }>("PATCH", `/api/admin/campaigns/${encodeURIComponent(id)}`, { campaign }),
+    campaignStatus: (id: string, status: "live" | "paused" | "ended") => request<{ ok: true }>("PATCH", `/api/admin/campaigns/${encodeURIComponent(id)}`, { status }),
+    deleteCampaign: (id: string) => request<{ ok: true }>("DELETE", `/api/admin/campaigns/${encodeURIComponent(id)}`),
+    /** Approve or reject a clip, type in its views (null: back to Bamio's count), or have them read again. */
+    campaignClip: (clipId: number, change: { action: "approve" } | { action: "reject"; note: string } | { action: "views"; views: number | null } | { action: "recount" }) =>
+      request<{ ok: true }>("POST", `/api/admin/campaign-clips/${clipId}`, change),
+    /** Write down a payment made to a clipper outside Bamio. */
+    payout: (campaignId: string, userId: string, amountCents: number, note: string) =>
+      request<{ ok: true }>("POST", `/api/admin/campaigns/${encodeURIComponent(campaignId)}/payouts`, { userId, amountCents, note }),
+    clipper: (userId: string, action: "block" | "unblock") => request<{ ok: true }>("POST", `/api/admin/clippers/${encodeURIComponent(userId)}`, { action }),
   },
 };
 

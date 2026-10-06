@@ -84,3 +84,25 @@
 .alert code { font: var(--t-mono); }
 /* A person in a table cell: their picture beside their name. */
 .person { display: inline-flex; align-items: center; gap: 10px; }
+
+/* Campaigns: the form (panels of fields, pairs side by side), fields inside a dialog, and a campaign's numbers. */
+.form { display: grid; gap: 16px; max-width: 760px; }
+.form .panel { gap: 18px; }
+.form .panel h2 { margin: 0; }
+.form fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
+.form .inline :global(.choice) { min-height: 32px; margin-right: 12px; }
+/* A 24px target (the design system's checkbox is 20px). */
+.form :global(.check) { width: var(--s-6); height: var(--s-6); }
+.pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.dialogForm { display: grid; gap: 16px; }
+.dialogForm :global(.dialog-body) { margin: 0; }
+.clipLink { display: inline-flex; align-items: center; gap: 6px; min-height: 24px; max-width: 34ch; font: var(--t-label); }
+.clipLink span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.clipLink svg { flex: none; }
+/* A cell of words (a name, a note) that mustn't be squeezed to a few letters a line on phones: the table scrolls instead. */
+.table td.roomy { min-width: 152px; }
+/* A small link under a cell's main line (a clipper's channel). */
+.table a.subLink { display: flex; align-items: center; width: fit-content; min-height: 24px; color: var(--text-tertiary); font: var(--t-caption); overflow-wrap: anywhere; }
+@media (max-width: 767px) {
+  .pair { grid-template-columns: minmax(0, 1fr); }
+}

@@ -1,36 +1,151 @@
-/* The Clippers page: a headline, then a wall of cards, as many across as fit. */
+/* Clipping campaigns: the list (/clippers) and a campaign's page (/clippers/<slug>). */
 .hero { display: grid; justify-items: start; gap: 20px; padding-top: 72px; }
 .hero h1 { margin: 0; max-width: 14ch; text-wrap: balance; }
 .lede { margin: 0; max-width: 54ch; font: var(--t-body-lg); color: var(--text-secondary); }
 
-.wall { padding-top: 64px; padding-bottom: 112px; }
-.grid { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr)); gap: 16px; }
+.section { padding-top: 72px; }
+.section > h2 { margin: 0 0 24px; }
+.end { height: 112px; }
+.small { margin: 24px 0 0; max-width: 72ch; font: var(--t-body-sm); color: var(--text-secondary); }
+.small a { color: var(--text); text-underline-offset: 3px; }
 
-/* A column, with the channel link at the bottom, so the links of a row line up whatever the cards say. */
+/* Campaign cards, as many across as fit. Each is one link. */
+.grid { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); gap: 16px; }
+.grid > li { display: grid; min-width: 0; }
 .card {
-  display: flex; flex-direction: column; gap: 16px; min-width: 0; padding: 24px;
-  border-radius: var(--r-lg); background: var(--surface); border: 1px solid var(--line);
+  display: flex; flex-direction: column; gap: 18px; min-width: 0; padding: 24px;
+  border-radius: var(--r-lg); background: var(--surface); border: 1px solid var(--line); color: var(--text); text-decoration: none;
+  transition: border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
-.who { display: flex; align-items: center; gap: 14px; min-width: 0; }
-/* A little larger than the app's large avatar: the picture is the card's face. */
-.avatar { width: 56px; height: 56px; font-size: 22px; border-radius: var(--r-md); }
-.id { display: grid; gap: 4px; min-width: 0; }
-.name { margin: 0; font: var(--t-heading-sm); letter-spacing: -.01em; color: var(--text); overflow-wrap: anywhere; }
-.count { margin: 0; font: var(--t-caption); color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
-.bio { margin: 0; font: var(--t-body-sm); color: var(--text-secondary); overflow-wrap: anywhere; }
+.card:hover { border-color: var(--line-control); }
+.card:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.cardTop, .headTop { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
+.brand { min-width: 0; font: var(--t-label-sm); color: var(--text-secondary); text-transform: uppercase; letter-spacing: .06em; overflow-wrap: anywhere; }
+.cardWords { display: grid; gap: 6px; min-width: 0; }
+.cardTitle { margin: 0; font: var(--t-heading-md); letter-spacing: -.02em; overflow-wrap: anywhere; }
+.cardSummary { margin: 0; font: var(--t-body-sm); color: var(--text-secondary); overflow-wrap: anywhere; }
+.rate { margin: 0; font: var(--t-body-sm); color: var(--text-secondary); }
+.rate b { margin-right: 4px; font: var(--t-heading-lg); letter-spacing: -.03em; color: var(--text); font-variant-numeric: tabular-nums; }
+/* The foot sits at the bottom, so the feet of a row line up whatever the cards say. */
+.cardFoot { margin-top: auto; display: flex; align-items: center; gap: 12px; min-width: 0; font: var(--t-caption); color: var(--text-tertiary); }
+.cardFoot > span:nth-child(2) { min-width: 0; }
+.arrow { flex: none; margin-left: auto; color: var(--text-secondary); transition: transform var(--dur-fast) var(--ease-out); }
+.card:hover .arrow { transform: translateX(3px); }
 
-/* Their channel: a pill that links out. */
-.channel {
-  align-self: flex-start; margin-top: auto; display: inline-flex; align-items: center; gap: 8px; max-width: 100%; min-height: 36px; padding: 0 14px;
-  border-radius: var(--r-pill); background: var(--surface-sunken); color: var(--text); text-decoration: none; font: var(--t-label-sm);
-  transition: background-color var(--dur-fast) var(--ease-out);
+/* How it works: three steps side by side. */
+.steps { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.step { display: grid; align-content: start; gap: 10px; padding: 28px; border-radius: var(--r-lg); background: var(--surface); border: 1px solid var(--line); }
+.step h3 { margin: 0; }
+.step p { margin: 0; font: var(--t-body-sm); color: var(--text-secondary); max-width: 44ch; }
+.number {
+  display: inline-grid; place-items: center; width: 40px; height: 40px; margin-bottom: 6px;
+  border-radius: var(--r-pill); background: var(--volt); color: var(--on-volt); box-shadow: inset 0 0 0 1.5px var(--volt-edge);
+  font: var(--t-label);
 }
-.channel:hover { background: color-mix(in srgb, var(--volt) 22%, var(--surface-sunken)); }
+
+/* A signed-in clipper's own campaigns: a row each. */
+.yours { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.yourRow {
+  display: grid; grid-template-columns: minmax(0, 2fr) max-content minmax(0, 1.4fr) minmax(0, 1.4fr); align-items: center; gap: 8px 20px; padding: 16px 20px;
+  border-radius: var(--r-md); background: var(--surface); border: 1px solid var(--line); color: var(--text); text-decoration: none; font: var(--t-body-sm);
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+.yourRow:hover { border-color: var(--line-control); }
+.yourRow:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.yourRow > :global(.badge) { justify-self: start; }
+.yourName { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.yourName b { font: var(--t-label); }
+.yourName span, .yourNumbers { color: var(--text-secondary); }
+.yourMoney { text-align: right; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.yourMoney b { color: var(--text); }
+
+/* A campaign's page: its name, then what it says beside the visitor's own panel. */
+.head { display: grid; justify-items: start; gap: 16px; padding-top: 40px; }
+.head h1 { margin: 0; max-width: 22ch; text-wrap: balance; overflow-wrap: anywhere; }
+.headTop { justify-content: flex-start; }
+.back { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; font: var(--t-label-sm); color: var(--text-secondary); text-decoration: none; }
+.back:hover { color: var(--text); }
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 400px); align-items: start; gap: 40px 48px; padding-top: 40px; padding-bottom: 112px; }
+.body { grid-column: 1; grid-row: 1; display: grid; gap: 40px; min-width: 0; }
+.side { grid-column: 2; grid-row: 1; position: sticky; top: calc(var(--topbar) + 16px); min-width: 0; }
+
+.facts { margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 12px; }
+.facts > div { display: grid; align-content: start; gap: 8px; min-width: 0; padding: 20px; border-radius: var(--r-lg); background: var(--surface); border: 1px solid var(--line); }
+.facts dt { font: var(--t-label-sm); color: var(--text-tertiary); text-transform: uppercase; letter-spacing: .06em; }
+.facts dd { margin: 0; min-width: 0; font: var(--t-body); overflow-wrap: anywhere; }
+.facts dd.factBig { font: var(--t-heading-sm); letter-spacing: -.01em; }
+.factRow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+
+.block { display: grid; justify-items: start; gap: 12px; min-width: 0; }
+.block h2 { margin: 0; }
+.block p { margin: 0; max-width: 68ch; color: var(--text-secondary); overflow-wrap: anywhere; }
+.blockActions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.rules { margin: 0; padding-left: 20px; display: grid; gap: 8px; max-width: 68ch; color: var(--text-secondary); overflow-wrap: anywhere; }
+.quiet { color: var(--text-tertiary); }
+
+/* The leaderboard: place, picture, name and channel, then what they earned. */
+.leaders { margin: 0; padding: 0; list-style: none; display: grid; width: 100%; border-radius: var(--r-lg); background: var(--surface); border: 1px solid var(--line); }
+.leader { display: grid; grid-template-columns: 28px max-content minmax(0, 1fr) max-content; align-items: center; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--line); }
+.leader:last-child { border-bottom: 0; }
+.place { font: var(--t-mono); color: var(--text-tertiary); font-variant-numeric: tabular-nums; text-align: center; }
+.leaderWho { display: grid; justify-items: start; gap: 2px; min-width: 0; }
+.leaderWho b { font: var(--t-label); overflow-wrap: anywhere; }
+.channel { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 24px; font: var(--t-caption); color: var(--text-secondary); text-decoration: none; }
+.channel:hover { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
 .channel svg { flex: none; }
 .handle { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.leaderNumbers { display: grid; justify-items: end; gap: 2px; font: var(--t-caption); color: var(--text-tertiary); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.leaderNumbers b { font: var(--t-mono); color: var(--text); }
 
+/* The visitor's panel: join, or send clips and see how they're doing. */
+.panel { display: grid; gap: 18px; min-width: 0; padding: 24px; border-radius: var(--r-lg); background: var(--surface); border: 1px solid var(--line); }
+.panel h2 { margin: 0; }
+.panel > :global(.btn) { justify-self: start; }
+.panelWait { height: 280px; border-radius: var(--r-lg); }
+.panelText { margin: 0; font: var(--t-body-sm); color: var(--text-secondary); }
+.panelSmall { margin: 0; font: var(--t-caption); color: var(--text-tertiary); }
+.inlineLink { display: inline-block; padding-block: 4px; color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
+.totals { margin: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.totals > div { display: grid; gap: 4px; min-width: 0; padding: 12px 14px; border-radius: var(--r-md); background: var(--surface-sunken); }
+.totals dt { font: var(--t-caption); color: var(--text-secondary); }
+.totals dd { margin: 0; font: var(--t-mono-lg); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.sendRow { display: flex; gap: 8px; }
+.sendRow > :global(.input) { flex: 1 1 auto; min-width: 0; }
+.clips { margin: 0; padding: 0; list-style: none; display: grid; }
+.clip { display: grid; gap: 8px; min-width: 0; padding: 14px 0; border-top: 1px solid var(--line); }
+.clip:last-child { padding-bottom: 0; }
+.clipLink { display: inline-flex; align-items: center; gap: 8px; min-width: 0; min-height: 24px; font: var(--t-body-sm); color: var(--text); text-decoration: none; }
+.clipLink:hover { text-decoration: underline; text-underline-offset: 3px; }
+.clipLink svg { flex: none; }
+.clipState { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.clipNumbers { font: var(--t-caption); color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.clipState > :global(.btn) { margin-left: auto; }
+.clipNote { margin: 0; font: var(--t-caption); color: var(--error); overflow-wrap: anywhere; }
+
+@media (max-width: 1023px) {
+  .steps { grid-template-columns: minmax(0, 1fr); }
+  /* One column: the panel (join, send a clip) comes before the campaign's details. */
+  .layout { grid-template-columns: minmax(0, 1fr); gap: 32px; }
+  .body, .side { grid-column: 1; grid-row: auto; }
+  .side { position: static; order: -1; }
+  /* The name beside its state, then the numbers, each on a line of its own. */
+  .yourRow { grid-template-columns: minmax(0, 1fr) max-content; }
+  .yourRow > :global(.badge) { justify-self: end; }
+  .yourNumbers, .yourMoney { grid-column: 1 / -1; text-align: left; }
+}
 @media (max-width: 767px) {
   .hero { padding-top: 40px; }
-  .wall { padding-top: 40px; padding-bottom: 72px; }
-  .card { padding: 20px; }
+  .section { padding-top: 48px; }
+  .end { height: 72px; }
+  .head { padding-top: 24px; }
+  .layout { padding-top: 28px; padding-bottom: 72px; }
+  .card, .panel { padding: 20px; }
+  /* The facts two across, so the page isn't six boxes long before it says what to clip. */
+  .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .facts > div { padding: 16px; }
+  .leader { grid-template-columns: 20px max-content minmax(0, 1fr); padding: 14px 16px; }
+  .leaderNumbers { grid-column: 3; justify-items: start; white-space: normal; }
+}
+@media (max-width: 359px) {
+  .facts { grid-template-columns: minmax(0, 1fr); }
 }

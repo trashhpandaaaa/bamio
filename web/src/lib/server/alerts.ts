@@ -12,7 +12,7 @@ import { reportMessage } from "@/lib/server/monitor";
  *   - jobs failing: BAMIO_ALERT_FAILED_JOBS (3) or more failed for good in the last hour;
  *   - the queue backing up: a job has waited longer than BAMIO_ALERT_WAIT_MIN (15) minutes;
  *   - an account deletion that keeps failing (3 tries), so a deleted user's plan may still charge;
- *   - cards waiting for approval on the Clippers page (once a day while any wait).
+ *   - campaign clips waiting for a look (once a day while any wait).
  */
 
 export type Alert = { key: string; title: string; lines: string[]; path: string };
@@ -62,15 +62,16 @@ export async function findAlerts(now = Date.now()): Promise<Alert[]> {
     });
   }
 
-  const [pendingCards] = await sql<{ n: number; oldest: number | null }[]>`
-    select count(*)::int as n, min(updated_at)::float8 as oldest from clipper_profiles where status = 'pending'`;
-  if (pendingCards && pendingCards.n > 0) {
+  const [clips] = await sql<{ n: number; campaigns: number }[]>`
+    select count(*)::int as n, count(distinct c.campaign_id)::int as campaigns
+    from campaign_clips c join campaigns g on g.id = c.campaign_id where c.status = 'pending' and g.status <> 'draft'`;
+  if (clips && clips.n > 0) {
     alerts.push({
       // Once a day, not once an hour: nothing is broken, someone is waiting.
-      key: `ops:clippers-waiting:${Math.floor(now / (24 * HOUR))}`,
-      title: `${pendingCards.n} ${pendingCards.n === 1 ? "clipper is" : "clippers are"} waiting to be on the Clippers page`,
-      lines: ["They turned on “Show me on the Clippers page”. Approve or hide each card in the admin panel."],
-      path: "/admin/clippers",
+      key: `ops:clips-waiting:${Math.floor(now / (24 * HOUR))}`,
+      title: `${clips.n} campaign ${clips.n === 1 ? "clip is" : "clips are"} waiting for a look`,
+      lines: [`Clippers sent them to ${clips.campaigns === 1 ? "a campaign" : `${clips.campaigns} campaigns`}. A clip counts only once it’s approved: open each campaign in the admin panel.`],
+      path: "/admin/campaigns",
     });
   }
   return alerts;

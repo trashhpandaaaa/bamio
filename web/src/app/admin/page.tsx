@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { formatPrice } from "@/lib/billing/plans";
 import { listPriceMrr, overview, requireAdmin } from "@/lib/server/admin";
-import { clipperCounts } from "@/lib/server/clippers";
+import { campaignCounts } from "@/lib/server/campaigns";
 import { PRIVATE_PAGE } from "@/lib/site";
 import { AdminShell } from "./admin-shell";
 import { bytes, count, length } from "./format";
@@ -13,7 +13,7 @@ export const metadata: Metadata = { title: "Admin", robots: PRIVATE_PAGE };
 /** How Bamio is doing right now: people, plans, projects, minutes, the queue, emails, disk. */
 export default async function AdminOverviewPage() {
   const admin = await requireAdmin();
-  const [o, clippers] = await Promise.all([overview(), clipperCounts()]);
+  const [o, campaigns] = await Promise.all([overview(), campaignCounts()]);
   const paying = o.plans.reduce((n, p) => n + p.active, 0);
   const pastDue = o.plans.reduce((n, p) => n + p.pastDue, 0);
   const diskShare = o.disk && o.disk.totalBytes > 0 ? o.disk.freeBytes / o.disk.totalBytes : null;
@@ -40,15 +40,17 @@ export default async function AdminOverviewPage() {
           <p>Given by hand (plan_grants)</p>
         </div>
         <div className={styles.stat}>
-          <span className={styles.kicker}>Clippers page</span>
-          <span className={styles.big}>{count(clippers.approved)}</span>
+          <span className={styles.kicker}>Campaigns</span>
+          <span className={styles.big}>
+            {count(campaigns.live)} <span>open</span>
+          </span>
           <p>
-            {clippers.pending > 0 ? (
-              <Link className={`${styles.cellLink} ${styles.warn}`} href="/admin/clippers">
-                {count(clippers.pending)} waiting for a look
+            {campaigns.waiting > 0 ? (
+              <Link className={`${styles.cellLink} ${styles.warn}`} href="/admin/campaigns">
+                {count(campaigns.waiting)} {campaigns.waiting === 1 ? "clip" : "clips"} waiting for a look
               </Link>
             ) : (
-              "Nobody waiting"
+              "No clips waiting"
             )}
           </p>
         </div>

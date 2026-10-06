@@ -1,6 +1,6 @@
 # Bamio design status
 
-Last updated: 2026-10-06 (the Clippers page: a public wall of users who opted in and were approved)
+Last updated: 2026-10-06 (clipping campaigns replace the Clippers wall: admins set them up, clippers earn per view, payouts are recorded)
 
 ## Current phase
 
@@ -21,7 +21,7 @@ On 2026-09-27 the user said the only features needed are (1) **video clipping** 
 | Profile | Clerk profile plus "Clip defaults" (spoken language, find clips, clip length, format, captions, caption style). |
 | Pricing (`/pricing`) | Starter, Pro (most popular) and Team, monthly or every 3 months ("Save $6 compared to $36 monthly"...); included features, then a folded "Coming soon" list per plan; buy with Stripe Checkout, switch plans in Stripe's portal; billing questions. Public. |
 | Plan & billing (`/billing`) | The plan and its renewal, AI minutes left this month, projects kept, Manage billing (Stripe portal). In the account menu when plans are on. |
-| Clippers (`/clippers`) | A public wall of people who clip with Bamio: they opt in from their profile, an admin approves each card (see Clippers page). |
+| Campaigns (`/clippers`) | Clipping campaigns: what each pays per 1,000 views, its budget and leaderboard; clippers join, send the links to clips they posted and see what they earned and were paid (see Clipping campaigns). |
 | Admin (`/admin`) | For the people who run Bamio (see Admin panel): overview numbers, users, jobs and errors, money. 404 for everyone else. |
 | Data and storage | Projects, transcripts, jobs, billing and usage in Postgres; media (sources, thumbnails, frames, exports, a followed stream's segments) in a local folder or S3 / R2 / MinIO, per Clerk user and project. |
 
@@ -105,7 +105,28 @@ The user pasted a production-readiness checklist (keys, Postgres, S3/R2, Redis a
 - **Health and deploy:** `GET /api/health` (public, nothing about users) reports the database, storage, media tools and the queue (waiting, running, oldest wait) with 200 or 503. A database that can't be reached gives a 503 "can't reach its database" everywhere. `web/Dockerfile` (one image for both roles: Node 24 slim, tini, a non-root user, migrations on start, a health check) and `web/compose.yaml` (Postgres 18, MinIO and its bucket, a web server that only queues, a worker; `--scale worker=N`).
 - **Decision: a Postgres queue instead of Redis and BullMQ.** Same guarantees for this load (durable, leased, retried, prioritised, cancellable), one less service to run and back up, and a job is queued in the same transaction as the project change that asks for it, so neither can exist without the other. `queue.ts` is small, so it can be swapped if volume ever needs it. Redis and Docker weren't available on this machine either.
 
-### Clippers page (2026-10-06, later)
+### Clipping campaigns replace the Clippers wall (2026-10-06, evening)
+
+The wall (next entry) wasn't what the user meant: "clippers" is a **clipping campaign**. Their choices: creators post and clippers join; only the owner and admins create campaigns for now; payouts happen outside Bamio and are tracked in it; the wall goes. The wall had no entries in production, so nothing was lost.
+
+- **A campaign** (admins, Admin → Campaigns): what to clip, rules, the content's link, where clips may be posted, a rate per 1,000 views, a budget, optionally a minimum number of views, a cap per clip and a last day. Draft → live → paused / ended. Its page is `/clippers/<slug>`.
+- **Clippers** join on the campaign's page (name, channel, how to be paid), then paste the links to clips they posted. Each clip waits for an admin; approved clips count. Their panel shows every clip's state, views and earnings, and Earned / Paid / To come.
+- **Views** are read by a worker with yt-dlp for TikTok and YouTube (within moments of sending, then four times a day). Checked on real posts, from the Droplet too: Instagram gives no view count without a sign-in and neither did X, so for those an admin types the number in. A typed number always wins.
+- **Money**: views at the rate, from the minimum, up to the cap; the budget shared in the order clips were approved; the campaign ends by itself when the budget is used or its last day passes. No money passes through Bamio: an admin records each payment made outside it (never more than is owed) and the clipper is emailed.
+- **Public**: `/clippers` ("get paid to clip.") lists campaigns with rate, budget bar, clippers and views; each campaign has a leaderboard. A blocked clipper is off every leaderboard and earns nothing.
+- **Removed**: the opt-in card, its approval queue, the `clipper-approved` email, `clipper_profiles` (dropped in migration 0009). The Profile tab is now "Clipper details".
+
+Decisions:
+- **Approval order, not a pro-rata split, shares the budget.** It's one sentence to explain, a clipper's earnings never go down because someone else's clip took off, and what was paid stays right.
+- **Display names aren't looked at before they show** (unlike the wall): a name appears on a leaderboard only beside a clip an admin approved, and an admin can block a clipper.
+- **Payment details are free text** for admins' eyes only. Bamio stores no card or bank numbers and isn't a party to the payment (the terms say so).
+- **Not built**: creators making their own campaigns, payouts through Stripe, automatic checks that a clip really is the clipper's (the admin sees the account that posted it), view counts for Instagram and X.
+
+Open for the user: campaigns promise payment by someone, so each needs a real owner who pays, and the terms' new section (9) wants the lawyer's read with the rest. A contact address (for creators who want a campaign) shows on `/clippers` once `COMPANY.ready` is set.
+
+Verified: 205 unit tests (new: clip and channel links, share-link following, what views are worth, the whole round from a draft to a recorded payment, blocking, ending, deletion, the alert), the build, the e2e suite with the new campaigns tests (the admin's part with `E2E_ADMIN=1`), the layout check at five widths and the sweep in both themes with the new screens, and the real view reader on live TikTok, YouTube and X posts.
+
+### Clippers page (2026-10-06, later; replaced the same day by clipping campaigns, above)
 
 The user asked for a "clippers page where we can show our users", and chose a wall of cards (not a leaderboard, not public clip hosting) where people opt in and an admin approves.
 

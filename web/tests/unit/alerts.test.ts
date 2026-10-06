@@ -23,9 +23,12 @@ async function job(projectId: string, kind: string, status: string, at: number, 
     values (${kind}, ${USER}, ${projectId}, ${status}, ${error ?? null}, ${at}, ${at}, ${at}, ${status === "failed" ? at : null})`;
 }
 
+const CAMPAIGN = "0c0ffee0-0000-4000-8000-0000000a1e47";
+
 async function clean() {
   await db()`delete from projects where user_id = ${USER}`;
   await db()`delete from account_deletions where user_id = ${USER}`;
+  await db()`delete from campaigns where id = ${CAMPAIGN}`;
 }
 
 describe("alerts", () => {
@@ -51,6 +54,26 @@ describe("alerts", () => {
     expect(alerts[0]!.lines.join(" ")).not.toContain("old news");
     expect(alerts[1]!.title).toBe("A job has waited 20 min to start");
     expect(alerts[2]!.lines[0]).toContain("Stripe is down");
+  });
+
+  it("find campaign clips waiting for a look, once a day", async () => {
+    const sql = db();
+    await sql`insert into campaigns (id, slug, title, brand, summary, brief, platforms, rate_cents, budget_cents, created_by, created_at, updated_at)
+      values (${CAMPAIGN}, 'alerts-test', 'Alerts test', 'Test', 'A campaign.', 'Clip it.', '["instagram"]', 100, 100000, 'boss@example.com', 1, 1)`;
+    const clip = (n: number, status: string) =>
+      sql`insert into campaign_clips (campaign_id, user_id, url, url_key, platform, status, created_at) values (${CAMPAIGN}, ${USER}, 'https://www.instagram.com/reel/abcde/', ${`instagram:${n}`}, 'instagram', ${status}, 1)`;
+    await clip(1, "pending");
+    await clip(2, "pending");
+    await clip(3, "approved");
+    // A draft's clips (there can't be any yet) and looked-at clips don't count.
+    expect(await findAlerts(NOW)).toEqual([]);
+    await sql`update campaigns set status = 'live' where id = ${CAMPAIGN}`;
+    const alerts = await findAlerts(NOW);
+    expect(alerts).toEqual([
+      { key: `ops:clips-waiting:${Math.floor(NOW / 86_400_000)}`, title: "2 campaign clips are waiting for a look", lines: [expect.stringContaining("a campaign")], path: "/admin/campaigns" },
+    ]);
+    await sql`update campaign_clips set status = 'rejected' where campaign_id = ${CAMPAIGN} and status = 'pending'`;
+    expect(await findAlerts(NOW)).toEqual([]);
   });
 
   it("email each superadmin once an hour per problem, and tell Sentry about new ones", async () => {

@@ -30,7 +30,7 @@ const FAILED: Extract<Email, { template: "video-failed" }> = {
 
 /** One of every email, with the kind of data the app queues. */
 const SAMPLES: Record<EmailTemplate, Email> = {
-  "clipper-approved": { template: "clipper-approved", name: "Mira Clips" },
+  "campaign-paid": { template: "campaign-paid", campaign: "Clip the summer tournament", brand: "Test Creator", slug: "clip-the-summer-tournament", amountCents: 4250, note: "PayPal, Friday" },
   "ops-alert": { template: "ops-alert", title: "3 jobs failed in the last hour", lines: ["import 12: It took too long."], path: "/admin/jobs?view=failed" },
   "plan-started": { template: "plan-started", plan: "pro", interval: "month", renewsAt: DAY },
   "plan-changed": { template: "plan-changed", from: "starter", fromInterval: "month", plan: "team", interval: "quarter" },

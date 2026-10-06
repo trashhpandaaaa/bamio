@@ -108,6 +108,7 @@ jobs:
       BAMIO_AI_MOCK: "1"
       BAMIO_BILLING: "off"
       BAMIO_EMAIL: preview
+      BAMIO_VIEW_COUNTS: "off"
       BAMIO_SUPERADMINS: bamio-e2e+clerk_test@example.com
       E2E_ADMIN: "1"
       E2E_CHANNEL: chromium

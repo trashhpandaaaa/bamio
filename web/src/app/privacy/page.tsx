@@ -39,9 +39,10 @@ export default function PrivacyPage() {
             so the referral counts.
           </li>
           <li>
-            <strong>Your card on the Clippers page,</strong> only if you turn it on in your profile: the name, the line about you and the channel link you give,
-            your profile picture and the number of clips you’ve exported. These are public, on <Link href="/clippers">the Clippers page</Link>, for as long as the
-            card is on.
+            <strong>Clipping campaigns,</strong> only if you join one: the name and channel link you give, your profile picture, the links to the clips you send, their
+            view counts and what they earned. Your name, picture, channel and those numbers are public on the leaderboard of a{" "}
+            <Link href="/clippers">campaign</Link> once a clip of yours is approved. How you want to be paid is seen only by our team and the owner of a campaign
+            you joined, who pays you directly; we record that a payment was made, never your card or bank details.
           </li>
           <li>
             <strong>Emails we sent you:</strong> which email, when, and whether it was delivered.
@@ -94,7 +95,8 @@ export default function PrivacyPage() {
           </li>
         </ul>
         <p>
-          When you paste a link, Bamio downloads the video from that site (YouTube, Twitch, Kick and others), whose own privacy policy applies to what they log. Some of
+          When you paste a link, Bamio downloads the video from that site (YouTube, Twitch, Kick and others), whose own privacy policy applies to what they log. For
+          a clip you send to a campaign, Bamio reads the post’s public page (its view count, title and account name) on TikTok or YouTube. Some of
           these companies are outside your country, including in the United States; where the law requires it, transfers are covered by standard contractual clauses or
           an equivalent safeguard.
         </p>
@@ -116,7 +118,7 @@ export default function PrivacyPage() {
         <ul>
           <li>See and correct your details under Profile.</li>
           <li>Download your clips at any time.</li>
-          <li>Take your card off the Clippers page under Profile, Clippers page: it comes down at once.</li>
+          <li>Change your clipper name, channel and payout details under Profile, Clipper details. Take back a clip you sent to a campaign while it’s still waiting.</li>
           <li>
             <strong>Delete your account</strong> under Profile, Delete account: it ends your plan and deletes your projects, videos, clips and records at once (and from
             backups within 14 days).

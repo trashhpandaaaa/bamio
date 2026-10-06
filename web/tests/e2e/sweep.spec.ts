@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { SAMPLE_VIDEO, signIn } from "./auth";
+import { clearCampaigns, connect, DEMO, seedCampaign } from "./campaign-seed";
 
 /*
  * A QA sweep of every screen, in the light and the dark theme: errors in the browser console,
@@ -11,6 +12,9 @@ import { SAMPLE_VIDEO, signIn } from "./auth";
  *   E2E_SWEEP=1 npx playwright test sweep
  */
 test.skip(!process.env.E2E_SWEEP, "Set E2E_SWEEP=1 to sweep every screen for errors and accessibility problems.");
+
+const sql = connect();
+test.afterAll(() => sql.end());
 
 const OUT = "qa/sweep";
 const AXE = path.join(process.cwd(), "node_modules", "axe-core", "axe.min.js");
@@ -94,6 +98,9 @@ test("public pages", async ({ page }) => {
   test.setTimeout(10 * 60_000);
   mkdirSync(OUT, { recursive: true });
   const findings: Finding[] = [];
+  // A campaign for its public page (not when sweeping another server: this database isn't its).
+  const local = !process.env.E2E_BASE_URL;
+  if (local) await seedCampaign(sql);
   await page.goto("/");
   await sweep(
     page,
@@ -106,7 +113,8 @@ test("public pages", async ({ page }) => {
       { name: "auto-captions", path: "/auto-captions", ready: heading },
       { name: "sign-in", path: "/sign-in", ready: (p) => expect(p.locator(".cl-rootBox, .cl-signIn-root").first()).toBeVisible() },
       { name: "sign-up", path: "/sign-up", ready: (p) => expect(p.locator(".cl-rootBox, .cl-signUp-root").first()).toBeVisible() },
-      { name: "clippers", path: "/clippers", ready: heading },
+      { name: "campaigns", path: "/clippers", ready: heading },
+      ...(local ? [{ name: "campaign", path: `/clippers/${DEMO.slug}`, ready: (p: Page) => expect(p.getByRole("link", { name: "Sign in to join" })).toBeVisible() }] : []),
       { name: "terms", path: "/terms", ready: heading },
       { name: "privacy", path: "/privacy", ready: heading },
       { name: "takedown", path: "/takedown", ready: heading },
@@ -114,6 +122,7 @@ test("public pages", async ({ page }) => {
     ],
     findings,
   );
+  if (local) await clearCampaigns(sql);
   report("public", findings);
 });
 
@@ -130,6 +139,8 @@ test("signed-in pages, a project and the editor", async ({ page }) => {
   await page.getByRole("button", { name: "Import and find clips" }).click();
   await page.waitForURL(/\/projects\/[0-9a-f-]{36}$/, { timeout: 90_000 });
   const projectPath = new URL(page.url()).pathname;
+  // A campaign with the e2e user in it, for the clipper's panel and the admin's pages.
+  await seedCampaign(sql, { joined: me });
   try {
     await expect(page.getByTestId("clip-card").first()).toBeVisible({ timeout: 180_000 });
     const editPath = await page.getByTestId("clip-card").first().getByRole("link", { name: "Edit" }).getAttribute("href");
@@ -146,10 +157,15 @@ test("signed-in pages, a project and the editor", async ({ page }) => {
         { name: "clip-defaults", path: "/profile/clip-defaults", ready: (p) => expect(p.getByRole("heading", { name: "Clip defaults" })).toBeVisible() },
         { name: "notifications", path: "/profile/notifications", ready: (p) => expect(p.getByRole("heading", { name: "Notifications" })).toBeVisible() },
         { name: "delete-account", path: "/profile/delete-account", ready: (p) => expect(p.getByRole("heading", { name: "Delete account" })).toBeVisible() },
-        { name: "profile-clippers", path: "/profile/clippers", ready: (p) => expect(p.getByRole("heading", { name: "Clippers page" })).toBeVisible() },
+        { name: "profile-clipper", path: "/profile/clipper", ready: (p) => expect(p.getByRole("heading", { name: "Clipper details" })).toBeVisible() },
+        { name: "campaigns-mine", path: "/clippers", ready: (p) => expect(p.getByRole("heading", { name: "Your campaigns" })).toBeVisible() },
+        { name: "campaign-joined", path: `/clippers/${DEMO.slug}`, ready: (p) => expect(p.getByRole("heading", { name: "Your clips" })).toBeVisible() },
         { name: "admin", path: "/admin", ready: heading },
         { name: "admin-users", path: "/admin/users", ready: heading },
-        { name: "admin-clippers", path: "/admin/clippers", ready: heading },
+        { name: "admin-campaigns", path: "/admin/campaigns", ready: heading },
+        { name: "admin-campaign", path: `/admin/campaigns/${DEMO.id}`, ready: heading },
+        { name: "admin-campaign-new", path: "/admin/campaigns/new", ready: heading },
+        { name: "admin-campaign-edit", path: `/admin/campaigns/${DEMO.id}/edit`, ready: heading },
         { name: "admin-user", path: `/admin/users/${me}`, ready: heading },
         { name: "admin-jobs", path: "/admin/jobs?view=recent", ready: heading },
         { name: "admin-money", path: "/admin/money", ready: heading },
@@ -158,6 +174,7 @@ test("signed-in pages, a project and the editor", async ({ page }) => {
       findings,
     );
   } finally {
+    await clearCampaigns(sql, me);
     expect((await page.request.delete(projectPath.replace("/projects/", "/api/projects/"))).status()).toBe(204);
   }
   report("app", findings);

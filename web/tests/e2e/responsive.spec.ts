@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 import { SAMPLE_VIDEO, signIn } from "./auth";
+import { clearCampaigns, connect, DEMO, seedCampaign } from "./campaign-seed";
 
 /*
  * Responsive QA of every screen, at phone, tablet and desktop widths: no sideways scroll, nothing
@@ -10,6 +11,9 @@ import { SAMPLE_VIDEO, signIn } from "./auth";
  *   E2E_RESPONSIVE=1 npx playwright test responsive
  */
 test.skip(!process.env.E2E_RESPONSIVE, "Set E2E_RESPONSIVE=1 to check every screen at several widths.");
+
+const sql = connect();
+test.afterAll(() => sql.end());
 
 const WIDTHS = [320, 390, 768, 1024, 1440];
 const OUT = "qa/responsive";
@@ -82,6 +86,17 @@ test("pages fit phones, tablets and desktops", async ({ page }) => {
   test.setTimeout(10 * 60_000);
   mkdirSync(OUT, { recursive: true });
   await signIn(page);
+  // A campaign to look at, with the e2e user in it (clips in each state, a payment).
+  const me = await page.evaluate(() => (window as unknown as { Clerk: { user: { id: string } } }).Clerk.user.id);
+  await seedCampaign(sql, { joined: me });
+  try {
+    await pages(page);
+  } finally {
+    await clearCampaigns(sql, me);
+  }
+});
+
+async function pages(page: Page) {
   await audit(page, "pages", [
     { name: "landing", path: "/", ready: (p) => expect(p.locator("#hero-link")).toBeVisible() },
     { name: "pricing", path: "/pricing", ready: (p) => expect(p.getByRole("article").first()).toBeVisible() },
@@ -96,13 +111,14 @@ test("pages fit phones, tablets and desktops", async ({ page }) => {
     { name: "clip-defaults", path: "/profile/clip-defaults", ready: (p) => expect(p.getByRole("heading", { name: "Clip defaults" })).toBeVisible() },
     { name: "notifications", path: "/profile/notifications", ready: (p) => expect(p.getByRole("heading", { name: "Notifications" })).toBeVisible() },
     { name: "delete-account", path: "/profile/delete-account", ready: (p) => expect(p.getByRole("heading", { name: "Delete account" })).toBeVisible() },
-    { name: "clippers", path: "/clippers", ready: (p) => expect(p.getByRole("heading", { level: 1 })).toBeVisible() },
-    { name: "profile-clippers", path: "/profile/clippers", ready: (p) => expect(p.getByRole("heading", { name: "Clippers page" })).toBeVisible() },
+    { name: "campaigns", path: "/clippers", ready: (p) => expect(p.getByRole("heading", { name: "Your campaigns" })).toBeVisible() },
+    { name: "campaign", path: `/clippers/${DEMO.slug}`, ready: (p) => expect(p.getByRole("heading", { name: "Your clips" })).toBeVisible() },
+    { name: "profile-clipper", path: "/profile/clipper", ready: (p) => expect(p.getByRole("heading", { name: "Clipper details" })).toBeVisible() },
     { name: "terms", path: "/terms", ready: (p) => expect(p.getByRole("heading", { level: 1 })).toBeVisible() },
     { name: "privacy", path: "/privacy", ready: (p) => expect(p.getByRole("heading", { level: 1 })).toBeVisible() },
     { name: "takedown", path: "/takedown", ready: (p) => expect(p.getByRole("heading", { level: 1 })).toBeVisible() },
   ]);
-});
+}
 
 test("the admin panel fits phones, tablets and desktops", async ({ page }) => {
   test.skip(!process.env.E2E_ADMIN, "Set E2E_ADMIN=1, with the server's BAMIO_SUPERADMINS naming the e2e user (see admin.spec.ts).");
@@ -111,17 +127,28 @@ test("the admin panel fits phones, tablets and desktops", async ({ page }) => {
   await signIn(page);
   const me = await page.evaluate(() => (window as unknown as { Clerk: { user: { id: string } } }).Clerk.user.id);
   const title = (p: Page) => expect(p.getByRole("heading", { level: 1 })).toBeVisible();
+  await seedCampaign(sql, { joined: me });
+  try {
+    await adminPages(page, me, title);
+  } finally {
+    await clearCampaigns(sql, me);
+  }
+});
+
+async function adminPages(page: Page, me: string, title: (p: Page) => Promise<void>) {
   await audit(page, "admin", [
     { name: "admin", path: "/admin", ready: title },
     { name: "admin-users", path: "/admin/users", ready: title },
-    { name: "admin-clippers", path: "/admin/clippers", ready: title },
+    { name: "admin-campaigns", path: "/admin/campaigns", ready: title },
+    { name: "admin-campaign", path: `/admin/campaigns/${DEMO.id}`, ready: title },
+    { name: "admin-campaign-new", path: "/admin/campaigns/new", ready: title },
     { name: "admin-user", path: `/admin/users/${me}`, ready: title },
     { name: "admin-jobs", path: "/admin/jobs?view=recent", ready: title },
     { name: "admin-emails", path: "/admin/jobs?view=emails", ready: title },
     { name: "admin-money", path: "/admin/money", ready: title },
     { name: "admin-admins", path: "/admin/admins", ready: title },
   ]);
-});
+}
 
 test("a project and the editor fit phones, tablets and desktops", async ({ page }) => {
   test.setTimeout(10 * 60_000);

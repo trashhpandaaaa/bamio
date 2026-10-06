@@ -1,0 +1,7 @@
+/* Pieces shared by every campaign view (parts.tsx). */
+.platforms { display: inline-flex; align-items: center; gap: 8px; color: var(--text-secondary); }
+.platforms > span { display: inline-flex; }
+
+.budget { display: grid; gap: 8px; min-width: 0; }
+.budgetText { margin: 0; font: var(--t-body-sm); color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.budgetText b { color: var(--text); font-weight: 600; }

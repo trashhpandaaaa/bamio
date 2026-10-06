@@ -16,7 +16,7 @@ import { notificationsSchema, readNotifications, type Notifications } from "@/li
 import { ClipperPage } from "./clipper-form";
 import styles from "./profile.module.css";
 
-/** Clerk's profile (name, photo, emails, password, sessions) plus Bamio's clip defaults, email settings and account deletion. */
+/** Clerk's profile (name, photo, emails, password, sessions) plus Bamio's clip defaults, email settings, clipper details (for campaigns) and account deletion. */
 export function ProfileView() {
   return (
     <UserProfile path="/profile" routing="path">
@@ -26,7 +26,7 @@ export function ProfileView() {
       <UserProfile.Page label="Notifications" url="notifications" labelIcon={<Bell size={16} />}>
         <NotificationsPage />
       </UserProfile.Page>
-      <UserProfile.Page label="Clippers page" url="clippers" labelIcon={<UsersThree size={16} />}>
+      <UserProfile.Page label="Clipper details" url="clipper" labelIcon={<UsersThree size={16} />}>
         <ClipperPage />
       </UserProfile.Page>
       {/* Clerk’s own Delete account is hidden (clerk-appearance.ts): this one also ends the plan and removes everything Bamio keeps. */}

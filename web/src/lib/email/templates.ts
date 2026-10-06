@@ -37,8 +37,8 @@ export const emailSchema = z.discriminatedUnion("template", [
   z.object({ template: z.literal("video-failed"), projectId: z.string(), title: z.string(), error: z.string() }),
   /** A friend the user referred made their first payment. `onBalance`: the credit is on their Stripe balance (else it waits for their first plan). */
   z.object({ template: z.literal("referral-earned"), amountCents: z.number().int().positive(), onBalance: z.boolean() }),
-  /** The user asked to be on the Clippers page, and an admin approved it (src/lib/server/clippers.ts). */
-  z.object({ template: z.literal("clipper-approved"), name: z.string().max(80) }),
+  /** A campaign's owner paid the user for their clips, outside Bamio, and an admin wrote it down (src/lib/server/campaigns.ts). */
+  z.object({ template: z.literal("campaign-paid"), campaign: z.string().max(120), brand: z.string().max(80), slug: z.string().max(80), amountCents: z.number().int().positive(), note: z.string().max(300) }),
   /** To superadmins (src/lib/server/alerts.ts): jobs failing, the queue backing up, an account that won't delete. */
   z.object({ template: z.literal("ops-alert"), title: z.string().max(120), lines: z.array(z.string().max(500)).max(10), path: z.string().startsWith("/") }),
 ]);
@@ -62,7 +62,7 @@ export const EMAIL_CATEGORY: Record<EmailTemplate, EmailCategory> = {
   "video-failed": "videos",
   "referral-earned": "account",
   "ops-alert": "account",
-  "clipper-approved": "account",
+  "campaign-paid": "account",
 };
 
 /** The design tokens emails use (lib/brand-tokens.ts). */
@@ -256,17 +256,19 @@ function draft(email: Email): Draft {
         button: email.onBalance ? { label: "Share your link again", path: "/billing#refer" } : { label: "See plans", path: "/pricing" },
       };
     }
-    case "clipper-approved":
+    case "campaign-paid": {
+      const amount = formatPrice(email.amountCents);
       return {
-        subject: "You’re on Bamio’s Clippers page",
-        preview: "Your card is live for everyone to see.",
-        heading: "You’re on the Clippers page",
+        subject: `${email.brand} paid you ${amount} for your clips`,
+        preview: `For “${short(email.campaign)}”. Check that it arrived.`,
+        heading: `${amount} paid for your clips`,
         blocks: [
-          { p: `Your card is live as “${email.name}”, with your picture, your line about yourself, your channel link and the number of clips you’ve exported.` },
-          { p: "Change it or take it down any time under Profile, Clippers page. Changes are looked at before they show." },
+          { p: `${email.brand} marked ${amount} as paid to you for the campaign “${email.campaign}”.${email.note ? ` Their note: ${email.note}` : ""}` },
+          { p: "The payment is made by the campaign’s owner, not through Bamio. If it doesn’t arrive, the campaign’s page says how its payments work." },
         ],
-        button: { label: "See the Clippers page", path: "/clippers" },
+        button: { label: "See your clips and earnings", path: `/clippers/${email.slug}` },
       };
+    }
     case "ops-alert":
       return {
         subject: `Bamio alert: ${email.title}`,

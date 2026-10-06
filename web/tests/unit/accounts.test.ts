@@ -11,6 +11,7 @@ import { addUsage, blankProject, createProject, mediaKeys, writeTranscript } fro
 
 const GONE = "user_del_gone";
 const KEPT = "user_del_kept";
+const CAMPAIGN = "0c0ffee0-0000-4000-8000-00000000acc0";
 const USERS = [GONE, KEPT];
 
 function fakes(fail?: Error) {
@@ -51,7 +52,11 @@ async function seed(userId: string) {
   await sql`insert into referral_codes (user_id, code, created_at) values (${userId}, ${`c${userId.slice(-4)}`}, ${now})`;
   await sql`insert into emails (user_id, key, template, category, data, run_after, created_at, updated_at) values (${userId}, 'k', 'video-ready', 'videos', '{}', ${now}, ${now}, ${now})`;
   await sql`insert into admins (user_id, email, added_by, created_at) values (${userId}, 'x@example.com', 'test', ${now})`;
-  await sql`insert into clipper_profiles (user_id, name, status, created_at, updated_at) values (${userId}, 'Clipper', 'approved', ${now}, ${now})`;
+  // In a campaign (a draft, so nothing counts its views): a clipper, a member, a clip and a payment.
+  await sql`insert into clippers (user_id, name, payout, created_at, updated_at) values (${userId}, 'Clipper', 'PayPal: me@example.com', ${now}, ${now})`;
+  await sql`insert into campaign_members (campaign_id, user_id, joined_at) values (${CAMPAIGN}, ${userId}, ${now})`;
+  await sql`insert into campaign_clips (campaign_id, user_id, url, url_key, platform, created_at) values (${CAMPAIGN}, ${userId}, 'https://www.tiktok.com/@a/video/1234567', ${`tiktok:${userId}`}, 'tiktok', ${now})`;
+  await sql`insert into campaign_payouts (campaign_id, user_id, amount_cents, note, paid_by, paid_at) values (${CAMPAIGN}, ${userId}, 1200, 'PayPal me@example.com', 'boss@example.com', ${now})`;
   return p;
 }
 
@@ -67,17 +72,24 @@ const counts = async (userId: string) => {
     (select count(*)::int from referral_codes where user_id = ${userId}) as codes,
     (select count(*)::int from emails where user_id = ${userId}) as emails,
     (select count(*)::int from admins where user_id = ${userId}) as admins,
-    (select count(*)::int from clipper_profiles where user_id = ${userId}) as clippers`;
+    (select count(*)::int from clippers where user_id = ${userId}) as clippers,
+    (select count(*)::int from campaign_members where user_id = ${userId}) as memberships,
+    (select count(*)::int from campaign_clips where user_id = ${userId}) as clips,
+    (select count(*)::int from campaign_payouts where user_id = ${userId}) as payouts`;
   return r!;
 };
 
 async function clean() {
   const sql = db();
   for (const u of USERS) {
-    for (const t of ["projects", "jobs", "billing_accounts", "usage_entries", "plan_grants", "referral_codes", "emails", "admins", "clipper_profiles", "account_deletions"]) {
+    for (const t of ["projects", "jobs", "billing_accounts", "usage_entries", "plan_grants", "referral_codes", "emails", "admins", "clippers", "account_deletions"]) {
       await sql`delete from ${sql(t)} where user_id = ${u}`;
     }
   }
+  // The campaign goes with its members, clips and payments; each test starts with it empty.
+  await sql`delete from campaigns where id = ${CAMPAIGN}`;
+  await sql`insert into campaigns (id, slug, title, brand, summary, brief, platforms, rate_cents, budget_cents, created_by, created_at, updated_at)
+    values (${CAMPAIGN}, 'accounts-test', 'Accounts test', 'Test', 'A campaign.', 'Clip it.', '["tiktok"]', 100, 100000, 'boss@example.com', 1, 1)`;
 }
 
 describe("deleting an account", () => {
@@ -87,6 +99,7 @@ describe("deleting an account", () => {
   });
   afterAll(async () => {
     await clean();
+    await db()`delete from campaigns where id = ${CAMPAIGN}`;
     delete process.env.BAMIO_DATA_DIR;
     await rm(dir, { recursive: true, force: true });
   });
@@ -107,7 +120,12 @@ describe("deleting an account", () => {
     const [row] = await db()<{ status: string; reason: string }[]>`select status, reason from account_deletions where user_id = ${GONE}`;
     expect(row).toEqual({ status: "done", reason: "self" });
 
-    expect(await counts(KEPT)).toEqual({ projects: 1, transcripts: 1, jobs: 1, billing: 1, usage: 1, grants: 1, codes: 1, emails: 1, admins: 1, clippers: 1 });
+    expect(await counts(KEPT)).toEqual({ projects: 1, transcripts: 1, jobs: 1, billing: 1, usage: 1, grants: 1, codes: 1, emails: 1, admins: 1, clippers: 1, memberships: 1, clips: 1, payouts: 1 });
+    // What a campaign paid them stays as an amount, tied to nobody and without its note.
+    expect(await db()`select user_id, amount_cents, note from campaign_payouts where campaign_id = ${CAMPAIGN} order by id`).toMatchObject([
+      { user_id: null, amount_cents: 1200, note: "" },
+      { user_id: KEPT, amount_cents: 1200, note: "PayPal me@example.com" },
+    ]);
     expect(await storage().stat(mediaKeys(KEPT, theirs.id).thumb)).not.toBeNull();
   });
 

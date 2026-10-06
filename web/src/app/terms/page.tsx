@@ -111,7 +111,30 @@ export default function TermsPage() {
       </section>
 
       <section>
-        <h2>9. Ending</h2>
+        <h2>9. Clipping campaigns</h2>
+        <ul>
+          <li>
+            A <Link href="/clippers">campaign</Link> is an offer from its owner (a creator or a brand) to pay clippers for views on clips of their content, at the rate
+            and up to the budget on its page. Bamio lists campaigns, counts views and shows what was earned and paid.
+          </li>
+          <li>
+            The campaign’s owner pays clippers directly. No money passes through Bamio, and Bamio isn’t a party to that payment: we don’t guarantee it and aren’t
+            responsible if an owner pays late or not at all.
+          </li>
+          <li>
+            Send only clips you posted yourself, on your own channel, that follow the campaign’s rules. Bought, botted or otherwise faked views don’t count. We may
+            reject a clip, correct a view count or remove someone from campaigns.
+          </li>
+          <li>
+            A clip counts once our team has approved it. Clips earn in the order they were approved, until the budget is used or the campaign ends. A campaign’s terms
+            can change or end early; what was already paid stays paid.
+          </li>
+          <li>You’re responsible for any tax on what you earn.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>10. Ending</h2>
         <p>
           You can delete your account at any time from your profile (Delete account). That ends your plan at once, with no refund for the time left, and deletes your
           projects, videos and clips for good. We may suspend or close your account if you break these terms, or if we stop offering Bamio; when we stop offering it, we
@@ -120,7 +143,7 @@ export default function TermsPage() {
       </section>
 
       <section>
-        <h2>10. The service as it is</h2>
+        <h2>11. The service as it is</h2>
         <p>
           We work to keep Bamio running and your projects safe, but we provide it as it is and as available. AI picks moments and writes captions that can be wrong:
           check clips before you post them. Keep your own copies of anything important. We may change, add or remove features.
@@ -128,7 +151,7 @@ export default function TermsPage() {
       </section>
 
       <section>
-        <h2>11. Responsibility</h2>
+        <h2>12. Responsibility</h2>
         <p>
           As far as the law allows, we are not liable for indirect or consequential losses (such as lost profits, revenue or data), and our total liability to you for
           anything to do with Bamio is limited to what you paid us in the 12 months before the claim. Nothing in these terms limits liability that the law doesn’t let
@@ -141,7 +164,7 @@ export default function TermsPage() {
       </section>
 
       <section>
-        <h2>12. Changes and law</h2>
+        <h2>13. Changes and law</h2>
         <p>
           We may update these terms. For changes that matter, we will tell you by email or in Bamio before they apply; if you keep using Bamio after that, the new terms
           apply. These terms are governed by the law of {COMPANY.country}, and its courts decide disputes, except where the law where you live gives you the right to
@@ -150,7 +173,7 @@ export default function TermsPage() {
       </section>
 
       <section>
-        <h2>13. Contact</h2>
+        <h2>14. Contact</h2>
         <p>
           {COMPANY.name}, {COMPANY.address}, {COMPANY.country}. Email: <ContactEmail />.
         </p>

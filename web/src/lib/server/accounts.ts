@@ -19,7 +19,9 @@ import { isUserId, scratch, userMediaPrefix } from "@/lib/server/store";
  *   2. The user's running jobs stopped.
  *   3. Their media (storage) and work in progress (scratch folders) removed.
  *   4. Every row about them: projects (with transcripts and jobs), billing, usage, free plans,
- *      referrals, emails, admin role, their card on the Clippers page.
+ *      referrals, emails, admin role, and in campaigns their clipper details, memberships and
+ *      clips. Payments recorded to them keep only the amount (it was spent from a campaign's
+ *      budget), no longer tied to anyone.
  *   5. The Clerk user, if still there.
  * The row stays, holding only the user's id, as the record that the account was deleted.
  */
@@ -77,7 +79,10 @@ export async function deleteAccountData(userId: string, deps: AccountDeps = defa
     await tx`delete from referral_codes where user_id = ${userId}`;
     await tx`delete from emails where user_id = ${userId}`;
     await tx`delete from admins where user_id = ${userId}`;
-    await tx`delete from clipper_profiles where user_id = ${userId}`;
+    await tx`delete from campaign_clips where user_id = ${userId}`;
+    await tx`delete from campaign_members where user_id = ${userId}`;
+    await tx`update campaign_payouts set user_id = null, note = '' where user_id = ${userId}`;
+    await tx`delete from clippers where user_id = ${userId}`;
   });
   await deps.deleteClerkUser(userId);
 }

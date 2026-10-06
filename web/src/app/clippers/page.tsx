@@ -1,30 +1,40 @@
-import type { Icon } from "@phosphor-icons/react";
-import { ArrowUpRight, Broadcast, InstagramLogo, TiktokLogo, TwitchLogo, XLogo, YoutubeLogo } from "@phosphor-icons/react/ssr";
+import { ArrowRight } from "@phosphor-icons/react/ssr";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { connection } from "next/server";
+import { Budget, Platforms, StatusBadge } from "@/components/campaigns/parts";
 import { SiteFooter, SiteHeader } from "@/components/site/site-chrome";
 import { SITE_LINKS } from "@/components/site/use-case";
-import { CLIPPER_PLATFORMS, type ClipperCard, type ClipperPlatform } from "@/lib/profile/clipper";
-import { listClippers } from "@/lib/server/clippers";
+import { formatPrice } from "@/lib/billing/plans";
+import { compactNumber } from "@/lib/campaigns/money";
+import type { CampaignCard } from "@/lib/campaigns/schema";
+import { COMPANY } from "@/lib/legal";
+import { listCampaigns } from "@/lib/server/campaigns";
 import { pageMetadata } from "@/lib/site";
+import { YourCampaigns } from "./your-campaigns";
 import styles from "./clippers.module.css";
 
-const title = "Clippers: people who clip with Bamio";
-const description = "Meet the clippers who turn streams, podcasts and long videos into shorts with Bamio, and find one for your channel. Clip with Bamio? Add yourself.";
+const title = "Clipping campaigns: get paid per view for your clips";
+const description = "Join a clipping campaign, clip the content with Bamio, post it on your own TikTok, Shorts or Reels and earn for every 1,000 views.";
 
 export const metadata: Metadata = pageMetadata({ title, description, path: "/clippers", absoluteTitle: true });
 
-const ICONS: Record<ClipperPlatform, Icon> = { youtube: YoutubeLogo, twitch: TwitchLogo, kick: Broadcast, tiktok: TiktokLogo, instagram: InstagramLogo, x: XLogo };
+const STEPS = [
+  { title: "Pick a campaign", text: "Each one says what to clip, what it pays per 1,000 views and how much of its budget is left." },
+  { title: "Clip it and post it", text: "Make your clips with Bamio and post them on your own channel: TikTok, Shorts, Reels or X." },
+  { title: "Send the link", text: "Bamio counts the views on each clip. The campaign’s owner pays you directly, and you see what you’ve earned and been paid." },
+];
 
 /**
- * The Clippers page: users who chose to be shown (Profile, Clippers page) and were approved by
- * an admin, those with the most exported clips first. Read from the database at request time
- * (src/lib/server/clippers.ts keeps the list a minute).
+ * Clipping campaigns: the ones open now, how it works, and the finished ones. Campaigns are set
+ * up by admins (the admin panel's Campaigns). Read from the database at request time, unlike
+ * the static marketing pages; who is looking is decided in the browser (YourCampaigns).
  */
 export default async function ClippersPage() {
   await connection();
-  const clippers = await listClippers().catch(() => null);
+  const campaigns = await listCampaigns().catch(() => null);
+  const running = campaigns?.filter((c) => c.status !== "ended") ?? [];
+  const finished = campaigns?.filter((c) => c.status === "ended") ?? [];
 
   return (
     <>
@@ -32,67 +42,113 @@ export default async function ClippersPage() {
       <main id="main">
         <section className={`container ${styles.hero}`} aria-labelledby="clippers-title">
           <h1 id="clippers-title" className="t-display-xl">
-            meet the <span className="hl">clippers.</span>
+            get paid to <span className="hl">clip.</span>
           </h1>
-          <p className={styles.lede}>The people turning streams, podcasts and long videos into shorts with Bamio. Looking for someone to clip your channel? Start here.</p>
-          <Link href="/profile/clippers" className="btn btn-primary btn-lg">
-            Add yourself
-          </Link>
+          <p className={styles.lede}>Creators and brands put up a budget. You clip their content, post it on your own channel, and earn for every 1,000 views.</p>
+          <a href="#campaigns" className="btn btn-primary btn-lg">
+            See the campaigns
+          </a>
         </section>
 
-        <section className={`container ${styles.wall}`} aria-label="Clippers">
-          {clippers === null ? (
+        <YourCampaigns />
+
+        <section id="campaigns" className={`container ${styles.section}`} aria-labelledby="campaigns-title">
+          <h2 id="campaigns-title" className="t-heading-xl">
+            Campaigns
+          </h2>
+          {campaigns === null ? (
             <div className="empty" role="alert">
-              <h2 className="empty-title">The clippers couldn’t be loaded</h2>
+              <h3 className="empty-title">The campaigns couldn’t be loaded</h3>
               <p className="empty-body">Something went wrong on our side. Try again in a moment.</p>
             </div>
-          ) : clippers.length === 0 ? (
+          ) : running.length === 0 ? (
             <div className="empty">
               <span className="ai-mark" aria-hidden />
-              <h2 className="empty-title">The first clippers are on their way</h2>
-              <p className="empty-body">Clip with Bamio? Turn on “Show me on the Clippers page” in your profile, and your card goes up once we’ve had a look.</p>
+              <h3 className="empty-title">{finished.length > 0 ? "Nothing is open right now" : "The first campaigns are on their way"}</h3>
+              <p className="empty-body">New campaigns show up here as they open. Until then, clip your own videos and get your channel ready.</p>
+              <Link href="/new" className="btn btn-secondary">
+                Make a clip
+              </Link>
             </div>
           ) : (
             <ul className={styles.grid}>
-              {clippers.map((c, i) => (
-                <Card key={`${i}-${c.name}`} clipper={c} />
+              {running.map((c) => (
+                <Card key={c.id} campaign={c} />
               ))}
             </ul>
           )}
         </section>
+
+        <section className={`container ${styles.section}`} aria-labelledby="how-title">
+          <h2 id="how-title" className="t-heading-xl">
+            How it works
+          </h2>
+          <ol className={styles.steps}>
+            {STEPS.map((step, i) => (
+              <li key={step.title} className={styles.step}>
+                <span className={styles.number} aria-hidden="true">
+                  {i + 1}
+                </span>
+                <h3 className="t-heading-sm">{step.title}</h3>
+                <p>{step.text}</p>
+              </li>
+            ))}
+          </ol>
+          <p className={styles.small}>
+            No money passes through Bamio. Each campaign’s page says who pays and how; Bamio keeps the count, so both sides see the same numbers.
+            {COMPANY.ready ? (
+              <>
+                {" "}
+                Want clips of your own content? Write to <a href={`mailto:${COMPANY.email}`}>{COMPANY.email}</a> to set up a campaign.
+              </>
+            ) : null}
+          </p>
+        </section>
+
+        {finished.length > 0 ? (
+          <section className={`container ${styles.section}`} aria-labelledby="finished-title">
+            <h2 id="finished-title" className="t-heading-xl">
+              Finished
+            </h2>
+            <ul className={styles.grid}>
+              {finished.map((c) => (
+                <Card key={c.id} campaign={c} />
+              ))}
+            </ul>
+          </section>
+        ) : null}
+        <div className={styles.end} />
       </main>
       <SiteFooter links={SITE_LINKS} />
     </>
   );
 }
 
-function Card({ clipper }: { clipper: ClipperCard }) {
-  const PlatformIcon = clipper.link ? ICONS[clipper.link.platform] : null;
+function Card({ campaign: c }: { campaign: CampaignCard }) {
   return (
-    <li className={styles.card}>
-      <div className={styles.who}>
-        <span className={`avatar avatar-lg ${styles.avatar}`} aria-hidden="true">
-          {/* Their Clerk profile picture (a remote file whose size isn't known here). */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          {clipper.imageUrl ? <img src={clipper.imageUrl} alt="" width={56} height={56} loading="lazy" decoding="async" referrerPolicy="no-referrer" /> : clipper.name.slice(0, 1).toUpperCase()}
-        </span>
-        <div className={styles.id}>
-          <h2 className={styles.name}>{clipper.name}</h2>
-          <p className={styles.count}>{clipper.clips > 0 ? `${clipper.clips.toLocaleString("en-US")} ${clipper.clips === 1 ? "clip" : "clips"} made with Bamio` : "New on Bamio"}</p>
+    <li>
+      <Link href={`/clippers/${c.slug}`} className={styles.card}>
+        <div className={styles.cardTop}>
+          <span className={styles.brand}>{c.brand}</span>
+          <StatusBadge status={c.status} />
         </div>
-      </div>
-      {clipper.bio ? <p className={styles.bio}>{clipper.bio}</p> : null}
-      {clipper.link && PlatformIcon ? (
-        // A link a user gave: search engines are told not to count it, and it opens apart from Bamio.
-        <a className={styles.channel} href={clipper.link.url} target="_blank" rel="nofollow ugc noopener noreferrer">
-          <PlatformIcon size={18} weight="fill" aria-hidden />
-          <span className={styles.handle}>{clipper.link.handle}</span>
-          <span className="sr-only">
-            : {clipper.name} on {CLIPPER_PLATFORMS[clipper.link.platform].name} (opens in a new tab)
+        <div className={styles.cardWords}>
+          <h3 className={styles.cardTitle}>{c.title}</h3>
+          <p className={styles.cardSummary}>{c.summary}</p>
+        </div>
+        <p className={styles.rate}>
+          <b>{formatPrice(c.rateCents)}</b> per 1,000 views
+        </p>
+        <Budget spentCents={c.stats.spentCents} budgetCents={c.budgetCents} />
+        <div className={styles.cardFoot}>
+          <Platforms list={c.platforms} />
+          <span>
+            {c.stats.clippers === 0 ? "No clippers yet" : `${compactNumber(c.stats.clippers)} ${c.stats.clippers === 1 ? "clipper" : "clippers"}`}
+            {c.stats.views > 0 ? ` · ${compactNumber(c.stats.views)} views` : ""}
           </span>
-          <ArrowUpRight size={16} aria-hidden />
-        </a>
-      ) : null}
+          <ArrowRight size={18} aria-hidden className={styles.arrow} />
+        </div>
+      </Link>
     </li>
   );
 }

@@ -18,7 +18,7 @@ export const COMPANY = {
 };
 
 /** When the texts last changed (shown on each page). */
-export const LEGAL_UPDATED = "October 5, 2026";
+export const LEGAL_UPDATED = "October 6, 2026";
 
 export const LEGAL_PAGES: SiteLink[] = [
   { href: "/terms", label: "Terms of service" },
