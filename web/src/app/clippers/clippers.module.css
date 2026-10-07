@@ -185,3 +185,7 @@
   .requestRow { grid-template-columns: minmax(0, 1fr) max-content; }
   .requestRow > :global(.btn), .requestRow > span[aria-hidden] { grid-column: 1 / -1; justify-self: start; }
 }
+
+/* A campaign's page for someone who may not see it: the lock, in the page's own width. */
+.lockedPage { justify-items: stretch; padding-bottom: 112px; }
+.lockedPage .back { justify-self: start; }

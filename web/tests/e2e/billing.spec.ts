@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import postgres from "postgres";
 import { SAMPLE_VIDEO, signIn } from "./auth";
+import { clearCampaigns, DEMO, seedCampaign } from "./campaign-seed";
 
 /*
  * Plans switched on: importing needs a plan, and uses its AI minutes. Gives the e2e user a
@@ -170,6 +171,77 @@ test.describe("plans", () => {
     await page.goto("/pricing");
     await page.getByRole("button", { name: "Choose Starter" }).click();
     await expect(page.getByRole("alert").filter({ hasText: "Stripe refused this server’s key" })).toBeVisible();
+  });
+
+test("campaigns are for subscribers: everyone else sees the lock, never a campaign", async ({ page, request }) => {
+    const status = (await (await page.request.get("/api/system/status")).json()) as { admin?: string | null };
+    test.skip(Boolean(status.admin), "The e2e user is an admin on this server, and admins see every campaign. Start it without BAMIO_SUPERADMINS.");
+    await clearPlan(id);
+    await clearCampaigns(sql, id);
+    await seedCampaign(sql);
+    try {
+      // Signed in without a plan (the free video isn't one): that there are campaigns, and how to get in.
+      await page.goto("/clippers");
+      await expect(page.getByRole("heading", { name: "Campaigns are for subscribers" })).toBeVisible();
+      await expect(page.getByText(/campaigns? (is|are) open right now/)).toBeVisible();
+      await expect(page.getByText(DEMO.title)).toHaveCount(0);
+      await expect(page.getByRole("heading", { name: "Your campaigns" })).toHaveCount(0);
+      // The rest of the page is still there: how it works, and running a campaign.
+      await expect(page.getByRole("heading", { name: "Run a campaign" })).toBeVisible();
+      await page.screenshot({ path: "qa/billing/campaigns-locked.png", fullPage: true });
+      await page.setViewportSize({ width: 390, height: 844 });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(0);
+      await page.setViewportSize({ width: 1440, height: 900 });
+
+      await page.goto(`/clippers/${DEMO.slug}`);
+      await expect(page.getByRole("heading", { level: 1, name: "This campaign is for subscribers" })).toBeVisible();
+      await expect(page.getByText(DEMO.title)).toHaveCount(0);
+      await expect(page.getByText("Nova Clips")).toHaveCount(0);
+      await expect(page).toHaveTitle(/A clipping campaign/);
+      await page.screenshot({ path: "qa/billing/campaign-locked.png", fullPage: true });
+      for (const path of ["/api/campaigns/mine", `/api/campaigns/${DEMO.slug}/me`]) expect((await page.request.get(path)).status(), path).toBe(402);
+      expect((await page.request.post(`/api/campaigns/${DEMO.slug}/join`, { data: { name: "E2E Clipper", link: "tiktok.com/@e2e", payout: "" } })).status()).toBe(402);
+      expect((await page.request.post(`/api/campaigns/${DEMO.slug}/clips`, { data: { url: "https://www.tiktok.com/@a/video/1234567" } })).status()).toBe(402);
+
+      // Signed out: the same lock with a way to sign in, and nothing about the campaign in the page at all.
+      const list = await (await request.get("/clippers")).text();
+      expect(list).toContain("Campaigns are for subscribers");
+      expect(list).toContain(`redirect_url=${encodeURIComponent("/clippers")}`);
+      expect(list).not.toContain(DEMO.title);
+      const one = await (await request.get(`/clippers/${DEMO.slug}`)).text();
+      expect(one).toContain("This campaign is for subscribers");
+      for (const secret of [DEMO.title, "Nova Clips", "Tag @testcreator", "nova.clips"]) expect(one, secret).not.toContain(secret);
+      expect((await request.get("/api/campaigns/mine")).status()).toBe(401);
+      // An address that was never a campaign is still not found.
+      expect((await request.get("/clippers/no-such-campaign")).status()).toBe(404);
+
+      // With a plan: the campaigns, and a way to join.
+      await setPlan(id, "starter");
+      await page.goto("/clippers");
+      await page.getByRole("link", { name: new RegExp(DEMO.title) }).click();
+      await expect(page.getByRole("heading", { level: 1, name: DEMO.title })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Join this campaign" })).toBeVisible();
+      await expect(page.getByText("Nova Clips", { exact: true })).toBeVisible();
+      expect((await page.request.get(`/api/campaigns/${DEMO.slug}/me`)).status()).toBe(200);
+
+      // The plan ends: locked again.
+      await sql`update billing_accounts set data = jsonb_set(data, '{subscription,status}', '"canceled"') where user_id = ${id}`;
+      await page.reload();
+      await expect(page.getByRole("heading", { level: 1, name: "This campaign is for subscribers" })).toBeVisible();
+
+      // The person who asked for a campaign opens that one without a plan, and doesn't clip in it.
+      await clearPlan(id);
+      await sql`insert into campaign_requests (user_id, kind, name, source_url, brief, platforms, rate_cents, budget_cents, payout, status, campaign_id, created_at)
+        values (${id}, 'streamer', 'E2E Owner', 'https://example.com/show', 'Clip the best minute of each stream.', '["tiktok"]', 200, 100000, 'PayPal', 'accepted', ${DEMO.id}, ${Date.now()})`;
+      await page.reload();
+      await expect(page.getByRole("heading", { level: 1, name: DEMO.title })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Your campaign", exact: true })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Join this campaign" })).toHaveCount(0);
+      await page.goto("/clippers");
+      await expect(page.getByRole("heading", { name: "Campaigns are for subscribers" })).toBeVisible();
+    } finally {
+      await clearCampaigns(sql, id);
+    }
   });
 
   test("a plan's minutes are counted, and imports stop when they run out", async ({ page }) => {

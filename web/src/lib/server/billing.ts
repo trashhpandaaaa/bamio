@@ -401,6 +401,12 @@ export async function assertPlan(userId: string): Promise<void> {
   if (!free.card) throw new HttpError(402, "card_required", "Add a card under Plan & billing to use your free trial. It’s only checked: nothing is charged.");
 }
 
+/** A working plan, paid or given without paying (the free trial isn't one). True with billing off: nothing is limited then. */
+export async function hasPlan(userId: string): Promise<boolean> {
+  if (!billingEnabled()) return true;
+  return (await allowance(userId)) !== null;
+}
+
 /** AI processing left this month (or of the free trial), in seconds: Infinity with billing off, 0 without a plan. */
 export async function secondsLeft(userId: string): Promise<number> {
   if (!billingEnabled()) return Infinity;

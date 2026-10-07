@@ -1,6 +1,6 @@
 # Bamio design status
 
-Last updated: 2026-10-07 (podcasters, streamers and businesses can ask to run a campaign from the Clippers page; the free trial needs a card and is 8 minutes)
+Last updated: 2026-10-07 (campaigns are for subscribers; podcasters, streamers and businesses can ask to run one; the free trial needs a card and is 8 minutes)
 
 ## Current phase
 
@@ -21,7 +21,7 @@ On 2026-09-27 the user said the only features needed are (1) **video clipping** 
 | Profile | Clerk profile plus "Clip defaults" (spoken language, find clips, clip length, format, captions, caption style). |
 | Pricing (`/pricing`) | Starter, Pro (most popular) and Team, monthly or every 3 months ("Save $6 compared to $36 monthly"...); included features, then a folded "Coming soon" list per plan; buy with Stripe Checkout, switch plans in Stripe's portal; billing questions. Public. |
 | Plan & billing (`/billing`) | The plan and its renewal, AI minutes left this month, projects kept, Manage billing (Stripe portal). In the account menu when plans are on. |
-| Campaigns (`/clippers`) | Clipping campaigns: what each pays per 1,000 views, its budget and leaderboard; clippers join, send the links to clips they posted and see what they earned and were paid. "Run a campaign": podcasters, streamers and businesses ask for one with a form, and Bamio's team sets it up (see Clipping campaigns, Run a campaign). |
+| Campaigns (`/clippers`) | Clipping campaigns, for subscribers: what each pays per 1,000 views, its budget and leaderboard; clippers join, send the links to clips they posted and see what they earned and were paid. Without a plan: that campaigns exist, how many are open, and the way to the plans. "Run a campaign": podcasters, streamers and businesses ask for one with a form, and Bamio's team sets it up (see Clipping campaigns, Run a campaign, Campaigns are for subscribers). |
 | Admin (`/admin`) | For the people who run Bamio (see Admin panel): overview numbers, users, jobs and errors, money. 404 for everyone else. |
 | Data and storage | Projects, transcripts, jobs, billing and usage in Postgres; media (sources, thumbnails, frames, exports, a followed stream's segments) in a local folder or S3 / R2 / MinIO, per Clerk user and project. |
 
@@ -104,6 +104,22 @@ The user pasted a production-readiness checklist (keys, Postgres, S3/R2, Redis a
 - **Workers** (`worker.ts`): pools for imports (2 at once), exports (2) and streams (4), set with `BAMIO_*_SLOTS`. Each kind has a time limit (import 8 h, find clips and transcribe again 6 h, export 2 h, follow its maximum plus 2 h). On SIGTERM a worker stops claiming, aborts its jobs and hands them back without counting an attempt. The web server runs a worker itself (`instrumentation.ts`) unless `BAMIO_WORKER=off`; then `node dist/worker.mjs` (esbuild bundle, `npm run build:worker`) runs on any machine with the same environment. Job handlers were made safe to run again: an import that finds its video already prepared goes straight to transcription, and a followed stream resumed by another worker finishes what was captured.
 - **Health and deploy:** `GET /api/health` (public, nothing about users) reports the database, storage, media tools and the queue (waiting, running, oldest wait) with 200 or 503. A database that can't be reached gives a 503 "can't reach its database" everywhere. `web/Dockerfile` (one image for both roles: Node 24 slim, tini, a non-root user, migrations on start, a health check) and `web/compose.yaml` (Postgres 18, MinIO and its bucket, a web server that only queues, a worker; `--scale worker=N`).
 - **Decision: a Postgres queue instead of Redis and BullMQ.** Same guarantees for this load (durable, leased, retried, prioritised, cancellable), one less service to run and back up, and a job is queued in the same transaction as the project change that asks for it, so neither can exist without the other. `queue.ts` is small, so it can be swapped if volume ever needs it. Redis and Docker weren't available on this machine either.
+
+### Campaigns are for subscribers (2026-10-07, night)
+
+The user asked that only subscribed users can view the campaigns.
+
+- **Who sees campaigns**: an account with a working plan, paid or given without paying. Not visitors, not the free trial, not a plan that has ended. One rule (`campaignAccess`), asked by the campaigns page, each campaign's page and the clipper's API routes.
+- **Everyone else** sees, on `/clippers`, "Campaigns are for subscribers", how many are open right now, "See plans" and (signed out) "Sign in"; the hero, how clipping works and "Run a campaign" stay. A campaign's own address shows a locked page with nothing about the campaign: not its name, terms, leaderboard or clippers, in the page or its title. The API answers 402.
+- **Exceptions**: admins (they run the campaigns), and the person who asked for a campaign, who may open that one page without a plan and sees "Your campaign" in place of the join panel. With plans off (test servers) everything is open, as with every other limit.
+- **Around it**: campaign pages are no longer for search engines and no longer have a share image of their own (it named the owner, rate and budget). The pricing page lists "Clipping campaigns" in every plan. The owner's "your campaign is live" email says clippers need a Bamio plan. The privacy page says leaderboards are shown to accounts with a plan, the owner and the team; the terms say what happens when a plan ends.
+
+Decisions:
+- **A member whose plan ends is locked out too**: they can't open campaigns or send clips until they have a plan again. Their approved clips keep counting, what they earned is still owed, and the payment email still reaches them. The user's rule was plain, and an exception for members would let people subscribe for a month, join, and stay.
+- **The count of open campaigns is shown to everyone**, as the reason to subscribe. It says nothing about any campaign.
+- **Asking to run a campaign needs no plan.** Owners bring the money; they aren't the ones the rule is about.
+
+Verified: 213 unit tests (new: who may see campaigns with plans off and on, a plan given without paying, an ended plan, admins, the owner of one campaign), the build, the e2e suite on a plans-off server (everything open, as before), the plan tests on a plans-on server (new: the lock for a signed-in account without a plan and for a visitor, with no trace of the campaign in the page; 402 from the API; a plan opens it; an ended plan locks it again; the owner sees their own), the layout check and the sweep.
 
 ### Run a campaign: a section and a form for podcasters, streamers and businesses (2026-10-07, evening)
 

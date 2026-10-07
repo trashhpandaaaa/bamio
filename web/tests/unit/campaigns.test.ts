@@ -13,6 +13,7 @@ import {
   waitingRequests,
   withdrawCampaignRequest,
 } from "@/lib/server/campaign-requests";
+import { assertCampaignAccess, campaignAccess, canSeeCampaigns } from "@/lib/server/campaign-access";
 import { countNextViews } from "@/lib/server/campaign-views";
 import {
   adminCampaign,
@@ -20,6 +21,7 @@ import {
   blockClipper,
   campaignBySlug,
   campaignCounts,
+  campaignRef,
   createCampaign,
   deleteCampaign,
   endDueCampaigns,
@@ -28,6 +30,7 @@ import {
   myCampaign,
   myCampaigns,
   myClipper,
+  openCampaignCount,
   recordPayout,
   recountClip,
   resolveClipLink,
@@ -549,5 +552,78 @@ describe("asking to run a campaign", () => {
     // Admins see those waiting first, the oldest at the top.
     const mine = (await adminCampaignRequests()).filter((r) => r.userId === OTTO).map((r) => r.name);
     expect(mine).toEqual(["Otto 1", "Otto 2", "The Test Show", "Otto's Bikes"]);
+  });
+});
+
+describe("who may see campaigns", () => {
+  const ADA = "user_camp_ada";
+  const tidy = async () => {
+    const sql = db();
+    for (const u of [MIRA, OTTO, ADA]) {
+      await sql`delete from billing_accounts where user_id = ${u}`;
+      await sql`delete from plan_grants where user_id = ${u}`;
+      await sql`delete from admins where user_id = ${u}`;
+    }
+    delete process.env.STRIPE_SECRET_KEY;
+    await clean();
+  };
+  beforeEach(tidy);
+  afterAll(tidy);
+
+  /** A subscription as Stripe's webhooks would have saved it (read just now, so nothing asks Stripe). */
+  const subscribe = async (userId: string, status: string) => {
+    const now = Date.now();
+    const subscription = { id: `sub_${userId}`, status, plan: "starter", interval: "month", anchor: now - 86400_000, periodEnd: now + 29 * 86400_000, cancelAt: null, checkedAt: now };
+    await db()`insert into billing_accounts (user_id, data, updated_at) values (${userId}, ${db().json({ customerId: `cus_${userId}`, subscription })}, ${now})
+      on conflict (user_id) do update set data = excluded.data`;
+  };
+
+  it("is everyone while plans are off", async () => {
+    expect(await campaignAccess(null)).toBe("open");
+    expect(await campaignAccess(MIRA)).toBe("open");
+    await expect(assertCampaignAccess(MIRA)).resolves.toBeUndefined();
+  });
+
+  it("is only accounts with a plan once plans are on: not visitors, not the free trial, not a plan that has ended", async () => {
+    process.env.STRIPE_SECRET_KEY = "sk_test_unit";
+    expect(await campaignAccess(null)).toBe("signed_out");
+    expect(canSeeCampaigns("signed_out")).toBe(false);
+    // A new account has its free video, which isn't a plan.
+    expect(await campaignAccess(MIRA)).toBe("no_plan");
+    await expect(assertCampaignAccess(MIRA)).rejects.toMatchObject({ status: 402, code: "plan_required" });
+
+    await subscribe(OTTO, "active");
+    expect(await campaignAccess(OTTO)).toBe("open");
+    await expect(assertCampaignAccess(OTTO)).resolves.toBeUndefined();
+    await subscribe(OTTO, "canceled");
+    expect(await campaignAccess(OTTO)).toBe("no_plan");
+
+    // A plan given without paying is a plan.
+    await db()`insert into plan_grants (user_id, plan, note, created_at) values (${MIRA}, 'pro', 'test', ${Date.now()})`;
+    expect(await campaignAccess(MIRA)).toBe("open");
+  });
+
+  it("lets admins in, and the person who asked for a campaign into that one", async () => {
+    process.env.STRIPE_SECRET_KEY = "sk_test_unit";
+    // An admin runs the campaigns, plan or no plan.
+    await db()`insert into admins (user_id, email, added_by, created_at) values (${ADA}, 'ada@example.com', 'test', ${Date.now()})`;
+    expect(await campaignAccess(ADA)).toBe("open");
+
+    // Mira asked for a campaign and has no plan: she may open hers, not the others, and can't clip in any.
+    const asked = await requestCampaign(MIRA, campaignRequestSchema.parse({ kind: "podcaster", name: "The Test Show", sourceUrl: "youtube.com/@thetestshow", brief: "The funniest minute of each episode.", platforms: ["tiktok"], rateCents: 100, budgetCents: 10_000, payout: "PayPal, monthly", contact: "" }), null);
+    const hers = await createCampaignFromRequest(boss, asked, input());
+    const other = await createCampaign(boss, input());
+    expect(await campaignAccess(MIRA, hers.id)).toBe("owner");
+    expect(canSeeCampaigns("owner")).toBe(true);
+    expect(await campaignAccess(MIRA, other.id)).toBe("no_plan");
+    expect(await campaignAccess(MIRA)).toBe("no_plan");
+    expect(await campaignAccess(OTTO, hers.id)).toBe("no_plan");
+    await expect(assertCampaignAccess(MIRA)).rejects.toMatchObject({ status: 402 });
+    // The page asks by address: what it needs to decide, without the campaign's sums.
+    expect(await campaignRef(hers.slug)).toEqual({ id: hers.id, status: "draft" });
+    expect(await campaignRef("no-such-campaign")).toBeNull();
+    expect(await campaignRef("../etc")).toBeNull();
+    await setCampaignStatus(boss, hers.id, "live");
+    expect(await openCampaignCount()).toBeGreaterThanOrEqual(1);
   });
 });

@@ -28,7 +28,8 @@ import { HttpError } from "@/lib/server/http";
 import { isUserId } from "@/lib/server/store";
 
 /*
- * Clipping campaigns (/clippers). An admin sets one up: what to clip, a rate per 1,000 views, a
+ * Clipping campaigns (/clippers), for subscribers (campaign-access.ts says who may see them:
+ * the pages and the clipper's API routes ask it; the functions here don't). An admin sets one up: what to clip, a rate per 1,000 views, a
  * budget. Clippers join it, clip with Bamio, post on their own channels and send the links.
  * Each clip waits for an admin; approved ones count. Bamio reads the views itself where the
  * site allows (campaign-views.ts) and an admin types them in where it doesn't; money.ts says
@@ -141,6 +142,19 @@ export async function listCampaigns(): Promise<CampaignCard[]> {
     order by array_position(array['live', 'paused', 'ended'], status), created_at desc limit 200`;
   const [done, members] = await Promise.all([settlements(rows), memberCounts(rows.map((r) => r.id))]);
   return rows.map((r) => ({ ...campaign(r), stats: stats(r, done.get(r.id)!, members.get(r.id) ?? 0) }));
+}
+
+/** A campaign's id and state by its address, without its sums: enough to decide who may open its page (campaign-access.ts). */
+export async function campaignRef(slug: string): Promise<{ id: string; status: CampaignStatus } | null> {
+  if (!isSlug(slug)) return null;
+  const [row] = await db()<{ id: string; status: CampaignStatus }[]>`select id, status from campaigns where slug = ${slug}`;
+  return row ?? null;
+}
+
+/** How many campaigns are open now: all that someone without a plan is told about them. */
+export async function openCampaignCount(): Promise<number> {
+  const [row] = await db()<{ n: number }[]>`select count(*)::int as n from campaigns where status = 'live'`;
+  return row?.n ?? 0;
 }
 
 export type CampaignPage = { campaign: CampaignCard; leaders: Leader[] };

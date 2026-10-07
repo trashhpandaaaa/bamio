@@ -1,3 +1,4 @@
+import { assertCampaignAccess } from "@/lib/server/campaign-access";
 import { myCampaign, withdrawClip } from "@/lib/server/campaigns";
 import { HttpError, userRoute } from "@/lib/server/http";
 
@@ -5,6 +6,7 @@ import { HttpError, userRoute } from "@/lib/server/http";
 export const DELETE = userRoute<{ slug: string; clipId: string }>(
   async (_req, { userId, params }) => {
     if (!/^\d{1,12}$/.test(params.clipId)) throw new HttpError(404, "not_found", "That clip isn’t in this campaign.");
+    await assertCampaignAccess(userId);
     await withdrawClip(userId, Number(params.clipId));
     return Response.json(await myCampaign(userId, params.slug));
   },

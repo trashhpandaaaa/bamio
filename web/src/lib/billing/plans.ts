@@ -62,6 +62,7 @@ export const PLANS: Record<PlanId, Plan> = {
       { text: "Basic caption styles" },
       { text: "Captions in over 100 languages", detail: "Detected for you, with a time for every word" },
       { text: "Live stream capture", detail: "YouTube, Twitch and Kick: a part, or follow the whole stream" },
+      { text: "Clipping campaigns", detail: "Join campaigns and earn for every 1,000 views on the clips you post" },
       { text: "1 user" },
       { text: "Basic storage", detail: "Keep up to 50 projects" },
       { text: "Standard processing speed" },

@@ -76,7 +76,7 @@ export default async function AdminCampaignPage({ params }: { params: Promise<{ 
           <div className={styles.inline}>
             <StatusBadge status={c.status} />
             <Link className={styles.cellLink} href={`/clippers/${c.slug}`}>
-              {c.status === "draft" ? "Preview its page" : "Its public page"}
+              {c.status === "draft" ? "Preview its page" : "Its page"}
             </Link>
             <Link className={styles.cellLink} href={`/admin/campaigns/${c.id}/edit`}>
               Edit

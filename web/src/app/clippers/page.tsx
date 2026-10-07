@@ -1,4 +1,5 @@
-import { ArrowRight } from "@phosphor-icons/react/ssr";
+import { auth } from "@clerk/nextjs/server";
+import { ArrowRight, LockSimple } from "@phosphor-icons/react/ssr";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { connection } from "next/server";
@@ -8,7 +9,8 @@ import { SITE_LINKS } from "@/components/site/use-case";
 import { formatPrice } from "@/lib/billing/plans";
 import { compactNumber } from "@/lib/campaigns/money";
 import type { CampaignCard } from "@/lib/campaigns/schema";
-import { listCampaigns } from "@/lib/server/campaigns";
+import { campaignAccess, canSeeCampaigns } from "@/lib/server/campaign-access";
+import { listCampaigns, openCampaignCount } from "@/lib/server/campaigns";
 import { pageMetadata } from "@/lib/site";
 import { RunCampaign } from "./run-campaign";
 import { YourCampaigns } from "./your-campaigns";
@@ -28,16 +30,22 @@ const STEPS = [
 /**
  * Clipping campaigns: the ones open now, how it works for clippers, how podcasters, streamers
  * and businesses run one (RunCampaign: a form that goes to Bamio's team, who set campaigns up
- * in the admin panel), and the finished ones. Read from the database at request time, unlike
- * the static marketing pages; who is looking is decided in the browser (YourCampaigns,
- * RunCampaign). ?run=1 opens the form (back from signing in).
+ * in the admin panel), and the finished ones. The campaigns themselves are for subscribers
+ * (campaign-access.ts): everyone else sees that there are some and how to get in, and the
+ * rest of the page. Read from the database and the session at request time, unlike the static
+ * marketing pages. ?run=1 opens the form (back from signing in).
  */
 export default async function ClippersPage({ searchParams }: { searchParams: Promise<{ [key: string]: string | string[] | undefined }> }) {
   await connection();
   const startRun = (await searchParams).run === "1";
-  const campaigns = await listCampaigns().catch(() => null);
-  const running = campaigns?.filter((c) => c.status !== "ended") ?? [];
-  const finished = campaigns?.filter((c) => c.status === "ended") ?? [];
+  const { userId } = await auth();
+  // With a plan: the campaigns. Without: only how many are open.
+  const seen = await (async () => {
+    const allowed = canSeeCampaigns(await campaignAccess(userId));
+    return allowed ? { allowed, campaigns: await listCampaigns(), open: 0 } : { allowed, campaigns: [], open: await openCampaignCount() };
+  })().catch(() => null);
+  const running = seen?.campaigns.filter((c) => c.status !== "ended") ?? [];
+  const finished = seen?.campaigns.filter((c) => c.status === "ended") ?? [];
 
   return (
     <>
@@ -58,16 +66,35 @@ export default async function ClippersPage({ searchParams }: { searchParams: Pro
           </div>
         </section>
 
-        <YourCampaigns />
+        {seen?.allowed ? <YourCampaigns /> : null}
 
         <section id="campaigns" className={`container ${styles.section}`} aria-labelledby="campaigns-title">
           <h2 id="campaigns-title" className="t-heading-xl">
             Campaigns
           </h2>
-          {campaigns === null ? (
+          {seen === null ? (
             <div className="empty" role="alert">
               <h3 className="empty-title">The campaigns couldn’t be loaded</h3>
               <p className="empty-body">Something went wrong on our side. Try again in a moment.</p>
+            </div>
+          ) : !seen.allowed ? (
+            <div className="empty">
+              <LockSimple size={32} aria-hidden />
+              <h3 className="empty-title">Campaigns are for subscribers</h3>
+              <p className="empty-body">
+                {seen.open > 0 ? `${seen.open} ${seen.open === 1 ? "campaign is" : "campaigns are"} open right now. ` : ""}
+                With a Bamio plan you can see every campaign, join, and earn for every 1,000 views on your clips.
+              </p>
+              <div className={styles.heroActions}>
+                <Link href="/pricing" className="btn btn-volt">
+                  See plans
+                </Link>
+                {userId ? null : (
+                  <Link href={`/sign-in?redirect_url=${encodeURIComponent("/clippers")}`} className="btn btn-secondary">
+                    Sign in
+                  </Link>
+                )}
+              </div>
             </div>
           ) : running.length === 0 ? (
             <div className="empty">
