@@ -30,6 +30,8 @@ const FAILED: Extract<Email, { template: "video-failed" }> = {
 
 /** One of every email, with the kind of data the app queues. */
 const SAMPLES: Record<EmailTemplate, Email> = {
+  "campaign-live": { template: "campaign-live", campaign: "Clip the summer tournament", slug: "clip-the-summer-tournament" },
+  "campaign-declined": { template: "campaign-declined", name: "The Test Show", note: "The link is to someone else’s channel." },
   "campaign-paid": { template: "campaign-paid", campaign: "Clip the summer tournament", brand: "Test Creator", slug: "clip-the-summer-tournament", amountCents: 4250, note: "PayPal, Friday" },
   "ops-alert": { template: "ops-alert", title: "3 jobs failed in the last hour", lines: ["import 12: It took too long."], path: "/admin/jobs?view=failed" },
   "plan-started": { template: "plan-started", plan: "pro", interval: "month", renewsAt: DAY },

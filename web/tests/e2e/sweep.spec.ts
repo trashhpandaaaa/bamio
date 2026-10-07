@@ -140,7 +140,7 @@ test("signed-in pages, a project and the editor", async ({ page }) => {
   await page.waitForURL(/\/projects\/[0-9a-f-]{36}$/, { timeout: 90_000 });
   const projectPath = new URL(page.url()).pathname;
   // A campaign with the e2e user in it, for the clipper's panel and the admin's pages.
-  await seedCampaign(sql, { joined: me });
+  const { requestId } = await seedCampaign(sql, { joined: me });
   try {
     await expect(page.getByTestId("clip-card").first()).toBeVisible({ timeout: 180_000 });
     const editPath = await page.getByTestId("clip-card").first().getByRole("link", { name: "Edit" }).getAttribute("href");
@@ -160,11 +160,13 @@ test("signed-in pages, a project and the editor", async ({ page }) => {
         { name: "profile-clipper", path: "/profile/clipper", ready: (p) => expect(p.getByRole("heading", { name: "Clipper details" })).toBeVisible() },
         { name: "campaigns-mine", path: "/clippers", ready: (p) => expect(p.getByRole("heading", { name: "Your campaigns" })).toBeVisible() },
         { name: "campaign-joined", path: `/clippers/${DEMO.slug}`, ready: (p) => expect(p.getByRole("heading", { name: "Your clips" })).toBeVisible() },
+        { name: "campaigns-run", path: "/clippers?run=1", ready: (p) => expect(p.getByRole("heading", { name: "Your campaign", exact: true })).toBeVisible() },
         { name: "admin", path: "/admin", ready: heading },
         { name: "admin-users", path: "/admin/users", ready: heading },
         { name: "admin-campaigns", path: "/admin/campaigns", ready: heading },
         { name: "admin-campaign", path: `/admin/campaigns/${DEMO.id}`, ready: heading },
         { name: "admin-campaign-new", path: "/admin/campaigns/new", ready: heading },
+        { name: "admin-campaign-from-request", path: `/admin/campaigns/new?request=${requestId}`, ready: (p) => expect(p.getByText("From E2E Test Show’s request")).toBeVisible() },
         { name: "admin-campaign-edit", path: `/admin/campaigns/${DEMO.id}/edit`, ready: heading },
         { name: "admin-user", path: `/admin/users/${me}`, ready: heading },
         { name: "admin-jobs", path: "/admin/jobs?view=recent", ready: heading },

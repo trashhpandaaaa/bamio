@@ -38,8 +38,11 @@ type TextKey = Exclude<keyof FormValues, "platforms">;
 
 const BLANK: FormValues = { title: "", brand: "", summary: "", brief: "", rules: "", sourceUrl: "", platforms: ["tiktok", "youtube"], rate: "", budget: "", minViews: "0", maxClip: "", payout: "", ends: "" };
 
-/** Make a campaign (it starts as a draft) or change one. */
-export function CampaignForm({ campaign }: { campaign?: Campaign }) {
+/** What the form takes from a request to run a campaign (the "Run a campaign" form on /clippers). */
+export type RequestStart = { id: number; name: string; sourceUrl: string; brief: string; platforms: ClipPlatform[]; rateCents: number; budgetCents: number; payout: string };
+
+/** Make a campaign (it starts as a draft) or change one. `request`: start from what someone asked for; making it answers their request. */
+export function CampaignForm({ campaign, request }: { campaign?: Campaign; request?: RequestStart }) {
   const router = useRouter();
   const toast = useToast();
   const id = useId();
@@ -60,7 +63,9 @@ export function CampaignForm({ campaign }: { campaign?: Campaign }) {
           payout: campaign.payout,
           ends: dayValue(campaign.endsAt),
         }
-      : BLANK,
+      : request
+        ? { ...BLANK, title: `Clip ${request.name}`.slice(0, CAMPAIGN_LIMITS.title), brand: request.name, brief: request.brief, sourceUrl: request.sourceUrl, platforms: request.platforms, rate: dollars(request.rateCents), budget: dollars(request.budgetCents), payout: request.payout }
+        : BLANK,
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
@@ -107,8 +112,8 @@ export function CampaignForm({ campaign }: { campaign?: Campaign }) {
         toast({ tone: "success", title: "Campaign saved" });
         router.push(`/admin/campaigns/${campaign.id}`);
       } else {
-        const made = await api.admin.createCampaign(parsed.data);
-        toast({ tone: "success", title: "Draft made", body: "Look it over, then open it." });
+        const made = await api.admin.createCampaign(parsed.data, request?.id);
+        toast({ tone: "success", title: "Draft made", body: request ? `Look it over, then open it: ${request.name} is emailed when it goes live.` : "Look it over, then open it." });
         router.push(`/admin/campaigns/${made.id}`);
       }
       router.refresh();
@@ -518,5 +523,58 @@ export function BlockButton({ userId, name, blocked }: { userId: string; name: s
         onConfirm={() => void run(() => api.admin.clipper(userId, "block"), `${name} is blocked`)}
       />
     </>
+  );
+}
+
+/** Decline a request to run a campaign, with a word why for the person who asked. */
+export function DeclineRequestButton({ id: requestId, name }: { id: number; name: string }) {
+  const { busy, run } = useAction();
+  const id = useId();
+  const [open, setOpen] = useState(false);
+  const [note, setNote] = useState("");
+  return (
+    <>
+      <button className="btn btn-ghost btn-sm" type="button" disabled={busy} onClick={() => setOpen(true)}>
+        Decline
+      </button>
+      <FormDialog
+        open={open}
+        title={`Decline ${name}’s campaign?`}
+        submitLabel="Decline"
+        busy={busy}
+        onClose={() => setOpen(false)}
+        onSubmit={() => {
+          setOpen(false);
+          void run(() => api.admin.declineCampaignRequest(requestId, note.trim()), `${name}’s request declined`);
+        }}
+      >
+        <div className="field">
+          <label className="field-label" htmlFor={`${id}-why`}>
+            Why (they’re emailed this)
+          </label>
+          <input id={`${id}-why`} className="input" type="text" maxLength={CAMPAIGN_LIMITS.note} placeholder="We couldn’t tell the channel is yours." value={note} onChange={(e) => setNote(e.target.value)} />
+          <p className="field-help">They can change it and send it again.</p>
+        </div>
+      </FormDialog>
+    </>
+  );
+}
+
+/** Copy a block of text (who is owed what, to send to a campaign's owner). */
+export function CopyTextButton({ text, label, done }: { text: string; label: string; done: string }) {
+  const toast = useToast();
+  return (
+    <button
+      className="btn btn-secondary btn-sm"
+      type="button"
+      onClick={() =>
+        void navigator.clipboard.writeText(text).then(
+          () => toast({ tone: "success", title: done }),
+          () => toast({ tone: "error", title: "Couldn’t copy", body: "Select the text and copy it by hand." }),
+        )
+      }
+    >
+      {label}
+    </button>
   );
 }

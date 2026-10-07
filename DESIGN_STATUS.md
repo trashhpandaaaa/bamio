@@ -1,6 +1,6 @@
 # Bamio design status
 
-Last updated: 2026-10-07 (the free trial needs a card first, one trial per card; it is 8 AI minutes)
+Last updated: 2026-10-07 (podcasters, streamers and businesses can ask to run a campaign from the Clippers page; the free trial needs a card and is 8 minutes)
 
 ## Current phase
 
@@ -21,7 +21,7 @@ On 2026-09-27 the user said the only features needed are (1) **video clipping** 
 | Profile | Clerk profile plus "Clip defaults" (spoken language, find clips, clip length, format, captions, caption style). |
 | Pricing (`/pricing`) | Starter, Pro (most popular) and Team, monthly or every 3 months ("Save $6 compared to $36 monthly"...); included features, then a folded "Coming soon" list per plan; buy with Stripe Checkout, switch plans in Stripe's portal; billing questions. Public. |
 | Plan & billing (`/billing`) | The plan and its renewal, AI minutes left this month, projects kept, Manage billing (Stripe portal). In the account menu when plans are on. |
-| Campaigns (`/clippers`) | Clipping campaigns: what each pays per 1,000 views, its budget and leaderboard; clippers join, send the links to clips they posted and see what they earned and were paid (see Clipping campaigns). |
+| Campaigns (`/clippers`) | Clipping campaigns: what each pays per 1,000 views, its budget and leaderboard; clippers join, send the links to clips they posted and see what they earned and were paid. "Run a campaign": podcasters, streamers and businesses ask for one with a form, and Bamio's team sets it up (see Clipping campaigns, Run a campaign). |
 | Admin (`/admin`) | For the people who run Bamio (see Admin panel): overview numbers, users, jobs and errors, money. 404 for everyone else. |
 | Data and storage | Projects, transcripts, jobs, billing and usage in Postgres; media (sources, thumbnails, frames, exports, a followed stream's segments) in a local folder or S3 / R2 / MinIO, per Clerk user and project. |
 
@@ -104,6 +104,24 @@ The user pasted a production-readiness checklist (keys, Postgres, S3/R2, Redis a
 - **Workers** (`worker.ts`): pools for imports (2 at once), exports (2) and streams (4), set with `BAMIO_*_SLOTS`. Each kind has a time limit (import 8 h, find clips and transcribe again 6 h, export 2 h, follow its maximum plus 2 h). On SIGTERM a worker stops claiming, aborts its jobs and hands them back without counting an attempt. The web server runs a worker itself (`instrumentation.ts`) unless `BAMIO_WORKER=off`; then `node dist/worker.mjs` (esbuild bundle, `npm run build:worker`) runs on any machine with the same environment. Job handlers were made safe to run again: an import that finds its video already prepared goes straight to transcription, and a followed stream resumed by another worker finishes what was captured.
 - **Health and deploy:** `GET /api/health` (public, nothing about users) reports the database, storage, media tools and the queue (waiting, running, oldest wait) with 200 or 503. A database that can't be reached gives a 503 "can't reach its database" everywhere. `web/Dockerfile` (one image for both roles: Node 24 slim, tini, a non-root user, migrations on start, a health check) and `web/compose.yaml` (Postgres 18, MinIO and its bucket, a web server that only queues, a worker; `--scale worker=N`).
 - **Decision: a Postgres queue instead of Redis and BullMQ.** Same guarantees for this load (durable, leased, retried, prioritised, cancellable), one less service to run and back up, and a job is queued in the same transaction as the project change that asks for it, so neither can exist without the other. `queue.ts` is small, so it can be swapped if volume ever needs it. Redis and Docker weren't available on this machine either.
+
+### Run a campaign: a section and a form for podcasters, streamers and businesses (2026-10-07, evening)
+
+The user asked for a section on the Clippers page where podcasters, streamers and businesses can run campaigns, and chose: they set it up, Bamio's team approves and runs it (not a dashboard of their own, not just a contact line).
+
+- **The section** ("Run a campaign", `/clippers#run`, also a second button in the hero): who it's for (podcasters, streamers, businesses, a line each), how it goes in three steps (tell us about it; we check it and open it; clips come in, you pay for views), then "Set up a campaign". Signed out, the button goes through sign-in and comes back with the form open.
+- **The form**: who they are, their show, channel or business, the link to their content, what to clip, where clips may be posted, the rate per 1,000 views, the budget, how they'll pay clippers, and optionally another way to reach them. Sending it promises to pay clippers under those terms. Up to three may wait per account; a waiting one can be taken back. Below the steps they see every campaign they asked for and where it stands: waiting, being set up, open (with a link), or not opened and why.
+- **Admins** (Admin → Campaigns): requests sit above the campaigns, those waiting first. "Make the campaign" opens the New campaign form filled in from the request; the admin writes the title and the one line, adds rules and checks the numbers. "Decline" takes a word why. The person who asked is emailed when it goes live (once) or is declined. Superadmins get a daily email while requests wait; the overview counts them.
+- **Paying**: a campaign made from a request shows who asked for it and how they pay, and "Copy who's owed what" gives a plain list (clipper, amount, views, how to pay them) to send to the owner. The owner pays directly; the admin marks each payment as before. No money passes through Bamio.
+
+Decisions:
+- **A request never opens a campaign by itself.** Someone on the team looks at who is promising the money before clippers see it; the campaign page publicly promises payment in the owner's name.
+- **The admin writes the title and the one line**, not the owner: those are what clippers read first, and the request's words are a brief, not a headline.
+- **Not built**: owners approving clips, seeing clippers' payment details or marking payments themselves (the user chose the team-run version); paying a budget into Bamio up front.
+
+Fixed along the way: a button that is a link inside an admin table lost its label (the table's link colour won over the button's); found in the screenshot, not by the tests.
+
+Verified: 210 unit tests (new: what a request may say, the round from asking to a live campaign and its one email, declining, taking back, the three-waiting limit, the alert, deletion), the build, the e2e suite with three new campaign tests (the admin's part with `E2E_ADMIN=1`), the layout check at five widths and the sweep in both themes with the form open and the admin's request screens.
 
 ### Free trial: a card first, one trial per card (2026-10-07, later)
 

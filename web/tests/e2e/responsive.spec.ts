@@ -113,6 +113,7 @@ async function pages(page: Page) {
     { name: "delete-account", path: "/profile/delete-account", ready: (p) => expect(p.getByRole("heading", { name: "Delete account" })).toBeVisible() },
     { name: "campaigns", path: "/clippers", ready: (p) => expect(p.getByRole("heading", { name: "Your campaigns" })).toBeVisible() },
     { name: "campaign", path: `/clippers/${DEMO.slug}`, ready: (p) => expect(p.getByRole("heading", { name: "Your clips" })).toBeVisible() },
+    { name: "campaigns-run", path: "/clippers?run=1", ready: (p) => expect(p.getByRole("heading", { name: "Your campaign", exact: true })).toBeVisible() },
     { name: "profile-clipper", path: "/profile/clipper", ready: (p) => expect(p.getByRole("heading", { name: "Clipper details" })).toBeVisible() },
     { name: "terms", path: "/terms", ready: (p) => expect(p.getByRole("heading", { level: 1 })).toBeVisible() },
     { name: "privacy", path: "/privacy", ready: (p) => expect(p.getByRole("heading", { level: 1 })).toBeVisible() },
@@ -127,21 +128,22 @@ test("the admin panel fits phones, tablets and desktops", async ({ page }) => {
   await signIn(page);
   const me = await page.evaluate(() => (window as unknown as { Clerk: { user: { id: string } } }).Clerk.user.id);
   const title = (p: Page) => expect(p.getByRole("heading", { level: 1 })).toBeVisible();
-  await seedCampaign(sql, { joined: me });
+  const { requestId } = await seedCampaign(sql, { joined: me });
   try {
-    await adminPages(page, me, title);
+    await adminPages(page, me, title, requestId);
   } finally {
     await clearCampaigns(sql, me);
   }
 });
 
-async function adminPages(page: Page, me: string, title: (p: Page) => Promise<void>) {
+async function adminPages(page: Page, me: string, title: (p: Page) => Promise<void>, requestId: number) {
   await audit(page, "admin", [
     { name: "admin", path: "/admin", ready: title },
     { name: "admin-users", path: "/admin/users", ready: title },
     { name: "admin-campaigns", path: "/admin/campaigns", ready: title },
     { name: "admin-campaign", path: `/admin/campaigns/${DEMO.id}`, ready: title },
     { name: "admin-campaign-new", path: "/admin/campaigns/new", ready: title },
+    { name: "admin-campaign-from-request", path: `/admin/campaigns/new?request=${requestId}`, ready: (p) => expect(p.getByText("From E2E Test Show’s request")).toBeVisible() },
     { name: "admin-user", path: `/admin/users/${me}`, ready: title },
     { name: "admin-jobs", path: "/admin/jobs?view=recent", ready: title },
     { name: "admin-emails", path: "/admin/jobs?view=emails", ready: title },

@@ -5,13 +5,15 @@ import { notFound } from "next/navigation";
 import { dayLabel, PLATFORM_ICONS, rateLabel, StatusBadge } from "@/components/campaigns/parts";
 import { formatPrice } from "@/lib/billing/plans";
 import { channelLink, CLIP_PLATFORMS } from "@/lib/campaigns/links";
+import { REQUEST_KINDS } from "@/lib/campaigns/schema";
 import { requireAdmin, usersById } from "@/lib/server/admin";
-import { adminCampaign, type AdminClip } from "@/lib/server/campaigns";
+import { requestOfCampaign } from "@/lib/server/campaign-requests";
+import { adminCampaign, type AdminClip, type AdminClipper } from "@/lib/server/campaigns";
 import { PRIVATE_PAGE } from "@/lib/site";
 import { AdminShell } from "../../admin-shell";
 import { ago, count, when } from "../../format";
 import { UserLink } from "../../tables";
-import { BlockButton, CampaignStatusActions, ClipActions, PayoutButton } from "../campaign-controls";
+import { BlockButton, CampaignStatusActions, ClipActions, CopyTextButton, PayoutButton } from "../campaign-controls";
 import styles from "../../admin.module.css";
 
 export const metadata: Metadata = { title: "Campaign · Admin", robots: PRIVATE_PAGE };
@@ -26,6 +28,17 @@ function viewsNote(c: AdminClip): string {
   return `read ${ago(c.checkedAt)}`;
 }
 
+/** Who is owed what, as plain text to send to the campaign's owner (they pay clippers directly, outside Bamio). */
+function payoutList(title: string, owed: AdminClipper[], now = Date.now()): string {
+  return [
+    `${title}: what clippers are owed, as of ${when(now)}`,
+    "",
+    ...owed.map((k) => `${k.name}: ${formatPrice(k.owedCents)} (${count(k.views)} views, ${k.clips} ${k.clips === 1 ? "clip" : "clips"}). Pay by: ${k.payout || "not given yet"}`),
+    "",
+    `Total: ${formatPrice(owed.reduce((n, k) => n + k.owedCents, 0))}`,
+  ].join("\n");
+}
+
 /**
  * One campaign, for the people running it: open or end it, look at the clips sent in (those
  * waiting first), see what each clipper has earned and is owed, and write down payments made
@@ -36,10 +49,14 @@ export default async function AdminCampaignPage({ params }: { params: Promise<{ 
   const found = await adminCampaign((await params).id);
   if (!found) notFound();
   const { campaign: c, clips, clippers, payouts } = found;
-  const users = await usersById([...clippers.map((k) => k.userId), ...clips.map((k) => k.userId)]);
+  // Made from someone's request to run a campaign: they're the owner, who pays the clippers.
+  const asked = await requestOfCampaign(c.id);
+  const users = await usersById([...clippers.map((k) => k.userId), ...clips.map((k) => k.userId), ...(asked ? [asked.userId] : [])]);
   const waiting = clips.filter((k) => k.status === "pending").length;
   const owed = clippers.reduce((n, k) => n + k.owedCents, 0);
   const paid = payouts.reduce((n, p) => n + p.amountCents, 0);
+  const owedList = clippers.filter((k) => k.owedCents > 0);
+  const payoutText = payoutList(c.title, owedList);
 
   return (
     <AdminShell
@@ -97,6 +114,33 @@ export default async function AdminCampaignPage({ params }: { params: Promise<{ 
           </div>
         </div>
       </section>
+
+      {asked ? (
+        <section className={styles.section} aria-labelledby="owner-title">
+          <h2 id="owner-title">Asked for by</h2>
+          <div className={styles.panel}>
+            <dl className={styles.facts}>
+              <dt>Who</dt>
+              <dd>
+                {asked.name} ({REQUEST_KINDS[asked.kind]})
+              </dd>
+              <dt>Account</dt>
+              <dd>
+                <UserLink id={asked.userId} user={users.get(asked.userId)} />
+              </dd>
+              {asked.contact ? (
+                <>
+                  <dt>Reach them</dt>
+                  <dd>{asked.contact}</dd>
+                </>
+              ) : null}
+              <dt>They pay by</dt>
+              <dd>{asked.payout}</dd>
+            </dl>
+            <p className="t-body-sm t-secondary">They pay clippers directly. Send them the list of what’s owed (below), then mark each payment once they’ve made it.</p>
+          </div>
+        </section>
+      ) : null}
 
       <section className={styles.section} aria-labelledby="clips-title">
         <h2 id="clips-title">Clips</h2>
@@ -166,7 +210,10 @@ export default async function AdminCampaignPage({ params }: { params: Promise<{ 
       </section>
 
       <section className={styles.section} aria-labelledby="clippers-title">
-        <h2 id="clippers-title">Clippers and what they’re owed</h2>
+        <div className={styles.sectionHead}>
+          <h2 id="clippers-title">Clippers and what they’re owed</h2>
+          {owedList.length > 0 ? <CopyTextButton text={payoutText} label="Copy who’s owed what" done="Copied: paste it into a message to the campaign’s owner" /> : null}
+        </div>
         {clippers.length === 0 ? (
           <p className={styles.note}>Nobody has joined yet.</p>
         ) : (

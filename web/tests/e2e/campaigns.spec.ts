@@ -3,10 +3,10 @@ import { signIn } from "./auth";
 import { clearCampaigns, connect, DEMO, seedCampaign } from "./campaign-seed";
 
 /*
- * Clipping campaigns: the public pages, then a clipper joining, sending clips and seeing what
- * they earn (an admin's part done in the database). The last test does the admin's part in the
- * admin panel, and needs the e2e user to be an admin (E2E_ADMIN=1, with the server's
- * BAMIO_SUPERADMINS naming it: see admin.spec.ts).
+ * Clipping campaigns: the public pages, someone with content asking to run a campaign, then a
+ * clipper joining, sending clips and seeing what they earn (an admin's part done in the
+ * database). The tests that do the admin's part in the admin panel need the e2e user to be an
+ * admin (E2E_ADMIN=1, with the server's BAMIO_SUPERADMINS naming it: see admin.spec.ts).
  */
 
 const sql = connect();
@@ -54,6 +54,124 @@ test("campaigns are public: what each pays, its budget and who has earned the mo
   expect((await page.goto(`/clippers/${DEMO.slug}`))?.status()).toBe(404);
   await page.goto("/clippers");
   await expect(page.getByRole("link", { name: new RegExp(DEMO.title) })).toHaveCount(0);
+});
+
+test("the campaigns page invites podcasters, streamers and businesses to run a campaign", async ({ page }) => {
+  await page.goto("/clippers");
+  await expect(page.getByRole("link", { name: "Run a campaign", exact: true })).toHaveAttribute("href", "#run");
+  const section = page.getByRole("region", { name: "Run a campaign" });
+  for (const who of ["Podcasters", "Streamers", "Businesses"]) await expect(section.getByRole("heading", { name: who })).toBeVisible();
+  await expect(section.getByText("We check it and open it")).toBeVisible();
+  // Signed out: the form is behind signing in, which comes back to it.
+  await expect(section.getByRole("link", { name: "Sign in to set up a campaign" })).toHaveAttribute("href", `/sign-in?redirect_url=${encodeURIComponent("/clippers?run=1")}`);
+  await expect(section.getByLabel("Your content")).toHaveCount(0);
+  expect((await page.request.post("/api/campaign-requests", { data: {} })).status()).toBe(401);
+});
+
+test.describe("someone with content to clip", () => {
+  let id = "";
+  test.beforeEach(async ({ page }) => {
+    await signIn(page);
+    id = await userId(page);
+    await clearCampaigns(sql, id);
+  });
+  test.afterEach(async () => {
+    if (id) await clearCampaigns(sql, id);
+  });
+
+  test("asks to run a campaign with the form, and can take it back while it waits", async ({ page }) => {
+    await page.goto("/clippers?run=1");
+    const section = page.getByRole("region", { name: "Run a campaign" });
+    await expect(section.getByRole("heading", { name: "Your campaign" })).toBeVisible();
+    // The form says what's missing before anything is sent.
+    await section.getByRole("button", { name: "Send it to Bamio’s team" }).click();
+    await expect(section.getByText("An amount in dollars, like 2 or 1.50.")).toBeVisible();
+    await expect(section.getByText("Add a link to your content, like youtube.com/@yourshow.")).toBeVisible();
+    await page.screenshot({ path: "qa/campaigns/run-form.png", fullPage: true });
+
+    await section.getByRole("button", { name: "Streamer" }).click();
+    await section.getByLabel("Your channel’s name").fill("E2E Stream House");
+    await section.getByLabel("Your content").fill("twitch.tv/e2e_stream_house");
+    await section.getByLabel("What should clippers clip?").fill("The best play or reaction from each stream, under a minute.");
+    await section.getByRole("button", { name: "X", exact: true }).click();
+    await section.getByLabel("You pay per 1,000 views ($)").fill("1.50");
+    await section.getByLabel("Your budget ($)").fill("400");
+    await section.getByLabel("How you’ll pay clippers").fill("PayPal, every Friday");
+    await section.getByRole("button", { name: "Send it to Bamio’s team" }).click();
+    await expect(page.getByText("Sent to Bamio’s team")).toBeVisible();
+
+    // It waits for the team, and shows where it stands.
+    const row = section.getByRole("listitem").filter({ hasText: "E2E Stream House" });
+    await expect(row).toContainText("Streamer · $1.50 per 1,000 views · $400 budget");
+    await expect(row).toContainText("Waiting for a look");
+    expect(await sql`select kind, name, source_url, platforms, rate_cents, budget_cents, payout, status, email from campaign_requests where user_id = ${id}`).toMatchObject([
+      { kind: "streamer", name: "E2E Stream House", source_url: "https://twitch.tv/e2e_stream_house", platforms: ["tiktok", "youtube", "instagram", "x"], rate_cents: 150, budget_cents: 40000, payout: "PayPal, every Friday", status: "pending", email: expect.stringContaining("@") },
+    ]);
+    await page.screenshot({ path: "qa/campaigns/run-waiting.png", fullPage: true });
+
+    await row.getByRole("button", { name: "Take back" }).click();
+    await expect(page.getByText("Request taken back")).toBeVisible();
+    await expect(section.getByRole("listitem").filter({ hasText: "E2E Stream House" })).toHaveCount(0);
+    expect((await sql`select 1 from campaign_requests where user_id = ${id}`).length).toBe(0);
+  });
+
+  test("hears no when it's declined, and sees the campaign once an admin makes it and opens it", async ({ page }) => {
+    test.skip(!process.env.E2E_ADMIN, "Set E2E_ADMIN=1, with the server's BAMIO_SUPERADMINS naming the e2e user.");
+    const ask = (name: string) =>
+      page.request.post("/api/campaign-requests", {
+        data: { kind: "podcaster", name, sourceUrl: "youtube.com/@e2e_show", brief: "The funniest minute of each episode, with captions on.", platforms: ["tiktok", "youtube"], rateCents: 200, budgetCents: 30000, payout: "PayPal, monthly", contact: "discord: e2e" },
+      });
+    expect((await ask("E2E Show One")).status()).toBe(201);
+    expect((await ask("E2E Show Two")).status()).toBe(201);
+
+    // The team sees both, the first one asked at the top.
+    await page.goto("/admin/campaigns");
+    await expect(page.getByRole("heading", { name: "Requests to run a campaign" })).toBeVisible();
+    const one = page.getByRole("row").filter({ hasText: "E2E Show One" });
+    const two = page.getByRole("row").filter({ hasText: "E2E Show Two" });
+    await expect(one).toContainText("$2");
+    await expect(one).toContainText("PayPal, monthly");
+    await expect(one).toContainText("discord: e2e");
+    await page.screenshot({ path: "qa/campaigns/admin-requests.png", fullPage: true });
+
+    // Declined, with a word why.
+    await two.getByRole("button", { name: "Decline" }).click();
+    await page.getByRole("dialog").getByLabel("Why (they’re emailed this)").fill("We couldn’t tell the channel is yours.");
+    await page.getByRole("dialog").getByRole("button", { name: "Decline" }).click();
+    await expect(page.getByText("E2E Show Two’s request declined")).toBeVisible();
+    await expect(two.getByText("Declined", { exact: true })).toBeVisible();
+
+    // Accepted: the form starts from what they said; the admin adds the title and the one line.
+    await one.getByRole("link", { name: "Make the campaign" }).click();
+    await expect(page.getByText("From E2E Show One’s request")).toBeVisible();
+    await expect(page.getByLabel("Whose campaign")).toHaveValue("E2E Show One");
+    await expect(page.getByLabel("What to clip")).toHaveValue("The funniest minute of each episode, with captions on.");
+    await expect(page.getByLabel("Per 1,000 views ($)")).toHaveValue("2");
+    await expect(page.getByLabel("Budget ($)")).toHaveValue("300");
+    await expect(page.getByLabel("The content")).toHaveValue("https://youtube.com/@e2e_show");
+    await page.getByLabel("Title").fill("E2E requested campaign");
+    await page.getByLabel("One line").fill("Clip the funniest minute of the E2E show.");
+    await page.getByRole("button", { name: "Make the draft" }).click();
+    await page.waitForURL(/admin.campaigns.[0-9a-f-]{36}$/);
+    await expect(page.getByRole("heading", { name: "Asked for by" })).toBeVisible();
+    await expect(page.getByText("E2E Show One (Podcaster)")).toBeVisible();
+
+    // Still a draft: "Being set up". Live: they see it, and are emailed once.
+    await page.goto("/clippers");
+    const mine = page.getByRole("region", { name: "Run a campaign" }).getByRole("listitem");
+    await expect(mine.filter({ hasText: "E2E Show One" })).toContainText("Being set up");
+    await expect(mine.filter({ hasText: "E2E Show Two" })).toContainText("Not opened");
+    await expect(mine.filter({ hasText: "E2E Show Two" })).toContainText("We couldn’t tell the channel is yours.");
+    await page.goBack();
+    await page.getByRole("button", { name: "Go live" }).click();
+    await expect(page.getByText("The campaign is open")).toBeVisible();
+    await page.goto("/clippers");
+    await expect(mine.filter({ hasText: "E2E Show One" }).getByRole("link", { name: "See it" })).toHaveAttribute("href", "/clippers/e2e-requested-campaign");
+    await expect(page.getByRole("link", { name: /E2E requested campaign/ })).toBeVisible();
+    const emails = await sql<{ template: string }[]>`select template from emails where user_id = ${id} and template in ('campaign-live', 'campaign-declined') order by template`;
+    expect(emails.map((e) => e.template)).toEqual(["campaign-declined", "campaign-live"]);
+    await sql`delete from emails where user_id = ${id} and template in ('campaign-live', 'campaign-declined')`;
+  });
 });
 
 test.describe("a clipper", () => {

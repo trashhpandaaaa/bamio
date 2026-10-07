@@ -12,7 +12,8 @@ import { reportMessage } from "@/lib/server/monitor";
  *   - jobs failing: BAMIO_ALERT_FAILED_JOBS (3) or more failed for good in the last hour;
  *   - the queue backing up: a job has waited longer than BAMIO_ALERT_WAIT_MIN (15) minutes;
  *   - an account deletion that keeps failing (3 tries), so a deleted user's plan may still charge;
- *   - campaign clips waiting for a look (once a day while any wait).
+ *   - campaign clips waiting for a look, and requests to run a campaign waiting for an answer
+ *     (each once a day while any wait).
  */
 
 export type Alert = { key: string; title: string; lines: string[]; path: string };
@@ -71,6 +72,16 @@ export async function findAlerts(now = Date.now()): Promise<Alert[]> {
       key: `ops:clips-waiting:${Math.floor(now / (24 * HOUR))}`,
       title: `${clips.n} campaign ${clips.n === 1 ? "clip is" : "clips are"} waiting for a look`,
       lines: [`Clippers sent them to ${clips.campaigns === 1 ? "a campaign" : `${clips.campaigns} campaigns`}. A clip counts only once it’s approved: open each campaign in the admin panel.`],
+      path: "/admin/campaigns",
+    });
+  }
+  const [asked] = await sql<{ n: number; names: string | null }[]>`
+    select count(*)::int as n, string_agg(name, ', ' order by id) as names from campaign_requests where status = 'pending'`;
+  if (asked && asked.n > 0) {
+    alerts.push({
+      key: `ops:campaign-requests:${Math.floor(now / (24 * HOUR))}`,
+      title: `${asked.n} ${asked.n === 1 ? "request" : "requests"} to run a campaign ${asked.n === 1 ? "is" : "are"} waiting`,
+      lines: [`From: ${(asked.names ?? "").slice(0, 300)}. Look at who is promising the money, then make the campaign or decline it.`],
       path: "/admin/campaigns",
     });
   }

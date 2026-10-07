@@ -1,8 +1,18 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { channelLink, clipLink, type ClipLink } from "@/lib/campaigns/links";
 import { clipEarned, compactNumber, settle } from "@/lib/campaigns/money";
-import { campaignInputSchema, clipperInputSchema, parseDollars, slugify, type CampaignInput } from "@/lib/campaigns/schema";
+import { campaignInputSchema, campaignRequestSchema, clipperInputSchema, parseDollars, slugify, type CampaignInput, type CampaignRequestInput } from "@/lib/campaigns/schema";
 import type { Admin } from "@/lib/server/admin";
+import {
+  adminCampaignRequests,
+  createCampaignFromRequest,
+  declineCampaignRequest,
+  myCampaignRequests,
+  requestCampaign,
+  requestOfCampaign,
+  waitingRequests,
+  withdrawCampaignRequest,
+} from "@/lib/server/campaign-requests";
 import { countNextViews } from "@/lib/server/campaign-views";
 import {
   adminCampaign,
@@ -68,6 +78,7 @@ async function clean() {
   for (const u of [MIRA, OTTO]) {
     await sql`delete from clippers where user_id = ${u}`;
     await sql`delete from emails where user_id = ${u}`;
+    await sql`delete from campaign_requests where user_id = ${u}`;
   }
   await sql`delete from admin_actions where admin_user_id = ${boss.userId}`;
 }
@@ -445,5 +456,98 @@ describe("a campaign", () => {
     expect(await endDueCampaigns(9_999)).toBe(0);
     expect(await endDueCampaigns(10_000)).toBe(1);
     expect((await campaignBySlug(slug))?.campaign.status).toBe("ended");
+  });
+});
+
+describe("asking to run a campaign", () => {
+  beforeEach(async () => {
+    process.env.BAMIO_EMAIL = "preview";
+    await clean();
+  });
+  afterAll(async () => {
+    await clean();
+    delete process.env.BAMIO_EMAIL;
+  });
+
+  const ask = (over: Partial<Record<keyof CampaignRequestInput, unknown>> = {}): CampaignRequestInput =>
+    campaignRequestSchema.parse({
+      kind: "podcaster",
+      name: "The Test Show",
+      sourceUrl: "youtube.com/@thetestshow",
+      brief: "The funniest or most surprising minute of each episode.",
+      platforms: ["youtube", "tiktok"],
+      rateCents: 150,
+      budgetCents: 50_000,
+      payout: "PayPal, every Friday.",
+      contact: "",
+      ...over,
+    });
+
+  it("takes what a podcaster, streamer or business says about it, tidied", () => {
+    expect(ask()).toMatchObject({ kind: "podcaster", sourceUrl: "https://youtube.com/@thetestshow", platforms: ["tiktok", "youtube"], rateCents: 150 });
+    const base = { ...ask(), sourceUrl: "https://youtube.com/@thetestshow" };
+    for (const bad of [{ kind: "agency" }, { name: "T" }, { sourceUrl: "" }, { sourceUrl: "javascript:alert(1)" }, { brief: "Clips." }, { platforms: [] }, { rateCents: 0 }, { budgetCents: 1.5 }, { payout: "" }]) {
+      expect(campaignRequestSchema.safeParse({ ...base, ...bad }).success, JSON.stringify(bad)).toBe(false);
+    }
+  });
+
+  it("waits for an admin, who makes the campaign from it; the person who asked hears when it's live", async () => {
+    const id = await requestCampaign(MIRA, ask(), "mira@example.com", 1000);
+    expect(await myCampaignRequests(MIRA)).toEqual([{ id, name: "The Test Show", kind: "podcaster", rateCents: 150, budgetCents: 50_000, status: "pending", note: null, campaign: null, createdAt: 1000 }]);
+    expect(await myCampaignRequests(OTTO)).toEqual([]);
+    expect(await waitingRequests()).toBeGreaterThanOrEqual(1);
+    const listed = (await adminCampaignRequests()).find((r) => r.id === id)!;
+    expect(listed).toMatchObject({ userId: MIRA, email: "mira@example.com", kind: "podcaster", sourceUrl: "https://youtube.com/@thetestshow", payout: "PayPal, every Friday.", status: "pending", campaign: null });
+
+    // The admin writes the campaign (starting from the request): a draft, tied to it.
+    const made = await createCampaignFromRequest(boss, id, input({ brand: "The Test Show", rateCents: 150, budgetCents: 50_000 }), 2000);
+    expect((await myCampaignRequests(MIRA))[0]).toMatchObject({ status: "accepted", campaign: { slug: made.slug, status: "draft" } });
+    expect(await requestOfCampaign(made.id)).toMatchObject({ id, userId: MIRA, email: "mira@example.com" });
+    expect(await campaignBySlug(made.slug)).toBeNull();
+    // Answered once: not again, and not taken back.
+    await expect(createCampaignFromRequest(boss, id, input())).rejects.toMatchObject({ status: 409, code: "answered" });
+    await expect(declineCampaignRequest(boss, id, "No.")).rejects.toMatchObject({ status: 409 });
+    await expect(withdrawCampaignRequest(MIRA, id)).rejects.toMatchObject({ status: 409 });
+    const emailed = async () => (await db()<{ template: string }[]>`select template from emails where user_id = ${MIRA} order by id`).map((e) => e.template);
+    expect(await emailed()).toEqual([]);
+
+    // Live: they're emailed, once, however often it's paused and reopened.
+    await setCampaignStatus(boss, made.id, "live");
+    await setCampaignStatus(boss, made.id, "paused");
+    await setCampaignStatus(boss, made.id, "live");
+    expect(await emailed()).toEqual(["campaign-live"]);
+    expect((await myCampaignRequests(MIRA))[0]!.campaign).toEqual({ slug: made.slug, status: "live" });
+    // A campaign an admin made from scratch has nobody to tell.
+    const own = await createCampaign(boss, input());
+    await setCampaignStatus(boss, own.id, "live");
+    expect(await requestOfCampaign(own.id)).toBeNull();
+    const log = await db()<{ action: string }[]>`select action from admin_actions where admin_user_id = ${boss.userId} and action like 'campaign.request.%'`;
+    expect(log.map((l) => l.action)).toEqual(["campaign.request.accept"]);
+  });
+
+  it("can be declined with a word why, or taken back, and only a few wait at once", async () => {
+    const first = await requestCampaign(OTTO, ask({ kind: "business", name: "Otto's Bikes" }), null);
+    await declineCampaignRequest(boss, first, "The link is to someone else's channel.");
+    expect((await myCampaignRequests(OTTO))[0]).toMatchObject({ status: "declined", note: "The link is to someone else's channel.", campaign: null });
+    const emails = await db()<{ template: string; data: { name: string; note: string } }[]>`select template, data from emails where user_id = ${OTTO}`;
+    expect(emails.map((e) => [e.template, e.data.name, e.data.note])).toEqual([["campaign-declined", "Otto's Bikes", "The link is to someone else's channel."]]);
+    await expect(createCampaignFromRequest(boss, first, input())).rejects.toMatchObject({ status: 409 });
+
+    // A declined one doesn't count against the next: three may wait, the fourth is refused.
+    const ids = [];
+    for (let i = 0; i < 3; i++) ids.push(await requestCampaign(OTTO, ask({ name: `Otto ${i}` }), null));
+    await expect(requestCampaign(OTTO, ask(), null)).rejects.toMatchObject({ status: 409, code: "too_many" });
+    // Taken back by its owner only, while it waits.
+    await expect(withdrawCampaignRequest(MIRA, ids[0]!)).rejects.toMatchObject({ status: 404 });
+    await withdrawCampaignRequest(OTTO, ids[0]!);
+    expect((await myCampaignRequests(OTTO)).map((r) => [r.name, r.status])).toEqual([
+      ["Otto 2", "pending"],
+      ["Otto 1", "pending"],
+      ["Otto's Bikes", "declined"],
+    ]);
+    await expect(requestCampaign(OTTO, ask(), null)).resolves.toBeGreaterThan(0);
+    // Admins see those waiting first, the oldest at the top.
+    const mine = (await adminCampaignRequests()).filter((r) => r.userId === OTTO).map((r) => r.name);
+    expect(mine).toEqual(["Otto 1", "Otto 2", "The Test Show", "Otto's Bikes"]);
   });
 });

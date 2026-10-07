@@ -29,6 +29,7 @@ async function clean() {
   await db()`delete from projects where user_id = ${USER}`;
   await db()`delete from account_deletions where user_id = ${USER}`;
   await db()`delete from campaigns where id = ${CAMPAIGN}`;
+  await db()`delete from campaign_requests where user_id = ${USER}`;
 }
 
 describe("alerts", () => {
@@ -74,6 +75,20 @@ describe("alerts", () => {
     ]);
     await sql`update campaign_clips set status = 'rejected' where campaign_id = ${CAMPAIGN} and status = 'pending'`;
     expect(await findAlerts(NOW)).toEqual([]);
+  });
+
+  it("find requests to run a campaign waiting for an answer, once a day", async () => {
+    const sql = db();
+    const ask = (name: string, status: string) =>
+      sql`insert into campaign_requests (user_id, kind, name, source_url, brief, platforms, rate_cents, budget_cents, payout, status, created_at)
+        values (${USER}, 'streamer', ${name}, 'https://example.com/a', 'Clip the best minute.', '["tiktok"]', 100, 10000, 'PayPal', ${status}, 1)`;
+    await ask("Declined show", "declined");
+    expect(await findAlerts(NOW)).toEqual([]);
+    await ask("Stream One", "pending");
+    await ask("Stream Two", "pending");
+    expect(await findAlerts(NOW)).toEqual([
+      { key: `ops:campaign-requests:${Math.floor(NOW / 86_400_000)}`, title: "2 requests to run a campaign are waiting", lines: [expect.stringContaining("Stream One, Stream Two")], path: "/admin/campaigns" },
+    ]);
   });
 
   it("email each superadmin once an hour per problem, and tell Sentry about new ones", async () => {

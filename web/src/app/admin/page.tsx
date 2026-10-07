@@ -45,12 +45,17 @@ export default async function AdminOverviewPage() {
             {count(campaigns.live)} <span>open</span>
           </span>
           <p>
-            {campaigns.waiting > 0 ? (
+            {campaigns.waiting > 0 || campaigns.requests > 0 ? (
               <Link className={`${styles.cellLink} ${styles.warn}`} href="/admin/campaigns">
-                {count(campaigns.waiting)} {campaigns.waiting === 1 ? "clip" : "clips"} waiting for a look
+                {[
+                  campaigns.requests > 0 ? `${count(campaigns.requests)} ${campaigns.requests === 1 ? "request" : "requests"} to run one` : null,
+                  campaigns.waiting > 0 ? `${count(campaigns.waiting)} ${campaigns.waiting === 1 ? "clip" : "clips"} waiting` : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
               </Link>
             ) : (
-              "No clips waiting"
+              "Nothing waiting"
             )}
           </p>
         </div>

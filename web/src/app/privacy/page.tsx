@@ -43,7 +43,9 @@ export default function PrivacyPage() {
             <strong>Clipping campaigns,</strong> only if you join one: the name and channel link you give, your profile picture, the links to the clips you send, their
             view counts and what they earned. Your name, picture, channel and those numbers are public on the leaderboard of a{" "}
             <Link href="/clippers">campaign</Link> once a clip of yours is approved. How you want to be paid is seen only by our team and the owner of a campaign
-            you joined, who pays you directly; we record that a payment was made, never your card or bank details.
+            you joined, who pays you directly; we record that a payment was made, never your card or bank details. If you ask to run a campaign: what you tell us about
+            it (your show, channel or business, the link to your content, the rate, the budget and how you’ll pay) and your account’s email, seen by our team; the
+            campaign’s name, terms and how you pay are public on its page once it opens.
           </li>
           <li>
             <strong>Emails we sent you:</strong> which email, when, and whether it was delivered.

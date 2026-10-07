@@ -111,6 +111,56 @@ export const campaignInputSchema = z.object({
 });
 export type CampaignInput = z.infer<typeof campaignInputSchema>;
 
+/* ------------------------------ Requests to run a campaign ------------------------------ */
+
+/** Who asks to run a campaign: the "Run a campaign" form on /clippers. */
+export const REQUEST_KINDS = { podcaster: "Podcaster", streamer: "Streamer", business: "Business" } as const;
+export type RequestKind = keyof typeof REQUEST_KINDS;
+export const REQUEST_KIND_IDS = Object.keys(REQUEST_KINDS) as RequestKind[];
+/** Requests one account may have waiting at once. */
+export const MAX_WAITING_REQUESTS = 3;
+
+/**
+ * What a podcaster, streamer or business fills in to ask for a campaign. An admin makes the
+ * campaign from it (and writes its title and summary), so this is shorter than campaignInputSchema.
+ */
+export const campaignRequestSchema = z.object({
+  kind: z.enum(REQUEST_KIND_IDS as [RequestKind, ...RequestKind[]]),
+  name: line(CAMPAIGN_LIMITS.brand, 2, "The name"),
+  sourceUrl: z
+    .string()
+    .max(LINK_MAX)
+    .transform((s) => s.trim())
+    .transform((s) => (s && !/^https?:\/\//i.test(s) ? `https://${s}` : s))
+    .refine((s) => sourceLink(s) !== null, "Add a link to your content, like youtube.com/@yourshow."),
+  brief: lines(CAMPAIGN_LIMITS.brief, 20, "What to clip"),
+  platforms: z
+    .array(z.enum(CLIP_PLATFORM_IDS as [ClipPlatform, ...ClipPlatform[]]))
+    .min(1, "Choose at least one place clips may be posted.")
+    .transform((list) => CLIP_PLATFORM_IDS.filter((p) => list.includes(p))),
+  rateCents: cents(CAMPAIGN_LIMITS.rateCents, "The rate"),
+  budgetCents: cents(CAMPAIGN_LIMITS.budgetCents, "The budget"),
+  payout: lines(CAMPAIGN_LIMITS.payoutTerms, 5, "How you’ll pay"),
+  contact: line(CAMPAIGN_LIMITS.note),
+});
+export type CampaignRequestInput = z.infer<typeof campaignRequestSchema>;
+
+export type RequestStatus = "pending" | "accepted" | "declined";
+
+/** A request as the person who made it sees it. `campaign`: the campaign made from it, once there is one. */
+export type MyCampaignRequest = {
+  id: number;
+  name: string;
+  kind: RequestKind;
+  rateCents: number;
+  budgetCents: number;
+  status: RequestStatus;
+  /** Why it was declined. */
+  note: string | null;
+  campaign: { slug: string; status: CampaignStatus } | null;
+  createdAt: number;
+};
+
 /** The content to clip: a plain https link (it's shown on the page and handed to the importer). */
 export function sourceLink(input: string): string | null {
   try {

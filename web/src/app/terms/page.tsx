@@ -130,7 +130,11 @@ export default function TermsPage() {
             A clip counts once our team has approved it. Clips earn in the order they were approved, until the budget is used or the campaign ends. A campaign’s terms
             can change or end early; what was already paid stays paid.
           </li>
-          <li>You’re responsible for any tax on what you earn.</li>
+          <li>
+            If you ask to run a campaign, you confirm the content is yours to offer for clipping, and you agree to pay clippers what their approved clips earn under
+            its terms, up to its budget, in the way its page says. We look at every campaign before it opens and may decline or end one.
+          </li>
+          <li>You’re responsible for any tax on what you earn or pay.</li>
         </ul>
       </section>
 

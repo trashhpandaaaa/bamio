@@ -35,7 +35,8 @@ import { isUserId } from "@/lib/server/store";
  * what the views are worth. Nothing is paid through Bamio: the campaign's owner pays each
  * clipper directly and an admin records it here (campaign_payouts), so everyone sees what was
  * earned, paid and is still owed. Deleting an account removes its clipper, memberships and
- * clips, and keeps only the amounts already paid (accounts.ts).
+ * clips, and keeps only the amounts already paid (accounts.ts). Podcasters, streamers and
+ * businesses ask for a campaign with a form (campaign-requests.ts); an admin makes it from that.
  */
 
 /** Woken when a clip is sent or should be counted again (campaign-views.ts listens). */
@@ -420,6 +421,11 @@ export async function setCampaignStatus(admin: Admin, id: string, status: Exclud
   if (status === "live" && row.ends_at !== null && row.ends_at <= now) throw new HttpError(409, "over", "Its last day has passed. Move the end date before opening it again.");
   if (status === "paused" && row.status === "draft") throw new HttpError(409, "draft", "A draft can go live or be deleted.");
   await sql`update campaigns set status = ${status}, updated_at = ${now} where id = ${id}`;
+  if (status === "live") {
+    // Made from someone's request (campaign-requests.ts): they're told it's open, once.
+    const [asked] = await sql<{ user_id: string }[]>`select user_id from campaign_requests where campaign_id = ${id} and status = 'accepted' order by id limit 1`;
+    if (asked) await queueEmail(asked.user_id, `campaign-live:${id}`, { template: "campaign-live", campaign: row.title, slug: row.slug }, sql, now);
+  }
   await log(admin, `campaign.${status}`, id, { title: row.title, was: row.status });
 }
 
@@ -585,12 +591,13 @@ export async function adminCampaign(id: string): Promise<AdminCampaign | null> {
   };
 }
 
-/** For the admin overview: campaigns open now, and clips waiting for a look in campaigns that are running. */
-export async function campaignCounts(): Promise<{ live: number; waiting: number }> {
-  const [row] = await db()<{ live: number; waiting: number }[]>`
+/** For the admin overview: campaigns open now, clips waiting for a look in campaigns that are running, and requests to run a campaign waiting for an answer. */
+export async function campaignCounts(): Promise<{ live: number; waiting: number; requests: number }> {
+  const [row] = await db()<{ live: number; waiting: number; requests: number }[]>`
     select (select count(*)::int from campaigns where status = 'live') as live,
-           (select count(*)::int from campaign_clips c join campaigns g on g.id = c.campaign_id where c.status = 'pending' and g.status <> 'draft') as waiting`;
-  return row ?? { live: 0, waiting: 0 };
+           (select count(*)::int from campaign_clips c join campaigns g on g.id = c.campaign_id where c.status = 'pending' and g.status <> 'draft') as waiting,
+           (select count(*)::int from campaign_requests where status = 'pending') as requests`;
+  return row ?? { live: 0, waiting: 0, requests: 0 };
 }
 
 /**

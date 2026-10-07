@@ -8,14 +8,14 @@ import { SITE_LINKS } from "@/components/site/use-case";
 import { formatPrice } from "@/lib/billing/plans";
 import { compactNumber } from "@/lib/campaigns/money";
 import type { CampaignCard } from "@/lib/campaigns/schema";
-import { COMPANY } from "@/lib/legal";
 import { listCampaigns } from "@/lib/server/campaigns";
 import { pageMetadata } from "@/lib/site";
+import { RunCampaign } from "./run-campaign";
 import { YourCampaigns } from "./your-campaigns";
 import styles from "./clippers.module.css";
 
 const title = "Clipping campaigns: get paid per view for your clips";
-const description = "Join a clipping campaign, clip the content with Bamio, post it on your own TikTok, Shorts or Reels and earn for every 1,000 views.";
+const description = "Join a clipping campaign and earn for every 1,000 views on your clips. Podcasters, streamers and businesses: run one and pay clippers per view.";
 
 export const metadata: Metadata = pageMetadata({ title, description, path: "/clippers", absoluteTitle: true });
 
@@ -26,12 +26,15 @@ const STEPS = [
 ];
 
 /**
- * Clipping campaigns: the ones open now, how it works, and the finished ones. Campaigns are set
- * up by admins (the admin panel's Campaigns). Read from the database at request time, unlike
- * the static marketing pages; who is looking is decided in the browser (YourCampaigns).
+ * Clipping campaigns: the ones open now, how it works for clippers, how podcasters, streamers
+ * and businesses run one (RunCampaign: a form that goes to Bamio's team, who set campaigns up
+ * in the admin panel), and the finished ones. Read from the database at request time, unlike
+ * the static marketing pages; who is looking is decided in the browser (YourCampaigns,
+ * RunCampaign). ?run=1 opens the form (back from signing in).
  */
-export default async function ClippersPage() {
+export default async function ClippersPage({ searchParams }: { searchParams: Promise<{ [key: string]: string | string[] | undefined }> }) {
   await connection();
+  const startRun = (await searchParams).run === "1";
   const campaigns = await listCampaigns().catch(() => null);
   const running = campaigns?.filter((c) => c.status !== "ended") ?? [];
   const finished = campaigns?.filter((c) => c.status === "ended") ?? [];
@@ -45,9 +48,14 @@ export default async function ClippersPage() {
             get paid to <span className="hl">clip.</span>
           </h1>
           <p className={styles.lede}>Creators and brands put up a budget. You clip their content, post it on your own channel, and earn for every 1,000 views.</p>
-          <a href="#campaigns" className="btn btn-primary btn-lg">
-            See the campaigns
-          </a>
+          <div className={styles.heroActions}>
+            <a href="#campaigns" className="btn btn-primary btn-lg">
+              See the campaigns
+            </a>
+            <a href="#run" className="btn btn-secondary btn-lg">
+              Run a campaign
+            </a>
+          </div>
         </section>
 
         <YourCampaigns />
@@ -81,7 +89,7 @@ export default async function ClippersPage() {
 
         <section className={`container ${styles.section}`} aria-labelledby="how-title">
           <h2 id="how-title" className="t-heading-xl">
-            How it works
+            How clipping works
           </h2>
           <ol className={styles.steps}>
             {STEPS.map((step, i) => (
@@ -94,16 +102,10 @@ export default async function ClippersPage() {
               </li>
             ))}
           </ol>
-          <p className={styles.small}>
-            No money passes through Bamio. Each campaign’s page says who pays and how; Bamio keeps the count, so both sides see the same numbers.
-            {COMPANY.ready ? (
-              <>
-                {" "}
-                Want clips of your own content? Write to <a href={`mailto:${COMPANY.email}`}>{COMPANY.email}</a> to set up a campaign.
-              </>
-            ) : null}
-          </p>
+          <p className={styles.small}>No money passes through Bamio. Each campaign’s page says who pays and how; Bamio keeps the count, so both sides see the same numbers.</p>
         </section>
+
+        <RunCampaign startOpen={startRun} />
 
         {finished.length > 0 ? (
           <section className={`container ${styles.section}`} aria-labelledby="finished-title">

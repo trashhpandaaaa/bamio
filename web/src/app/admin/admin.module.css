@@ -46,7 +46,8 @@
 .table tr:last-child td { border-bottom: 0; }
 /* On phones a table scrolls in its box rather than squeezing its first column to a few letters. */
 .table td:first-child { min-width: 168px; }
-.table a { color: var(--text); text-underline-offset: 3px; }
+/* Links in cells, not buttons that are links (those keep the button's own colours). */
+.table a:not(:global(.btn)) { color: var(--text); text-underline-offset: 3px; }
 .num { font: var(--t-mono); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
 .table th.num { text-align: right; }
 .nowrap { white-space: nowrap; }
@@ -55,6 +56,8 @@
 .error { display: block; min-width: 120px; max-width: 48ch; color: var(--error); font: var(--t-caption); overflow-wrap: anywhere; }
 .cellLink { display: inline-flex; align-items: center; min-height: 24px; font: var(--t-label); }
 .rowActions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+/* Buttons under a cell's own words (a request's answer). */
+.cellActions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 
 .note { margin: 0; padding: 14px 16px; border-radius: var(--r-md); background: var(--surface-sunken); color: var(--text-secondary); font: var(--t-body-sm); }
 .search { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -101,6 +104,8 @@
 .clipLink svg { flex: none; }
 /* A cell of words (a name, a note) that mustn't be squeezed to a few letters a line on phones: the table scrolls instead. */
 .table td.roomy { min-width: 152px; }
+/* A few lines of someone's words in a cell (what a campaign request wants clipped): the rest is in the form made from it. */
+.brief { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; max-width: 44ch; overflow: hidden; overflow-wrap: anywhere; color: var(--text-secondary); }
 /* A small link under a cell's main line (a clipper's channel). */
 .table a.subLink { display: flex; align-items: center; width: fit-content; min-height: 24px; color: var(--text-tertiary); font: var(--t-caption); overflow-wrap: anywhere; }
 @media (max-width: 767px) {

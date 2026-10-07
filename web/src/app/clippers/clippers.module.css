@@ -149,3 +149,39 @@
 @media (max-width: 359px) {
   .facts { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* "Run a campaign": for podcasters, streamers and businesses. A heading, who it's for, how it goes, then the form. */
+.heroActions { display: flex; flex-wrap: wrap; gap: 8px; }
+.runHead { display: grid; justify-items: start; gap: 12px; margin-bottom: 24px; }
+.runHead h2 { margin: 0; }
+.runHead p { margin: 0; }
+.audiences { margin: 0 0 16px; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.audience { display: grid; align-content: start; gap: 8px; padding: 24px 28px; border-radius: var(--r-lg); background: var(--surface-sunken); }
+.audience h3 { margin: 0; }
+.audience p { margin: 0; font: var(--t-body-sm); color: var(--text-secondary); max-width: 44ch; }
+.runBlock { display: grid; gap: 12px; margin-top: 32px; }
+.runBlock h3 { margin: 0; }
+.runActions { display: grid; justify-items: start; gap: 12px; margin-top: 32px; }
+.runActions .small { margin: 0; }
+.requestRow {
+  display: grid; grid-template-columns: minmax(0, 1fr) max-content max-content; align-items: center; gap: 8px 16px; padding: 14px 20px;
+  border-radius: var(--r-md); background: var(--surface); border: 1px solid var(--line); font: var(--t-body-sm);
+}
+.requestRow > :global(.badge) { justify-self: start; }
+.requestNote { color: var(--error); }
+.requestForm { display: grid; gap: 20px; max-width: 760px; margin-top: 32px; padding: 28px; border-radius: var(--r-lg); background: var(--surface); border: 1px solid var(--line); }
+.requestForm h3 { margin: 0; }
+.pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.formActions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+@media (max-width: 1023px) {
+  .audiences { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 767px) {
+  .pair { grid-template-columns: minmax(0, 1fr); }
+  .requestForm { padding: 20px; }
+  .audience { padding: 20px; }
+  .requestRow { grid-template-columns: minmax(0, 1fr) max-content; }
+  .requestRow > :global(.btn), .requestRow > span[aria-hidden] { grid-column: 1 / -1; justify-self: start; }
+}

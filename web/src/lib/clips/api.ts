@@ -1,5 +1,5 @@
 import type { BillingState, Interval, PlanId, ReferralState } from "@/lib/billing/plans";
-import type { CampaignInput, ClipperInput, JoinedCampaign, MyCampaign, MyClipper } from "@/lib/campaigns/schema";
+import type { CampaignInput, CampaignRequestInput, ClipperInput, JoinedCampaign, MyCampaign, MyCampaignRequest, MyClipper } from "@/lib/campaigns/schema";
 import type {
   ClipEdit,
   ClipLength,
@@ -107,6 +107,12 @@ export const api = {
     sendClip: (slug: string, url: string) => request<MyCampaign>("POST", `${campaignBase(slug)}/clips`, { url }),
     withdrawClip: (slug: string, clipId: number) => request<MyCampaign>("DELETE", `${campaignBase(slug)}/clips/${clipId}`),
   },
+  /** Asking to run a campaign (the "Run a campaign" form on /clippers). Each answers with the user's requests as they are now. */
+  campaignRequests: {
+    mine: (signal?: AbortSignal) => request<MyCampaignRequest[]>("GET", "/api/campaign-requests", undefined, signal),
+    send: (input: CampaignRequestInput) => request<MyCampaignRequest[]>("POST", "/api/campaign-requests", input),
+    withdraw: (id: number) => request<MyCampaignRequest[]>("DELETE", `/api/campaign-requests/${id}`),
+  },
   /** Delete the signed-in account and everything in it. */
   deleteAccount: () => request<void>("DELETE", "/api/account", { confirm: "delete" }),
   /** The admin panel’s changes (the server checks the role). */
@@ -115,7 +121,9 @@ export const api = {
     job: (id: number, action: "retry" | "cancel") => request<{ ok: true }>("POST", `/api/admin/jobs/${id}`, { action }),
     addAdmin: (email: string) => request<{ userId: string; email: string }>("POST", "/api/admin/admins", { email }),
     removeAdmin: (userId: string) => request<{ ok: true }>("DELETE", `/api/admin/admins/${encodeURIComponent(userId)}`),
-    createCampaign: (campaign: CampaignInput) => request<{ id: string; slug: string }>("POST", "/api/admin/campaigns", campaign),
+    /** `requestId`: the request to run a campaign this one is made from. */
+    createCampaign: (campaign: CampaignInput, requestId?: number) => request<{ id: string; slug: string }>("POST", "/api/admin/campaigns", { campaign, ...(requestId ? { requestId } : {}) }),
+    declineCampaignRequest: (id: number, note: string) => request<{ ok: true }>("POST", `/api/admin/campaign-requests/${id}`, { action: "decline", note }),
     updateCampaign: (id: string, campaign: CampaignInput) => request<{ ok: true }>("PATCH", `/api/admin/campaigns/${encodeURIComponent(id)}`, { campaign }),
     campaignStatus: (id: string, status: "live" | "paused" | "ended") => request<{ ok: true }>("PATCH", `/api/admin/campaigns/${encodeURIComponent(id)}`, { status }),
     deleteCampaign: (id: string) => request<{ ok: true }>("DELETE", `/api/admin/campaigns/${encodeURIComponent(id)}`),

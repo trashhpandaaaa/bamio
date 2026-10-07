@@ -4,7 +4,8 @@ import postgres from "postgres";
  * A clipping campaign for the browser tests to look at, written straight into the database:
  * open, with two clippers who have earned something and been partly paid. Their clips are on
  * Instagram, whose views Bamio never reads itself, so the server's view counter leaves them
- * alone. Everything the tests make has an address starting "e2e-", and clearCampaigns removes it.
+ * alone. Everything the tests make has an address starting "e2e-" (requests to run a campaign: a
+ * name starting "E2E "), and clearCampaigns removes it.
  */
 
 export const connect = () => postgres(process.env.DATABASE_URL || "postgres://postgres@127.0.0.1:54329/bamio", { onnotice: () => undefined, max: 2 });
@@ -15,8 +16,12 @@ export const DEMO = { id: "0c0ffee0-0000-4000-8000-0000000e2e01", slug: "e2e-dem
 const NOVA = "user_e2e_campaign_nova";
 const LONG = "user_e2e_campaign_long";
 
-/** `joined`: also make this user a member, with a clip in each state and a payment. */
-export async function seedCampaign(sql: Sql, opts: { joined?: string } = {}) {
+/**
+ * `joined`: also make this user a member, with a clip in each state and a payment, and the
+ * one who asked for the campaign, with another request waiting and one declined. Returns the
+ * waiting request's id (0 without `joined`).
+ */
+export async function seedCampaign(sql: Sql, opts: { joined?: string } = {}): Promise<{ requestId: number }> {
   await clearCampaigns(sql, opts.joined);
   const now = Date.now();
   await sql`insert into campaigns (id, slug, title, brand, summary, brief, rules, source_url, platforms, rate_cents, budget_cents, min_views, max_clip_cents, payout, status, ends_at, created_by, created_at, updated_at)
@@ -47,11 +52,25 @@ export async function seedCampaign(sql: Sql, opts: { joined?: string } = {}) {
     await clip(opts.joined, "E2Emine00002", "pending", null);
     await clip(opts.joined, "E2Emine00003", "rejected", null, "Not from this campaign’s content.");
     await sql`insert into campaign_payouts (campaign_id, user_id, amount_cents, note, paid_by, paid_at) values (${DEMO.id}, ${opts.joined}, 3000, '', 'e2e@example.com', ${now})`;
+    const ask = (name: string, kind: string, status: string, note: string | null, campaignId: string | null) =>
+      sql<{ id: number }[]>`insert into campaign_requests (user_id, email, kind, name, source_url, brief, platforms, rate_cents, budget_cents, payout, contact, status, note, campaign_id, reviewed_by, reviewed_at, created_at)
+        values (${opts.joined!}, 'e2e@example.com', ${kind}, ${name}, 'https://www.youtube.com/@e2e_test_show',
+          'The funniest or most surprising minute of each episode. Keep the intro and the ads out, and put captions on.',
+          '["tiktok", "youtube"]', 200, 100000, 'PayPal, every Friday', 'discord: e2e_owner', ${status}, ${note}, ${campaignId},
+          ${status === "pending" ? null : "e2e@example.com"}, ${status === "pending" ? null : now}, ${now})
+        returning id::int as id`;
+    await ask("E2E Test Creator", "streamer", "accepted", null, DEMO.id);
+    await ask("E2E Shop With A Fairly Long Name", "business", "declined", "We couldn’t tell the channel is yours.", null);
+    const [waiting] = await ask("E2E Test Show", "podcaster", "pending", null, null);
+    return { requestId: waiting!.id };
   }
+  return { requestId: 0 };
 }
 
 /** Remove every test campaign (with its members, clips and payments), the made-up clippers and, when given, the e2e user's clipper. */
 export async function clearCampaigns(sql: Sql, userId?: string) {
+  await sql`delete from campaign_requests where name like 'E2E %'`;
+  if (userId) await sql`delete from campaign_requests where user_id = ${userId}`;
   await sql`delete from campaigns where slug like 'e2e-%'`;
   await sql`delete from clippers where user_id in ${sql([NOVA, LONG, ...(userId ? [userId] : [])])}`;
 }

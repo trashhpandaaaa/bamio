@@ -39,6 +39,10 @@ export const emailSchema = z.discriminatedUnion("template", [
   z.object({ template: z.literal("referral-earned"), amountCents: z.number().int().positive(), onBalance: z.boolean() }),
   /** A campaign's owner paid the user for their clips, outside Bamio, and an admin wrote it down (src/lib/server/campaigns.ts). */
   z.object({ template: z.literal("campaign-paid"), campaign: z.string().max(120), brand: z.string().max(80), slug: z.string().max(80), amountCents: z.number().int().positive(), note: z.string().max(300) }),
+  /** The campaign someone asked to run (src/lib/server/campaign-requests.ts) is open to clippers. */
+  z.object({ template: z.literal("campaign-live"), campaign: z.string().max(120), slug: z.string().max(80) }),
+  /** A request to run a campaign was declined, with the team's word why. */
+  z.object({ template: z.literal("campaign-declined"), name: z.string().max(80), note: z.string().max(300) }),
   /** To superadmins (src/lib/server/alerts.ts): jobs failing, the queue backing up, an account that won't delete. */
   z.object({ template: z.literal("ops-alert"), title: z.string().max(120), lines: z.array(z.string().max(500)).max(10), path: z.string().startsWith("/") }),
 ]);
@@ -63,6 +67,8 @@ export const EMAIL_CATEGORY: Record<EmailTemplate, EmailCategory> = {
   "referral-earned": "account",
   "ops-alert": "account",
   "campaign-paid": "account",
+  "campaign-live": "account",
+  "campaign-declined": "account",
 };
 
 /** The design tokens emails use (lib/brand-tokens.ts). */
@@ -269,6 +275,29 @@ function draft(email: Email): Draft {
         button: { label: "See your clips and earnings", path: `/clippers/${email.slug}` },
       };
     }
+    case "campaign-live":
+      return {
+        subject: `Your campaign “${short(email.campaign)}” is live`,
+        preview: "Clippers can join it now.",
+        heading: "Your campaign is live",
+        blocks: [
+          { p: `“${email.campaign}” is open on Bamio: clippers can join it, clip your content and post it on their own channels.` },
+          { p: "We look at every clip before it counts and keep the count of views. We’ll write to you with who has earned what, so you can pay them directly. No money passes through Bamio." },
+          { p: "Share the campaign’s page with your audience: your own fans often make the best clippers." },
+        ],
+        button: { label: "See your campaign", path: `/clippers/${email.slug}` },
+      };
+    case "campaign-declined":
+      return {
+        subject: `About your campaign for ${short(email.name)}`,
+        preview: "We couldn’t open it as it is.",
+        heading: "We couldn’t open your campaign",
+        blocks: [
+          { p: `Thanks for asking to run a campaign for ${email.name}. We couldn’t open it as it is.${email.note ? ` ${email.note}` : ""}` },
+          { p: "You’re welcome to change it and send it again from the Clippers page." },
+        ],
+        button: { label: "Run a campaign", path: "/clippers?run=1" },
+      };
     case "ops-alert":
       return {
         subject: `Bamio alert: ${email.title}`,
