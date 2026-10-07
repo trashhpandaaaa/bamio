@@ -32,7 +32,8 @@ export default function PrivacyPage() {
           </li>
           <li>
             <strong>Your plan:</strong> which plan you have, its renewal date, the AI minutes you used and your Stripe customer number. Your card is entered on Stripe’s
-            page and never reaches us.
+            page and its number never reaches us. For the free first video Stripe checks a card and tells us its brand, its last four digits and a fingerprint (a code
+            that is the same for the same card), so that a card starts one free trial only.
           </li>
           <li>
             <strong>Referrals:</strong> your referral code, who signed up with it, and the credit it earned. A link someone shares with you leaves a cookie for 60 days
@@ -121,7 +122,8 @@ export default function PrivacyPage() {
           <li>Change your clipper name, channel and payout details under Profile, Clipper details. Take back a clip you sent to a campaign while it’s still waiting.</li>
           <li>
             <strong>Delete your account</strong> under Profile, Delete account: it ends your plan and deletes your projects, videos, clips and records at once (and from
-            backups within 14 days).
+            backups within 14 days). Two things stay, tied to nothing else: the fact that the account was deleted, and the fingerprint of the card a free trial was
+            started with, so the same card can’t start another.
           </li>
           <li>
             Ask for a copy of your data, or object to or limit how we use it, at <ContactEmail />. We answer within a month.

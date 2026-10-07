@@ -1,7 +1,7 @@
 "use client";
 
 import { useUser } from "@clerk/nextjs";
-import { CaretDown, Clock, CloudArrowUp, FilmStrip, Gift, Info, LinkSimple, WarningCircle, X } from "@phosphor-icons/react";
+import { CaretDown, Clock, CloudArrowUp, CreditCard, FilmStrip, Gift, Info, LinkSimple, WarningCircle, X } from "@phosphor-icons/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState } from "react";
@@ -9,7 +9,8 @@ import { PlatformIcon } from "@/components/platform-icon";
 import { useToast } from "@/components/toast";
 import { useBilling } from "@/hooks/use-billing";
 import { useSystemStatus } from "@/hooks/use-project";
-import { FREE_TRIAL, minutesLeft } from "@/lib/billing/plans";
+import { useTrialCard } from "@/hooks/use-trial-card";
+import { cardLabel, FREE_TRIAL, minutesLeft } from "@/lib/billing/plans";
 import { api, isPlanError, uploadFile } from "@/lib/clips/api";
 import { LanguageSelect } from "@/components/language-select";
 import { ASPECT_LABEL, CAPTION_STYLE_LABEL, CLIP_LENGTH_LABEL, formatBytes } from "@/lib/clips/labels";
@@ -24,13 +25,13 @@ type Mode = "link" | "upload";
 type Inspect = { state: "idle" } | { state: "loading"; url: string } | { state: "ok"; url: string; info: InspectResult } | { state: "error"; url: string; message: string };
 type Upload = { sent: number; total: number; startedAt: number; speed: number };
 
-export function ImportView({ initialUrl, initialMode = "link" }: { initialUrl?: string; initialMode?: Mode }) {
+export function ImportView({ initialUrl, initialMode = "link", returnedCard }: { initialUrl?: string; initialMode?: Mode; returnedCard?: string }) {
   const { user, isLoaded } = useUser();
   if (!isLoaded) return <main id="main" className={`container ${styles.page}`} aria-busy="true" />;
-  return <ImportForm defaults={user ? readClipDefaults(user.unsafeMetadata) : FALLBACK_DEFAULTS} initialUrl={initialUrl} initialMode={initialMode} />;
+  return <ImportForm defaults={user ? readClipDefaults(user.unsafeMetadata) : FALLBACK_DEFAULTS} initialUrl={initialUrl} initialMode={initialMode} returnedCard={returnedCard} />;
 }
 
-function ImportForm({ defaults, initialUrl, initialMode }: { defaults: ClipDefaults; initialUrl?: string; initialMode: Mode }) {
+function ImportForm({ defaults, initialUrl, initialMode, returnedCard }: { defaults: ClipDefaults; initialUrl?: string; initialMode: Mode; returnedCard?: string }) {
   const router = useRouter();
   const toast = useToast();
   const status = useSystemStatus();
@@ -64,10 +65,14 @@ function ImportForm({ defaults, initialUrl, initialMode }: { defaults: ClipDefau
   const linksOn = status?.ytdlp !== null;
   // Plans (with Stripe on): importing needs one, and uses its AI minutes; a new account has its first video free (the trial's minutes).
   const billingOn = status?.billing === true;
-  const { billing } = useBilling({ enabled: billingOn });
+  const { billing, refresh: refreshBilling } = useBilling({ enabled: billingOn });
   const trialLeft = billing?.trial ? minutesLeft({ ...billing.trial, resetsAt: 0 }) : null;
   const onTrial = trialLeft !== null && trialLeft > 0;
   const noPlan = billingOn && billing !== null && !billing.active && !onTrial;
+  // The free video starts once a card is on file (Stripe checks it; nothing is charged). A pasted link survives the trip to Stripe.
+  const trialCard = onTrial ? (billing?.trial?.card ?? null) : null;
+  const needsCard = onTrial && trialCard === null;
+  const card = useTrialCard({ from: "new", returned: returnedCard, link: parseVideoUrl(urlText.trim()).ok ? urlText.trim() : undefined, onAdded: refreshBilling });
   const set = <K extends keyof ClipDefaults>(key: K, value: ClipDefaults[K]) => setOptions((o) => ({ ...o, [key]: value }));
   const fail = (err: unknown, fallback: string) => {
     setFormError(err instanceof Error ? err.message : fallback);
@@ -240,7 +245,7 @@ function ImportForm({ defaults, initialUrl, initialMode }: { defaults: ClipDefau
   }
 
   // Longer than the AI minutes left: the reason shows above the button (the server checks again; an upload's length only once it's sent).
-  const canSubmit = !submitting && !noPlan && !short && (mode === "link" ? Boolean(info) && linksOn : Boolean(file));
+  const canSubmit = !submitting && !noPlan && !needsCard && !short && (mode === "link" ? Boolean(info) && linksOn : Boolean(file));
   const pct = upload ? Math.floor((upload.sent / upload.total) * 100) : 0;
 
   return (
@@ -261,12 +266,35 @@ function ImportForm({ defaults, initialUrl, initialMode }: { defaults: ClipDefau
             See plans
           </Link>
         </div>
-      ) : onTrial && billing?.trial && billing.trial.usedSec === 0 ? (
+      ) : needsCard ? (
+        <div className={`notice ${styles.planNotice}`} role="status">
+          <CreditCard size={20} weight="fill" aria-hidden />
+          <p>
+            <strong>{card.checking ? "Checking your card…" : "Your first video is free. Add a card to start"}</strong>
+            Up to {FREE_TRIAL.minutes} minutes of it, with every feature and no watermark. Your card is only checked: nothing is charged, and no plan starts by itself.
+          </p>
+          <button className="btn btn-volt btn-sm" type="button" disabled={card.busy} aria-busy={card.busy} onClick={() => void card.start()}>
+            Add a card
+          </button>
+        </div>
+      ) : onTrial && trialCard && billing?.trial?.usedSec === 0 ? (
         <div className={`notice ${styles.planNotice}`} role="status">
           <Gift size={20} weight="fill" aria-hidden />
           <p>
             <strong>Your first video is free</strong>
-            Up to {FREE_TRIAL.minutes} minutes of it, with every feature and no watermark. No card needed.
+            Up to {FREE_TRIAL.minutes} minutes of it, with every feature and no watermark. {cardLabel(trialCard)} is on file; nothing is charged.
+          </p>
+          <Link href="/pricing" className="btn btn-secondary btn-sm">
+            See plans
+          </Link>
+        </div>
+      ) : null}
+      {card.problem ? (
+        <div className={`notice is-warning ${styles.planNotice}`} role="alert">
+          <WarningCircle size={20} weight="fill" aria-hidden />
+          <p>
+            <strong>Your card wasn’t added</strong>
+            {card.problem}
           </p>
           <Link href="/pricing" className="btn btn-secondary btn-sm">
             See plans

@@ -8,6 +8,7 @@ import { db } from "@/lib/server/db";
 import { reportError } from "@/lib/server/monitor";
 import { storage } from "@/lib/server/storage";
 import { isUserId, scratch, userMediaPrefix } from "@/lib/server/store";
+import { releaseTrialCard } from "@/lib/server/trial-cards";
 
 /*
  * Deleting an account. A request is a row in account_deletions: from the profile's Delete
@@ -21,7 +22,8 @@ import { isUserId, scratch, userMediaPrefix } from "@/lib/server/store";
  *   4. Every row about them: projects (with transcripts and jobs), billing, usage, free plans,
  *      referrals, emails, admin role, and in campaigns their clipper details, memberships and
  *      clips. Payments recorded to them keep only the amount (it was spent from a campaign's
- *      budget), no longer tied to anyone.
+ *      budget), no longer tied to anyone. So does the card their free trial was started with:
+ *      only Stripe's fingerprint of it stays, so the card can't start another trial.
  *   5. The Clerk user, if still there.
  * The row stays, holding only the user's id, as the record that the account was deleted.
  */
@@ -83,6 +85,7 @@ export async function deleteAccountData(userId: string, deps: AccountDeps = defa
     await tx`delete from campaign_members where user_id = ${userId}`;
     await tx`update campaign_payouts set user_id = null, note = '' where user_id = ${userId}`;
     await tx`delete from clippers where user_id = ${userId}`;
+    await releaseTrialCard(userId, tx);
   });
   await deps.deleteClerkUser(userId);
 }

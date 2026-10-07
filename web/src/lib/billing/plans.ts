@@ -132,7 +132,8 @@ export function formatPrice(cents: number): string {
 /**
  * Trying Bamio without a plan: the first video free, up to this many minutes of it, once per
  * account (minutes counted over the account's whole life, not monthly), one project at a time.
- * Only with plans on; a paid or given plan replaces it.
+ * It needs a card on file first (checked by Stripe, never charged), and a card starts one
+ * trial only. Only with plans on; a paid or given plan replaces it.
  */
 export const FREE_TRIAL = { minutes: 8, projects: 1 } as const;
 
@@ -175,9 +176,17 @@ export type BillingState = {
   canManage: boolean;
   /** The plan was given without paying (plan_grants), for good: no price or renewal. */
   granted: boolean;
-  /** Without a plan, for an account that never had one: the free first video's minutes (FREE_TRIAL), used and given. */
-  trial: { usedSec: number; allowanceSec: number } | null;
+  /**
+   * Without a plan, for an account that never had one: the free first video's minutes
+   * (FREE_TRIAL), used and given, and the card it was started with (null: one must be added first).
+   */
+  trial: { usedSec: number; allowanceSec: number; card: { brand: string; last4: string } | null } | null;
 };
+
+const CARD_BRANDS: Record<string, string> = { visa: "Visa", mastercard: "Mastercard", amex: "American Express", discover: "Discover", diners: "Diners Club", jcb: "JCB", unionpay: "UnionPay" };
+
+/** "Visa ending 4242", from Stripe's name for the brand. */
+export const cardLabel = (card: { brand: string; last4: string }) => `${CARD_BRANDS[card.brand] ?? "Card"}${card.last4 ? ` ending ${card.last4}` : ""}`;
 
 /** Whole minutes for people: used rounds up, left rounds down. */
 export const usedMinutes = (sec: number) => Math.max(0, Math.ceil(sec / 60 - 1e-6));

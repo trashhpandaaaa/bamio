@@ -78,8 +78,9 @@ export default function TermsPage() {
       <section>
         <h2>7. Trying Bamio</h2>
         <p>
-          A new account can process its first video free, up to {FREE_TRIAL.minutes} minutes of video, once per person, with every feature included. It ends when the
-          minutes are used or you choose a plan. We may change or end the free trial for new accounts at any time.
+          A new account can process its first video free, up to {FREE_TRIAL.minutes} minutes of video, once per person, with every feature included. To start it you add
+          a payment card, which Stripe checks and saves without charging it; a card can start one free trial only. Nothing is charged and no plan starts unless you
+          choose one. The trial ends when the minutes are used or you choose a plan. We may change or end the free trial for new accounts at any time.
         </p>
       </section>
 

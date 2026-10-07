@@ -1,6 +1,6 @@
 # Bamio design status
 
-Last updated: 2026-10-07 (the free trial is 8 AI minutes; before that, clipping campaigns replaced the Clippers wall)
+Last updated: 2026-10-07 (the free trial needs a card first, one trial per card; it is 8 AI minutes)
 
 ## Current phase
 
@@ -104,6 +104,26 @@ The user pasted a production-readiness checklist (keys, Postgres, S3/R2, Redis a
 - **Workers** (`worker.ts`): pools for imports (2 at once), exports (2) and streams (4), set with `BAMIO_*_SLOTS`. Each kind has a time limit (import 8 h, find clips and transcribe again 6 h, export 2 h, follow its maximum plus 2 h). On SIGTERM a worker stops claiming, aborts its jobs and hands them back without counting an attempt. The web server runs a worker itself (`instrumentation.ts`) unless `BAMIO_WORKER=off`; then `node dist/worker.mjs` (esbuild bundle, `npm run build:worker`) runs on any machine with the same environment. Job handlers were made safe to run again: an import that finds its video already prepared goes straight to transcription, and a followed stream resumed by another worker finishes what was captured.
 - **Health and deploy:** `GET /api/health` (public, nothing about users) reports the database, storage, media tools and the queue (waiting, running, oldest wait) with 200 or 503. A database that can't be reached gives a 503 "can't reach its database" everywhere. `web/Dockerfile` (one image for both roles: Node 24 slim, tini, a non-root user, migrations on start, a health check) and `web/compose.yaml` (Postgres 18, MinIO and its bucket, a web server that only queues, a worker; `--scale worker=N`).
 - **Decision: a Postgres queue instead of Redis and BullMQ.** Same guarantees for this load (durable, leased, retried, prioritised, cancellable), one less service to run and back up, and a job is queued in the same transaction as the project change that asks for it, so neither can exist without the other. `queue.ts` is small, so it can be swapped if volume ever needs it. Redis and Docker weren't available on this machine either.
+
+### Free trial: a card first, one trial per card (2026-10-07, later)
+
+The user asked that nobody use the free trial without adding a credit card, and that the same card can't be used twice.
+
+- **Add a card to start.** The import page and Plan & billing offer the free video with "Add a card", which opens Stripe's page. Stripe checks and saves the card; nothing is charged and no plan starts (the pages, Stripe's page, the pricing answer and the terms all say so). Until then the import button waits and the server answers `card_required`.
+- **One trial per card.** Stripe gives each card number a fingerprint, the same on any account. It's the key of `trial_cards`, so a card that started a trial is refused on another account ("That card has already started a free video on Bamio") and taken off that Stripe customer again. A different card works.
+- **Phone wallets are refused** for the trial (Apple Pay, Google Pay): each device gives the same card a different fingerprint, so the rule couldn't hold. The page asks for the card's number to be typed in.
+- **Deleting an account** keeps the card's fingerprint, tied to nobody, so the card can't start a trial on a new account. The privacy page says what is kept and why.
+- **Accounts already on the trial** (minutes left, no card) are asked for a card before their next import. A used-up trial is unchanged.
+- Admin → Users → a user shows the card their trial was started with.
+
+Decisions:
+- **Prepaid and debit cards are accepted.** Many people here pay with prepaid dollar cards; refusing them would turn away real customers. It can be switched on later (Stripe reports a card's funding).
+- **No charge, not even a small hold placed by Bamio.** The card is saved to the Stripe customer and stays there (it's prefilled if they choose a plan; deleting the account deletes it).
+- **What this can't stop:** someone with several cards, or a service that makes a new card number each time.
+
+Open: the page Stripe opens can't be tried from a test server (its Stripe key is fake by rule), and this Stripe API version is newer than the old `payment_method_types` way of asking for cards. The request is checked against the installed SDK's types and the flow around it is tested with a stand-in for Stripe; the first real "Add a card" is the first real proof.
+
+Verified: 206 unit tests (new: the card gate, one trial per card across accounts and after deletion, wallet cards refused, the webhook path, deletion keeping only the fingerprint), the build, the e2e suite, the plan tests with plans on (a new account is asked for a card, can't import without one, and imports once one is on file), the layout check and the sweep.
 
 ### Free trial: 8 minutes (2026-10-07)
 

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { formatPrice, PLANS } from "@/lib/billing/plans";
+import { cardLabel, formatPrice, PLANS } from "@/lib/billing/plans";
 import { requireAdmin, userById, userExtras, userJobs, userProjects, userRows, usersById } from "@/lib/server/admin";
 import { PRIVATE_PAGE } from "@/lib/site";
 import { PlanGrantControl } from "../../admin-controls";
@@ -50,6 +50,12 @@ export default async function AdminUserPage({ params }: { params: Promise<{ id: 
             <dd>{row ? <PlanBadge plan={row.plan} status={row.status} granted={null} /> : "None"}</dd>
             <dt>Free</dt>
             <dd>{extras.grant ? `${PLANS[extras.grant.plan]?.name ?? extras.grant.plan} since ${when(extras.grant.created_at).slice(0, 10)}` : "None"}</dd>
+            <dt>Trial card</dt>
+            <dd>
+              {extras.trialCard
+                ? `${cardLabel({ brand: extras.trialCard.brand ?? "", last4: extras.trialCard.last4 ?? "" })}, added ${when(extras.trialCard.created_at).slice(0, 10)}`
+                : "None (the free video needs one)"}
+            </dd>
           </dl>
           {admin.role === "superadmin" ? <PlanGrantControl userId={user.id} granted={extras.grant?.plan ?? null} /> : null}
         </section>

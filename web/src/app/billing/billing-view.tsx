@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useToast } from "@/components/toast";
 import { useBilling } from "@/hooks/use-billing";
-import { formatPrice, FREE_TRIAL, minutesLeft, PLANS, REFERRAL_REWARD_CENTS, usedMinutes, type BillingState, type ReferralState } from "@/lib/billing/plans";
+import { useTrialCard } from "@/hooks/use-trial-card";
+import { cardLabel, formatPrice, FREE_TRIAL, minutesLeft, PLANS, REFERRAL_REWARD_CENTS, usedMinutes, type BillingState, type ReferralState } from "@/lib/billing/plans";
 import { api } from "@/lib/clips/api";
 import styles from "./billing.module.css";
 
@@ -27,9 +28,11 @@ function statusBadge(billing: BillingState) {
  * way to Stripe's billing portal (change plan, card, invoices, cancel). Reads the plan from
  * Stripe as it opens, since people arrive here back from Checkout and the portal.
  */
-export function BillingView({ arrived }: { arrived: "checkout" | "changed" | null }) {
+export function BillingView({ arrived, returnedCard }: { arrived: "checkout" | "changed" | null; returnedCard?: string }) {
   const toast = useToast();
   const { billing, error, refresh } = useBilling({ fresh: true });
+  // The free first video starts once a card is on file (checked by Stripe, never charged).
+  const card = useTrialCard({ from: "billing", returned: returnedCard, onAdded: refresh });
   const [opening, setOpening] = useState(false);
   const [portalError, setPortalError] = useState<string | null>(null);
   const welcomed = useRef(false);
@@ -123,12 +126,33 @@ export function BillingView({ arrived }: { arrived: "checkout" | "changed" | nul
           <h2 className="empty-title">{billing.trial && minutesLeft({ ...billing.trial, resetsAt: 0 }) > 0 ? "Your free trial" : billing.trial ? "You’ve used your free video" : "No plan yet"}</h2>
           <p className="empty-body">
             {billing.trial && minutesLeft({ ...billing.trial, resetsAt: 0 }) > 0
-              ? `Your first video is free: ${minutesLeft({ ...billing.trial, resetsAt: 0 })} of ${FREE_TRIAL.minutes} minutes left. Choose a plan for more each month.`
+              ? `Your first video is free: ${minutesLeft({ ...billing.trial, resetsAt: 0 })} of ${FREE_TRIAL.minutes} minutes left. ${
+                  billing.trial.card
+                    ? `${cardLabel(billing.trial.card)} is on file; the free video charges nothing. Choose a plan for more each month.`
+                    : "Add a card to start: it’s only checked, nothing is charged, and no plan starts by itself."
+                }`
               : "Choose a plan to import videos. Bamio finds the moments, captions every word and exports 1080p with no watermark."}
           </p>
-          <Link href="/pricing" className="btn btn-volt">
-            See the plans
-          </Link>
+          {card.problem ? (
+            <p className="field-error" role="alert">
+              {card.problem}
+            </p>
+          ) : null}
+          {billing.trial && !billing.trial.card && minutesLeft({ ...billing.trial, resetsAt: 0 }) > 0 ? (
+            <div className={styles.trialActions}>
+              <button className="btn btn-volt" type="button" disabled={card.busy} aria-busy={card.busy} onClick={() => void card.start()}>
+                <CreditCard size={18} aria-hidden />
+                {card.checking ? "Checking your card…" : "Add a card"}
+              </button>
+              <Link href="/pricing" className="btn btn-secondary">
+                See the plans
+              </Link>
+            </div>
+          ) : (
+            <Link href="/pricing" className="btn btn-volt">
+              See the plans
+            </Link>
+          )}
         </div>
       ) : (
         <>

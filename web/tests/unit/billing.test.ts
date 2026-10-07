@@ -10,6 +10,8 @@ import {
   assertPlan,
   billingState,
   closeBilling,
+  confirmTrialCard,
+  handleWebhook,
   hasUsage,
   isWorking,
   minutesNotice,
@@ -20,13 +22,17 @@ import {
   recordUsage,
   saveSubscription,
   secondsLeft,
+  startTrialCard,
   subscriptionNotices,
   subscriptionRecord,
   verifyWebhook,
+  type CardCheck,
   type SubscriptionRecord,
+  type TrialCardDeps,
 } from "@/lib/server/billing";
 import { db } from "@/lib/server/db";
 import { limiter } from "@/lib/server/limiter";
+import { claimTrialCard, releaseTrialCard } from "@/lib/server/trial-cards";
 
 const utc = (s: string) => Date.parse(`${s}Z`);
 
@@ -316,10 +322,19 @@ describe("plan limits", () => {
     }
   });
 
-  it("give a new account its first video free, then need a plan", async () => {
+  it("give a new account its first video free once a card is on file, then need a plan", async () => {
     process.env.STRIPE_SECRET_KEY = "sk_test_unit";
     const fresh = "user_trial";
-    await db()`delete from usage_entries where user_id = ${fresh}`;
+    await db()`delete from usage_entries where user_id in (${fresh}, 'user_trial_old')`;
+    await db()`delete from trial_cards where fingerprint = 'fp_trial' or user_id = ${fresh}`;
+    // Without a card on file nothing starts, and the pages know to ask for one.
+    await expect(assertCanProcess(fresh, { sec: 7 * 60, source: "link" })).rejects.toMatchObject({ status: 402, code: "card_required" });
+    await expect(assertPlan(fresh)).rejects.toMatchObject({ status: 402, code: "card_required" });
+    expect((await billingState(fresh)).trial).toEqual({ usedSec: 0, allowanceSec: 480, card: null });
+    // A trial that's already used says so, card or no card.
+    await recordUsage("user_trial_old", "p0", 8 * 60);
+    await expect(assertCanProcess("user_trial_old")).rejects.toMatchObject({ status: 402, code: "trial_used" });
+    expect(await claimTrialCard(fresh, { fingerprint: "fp_trial", brand: "visa", last4: "4242" })).toBe(true);
     // Up to 8 minutes of video, with AI on it, one project at a time.
     await expect(assertCanProcess(fresh, { sec: 7 * 60, source: "link" })).resolves.toBeUndefined();
     await expect(assertCanProcess(fresh, { sec: 25 * 60, source: "link" })).rejects.toMatchObject({ status: 402, code: "minutes_short", message: expect.stringContaining("Import a part of it") });
@@ -332,19 +347,109 @@ describe("plan limits", () => {
     expect(await secondsLeft(fresh)).toBe(8 * 60);
     expect(await projectLimit(fresh)).toBe(1);
     expect(await queuePriority(fresh)).toBe(0);
-    expect(await billingState(fresh)).toMatchObject({ enabled: true, active: false, plan: null, usage: null, trial: { usedSec: 0, allowanceSec: 480 }, projects: { limit: 1 } });
+    expect(await billingState(fresh)).toMatchObject({ enabled: true, active: false, plan: null, usage: null, trial: { usedSec: 0, allowanceSec: 480, card: { brand: "visa", last4: "4242" } }, projects: { limit: 1 } });
     // Its minutes count over the account's whole life, and once used they're gone.
     await recordUsage(fresh, "p1", 6 * 60);
     expect(await secondsLeft(fresh)).toBe(2 * 60);
     await recordUsage(fresh, "p2", 2 * 60);
     await expect(assertCanProcess(fresh)).rejects.toMatchObject({ status: 402, code: "trial_used" });
-    expect((await billingState(fresh)).trial).toEqual({ usedSec: 480, allowanceSec: 480 });
+    expect((await billingState(fresh)).trial).toEqual({ usedSec: 480, allowanceSec: 480, card: { brand: "visa", last4: "4242" } });
     // An account that had a plan doesn't get a trial when it ends: its plan is shown, and doesn't work.
     await givePlan("user_ended", "pro", { status: "canceled" });
     await expect(assertCanProcess("user_ended")).rejects.toMatchObject({ code: "plan_required" });
     await expect(assertPlan("user_ended")).rejects.toMatchObject({ code: "plan_required" });
     expect(await secondsLeft("user_ended")).toBe(0);
     expect(await billingState("user_ended")).toMatchObject({ active: false, plan: "pro", status: "canceled", canManage: true, trial: null });
+  });
+
+  it("check a card with Stripe before the free video, and let a card start one trial only", async () => {
+    process.env.STRIPE_SECRET_KEY = "sk_test_unit";
+    const [ana, ben, cara] = ["user_card_ana", "user_card_ben", "user_card_cara"];
+    const sql = db();
+    await sql`delete from trial_cards where fingerprint in ('fp_one', 'fp_two', 'fp_three', 'fp_device') or user_id in (${ana}, ${ben}, ${cara})`;
+    await sql`delete from usage_entries where user_id in (${ana}, ${ben}, ${cara})`;
+    await sql`delete from billing_accounts where user_id in (${ana}, ${ben}, ${cara})`;
+    // Ana has a Stripe customer already, so none is made here.
+    await sql`insert into billing_accounts (user_id, data, updated_at) values (${ana}, ${sql.json({ customerId: "cus_ana" })}, ${Date.now()})`;
+
+    // Stripe, played by the test: the pages it would open, the checks it would report, the cards taken off again.
+    const opened: Parameters<TrialCardDeps["open"]>[0][] = [];
+    const detached: string[] = [];
+    const checks = new Map<string, CardCheck>();
+    const deps: TrialCardDeps = {
+      open: async (input) => {
+        opened.push(input);
+        return "https://checkout.stripe.test/c/pay/cs_test_1";
+      },
+      read: async (id) => {
+        const found = checks.get(id);
+        if (!found) throw new Error("no such session");
+        return found;
+      },
+      detach: async (id) => {
+        detached.push(id);
+      },
+    };
+    const card = (id: string, fingerprint: string, over: Partial<NonNullable<CardCheck["card"]>> = {}) => ({ id, fingerprint, brand: "visa", last4: "4242", wallet: null, ...over });
+    const check = (userId: string, over: Partial<CardCheck> = {}): CardCheck => ({ userId, forTrial: true, complete: true, card: card("pm_ana", "fp_one"), ...over });
+
+    // Stripe returns to the page the user was on, with the check's id; a pasted link survives the trip.
+    const back = "/new?url=https%3A%2F%2Fyoutu.be%2Fabc";
+    expect(await startTrialCard(ana, { origin: "https://bamio.test", back }, deps)).toBe("https://checkout.stripe.test/c/pay/cs_test_1");
+    expect(opened[0]).toEqual({ customer: "cus_ana", userId: ana, successUrl: `https://bamio.test${back}&trial_card={CHECKOUT_SESSION_ID}`, cancelUrl: `https://bamio.test${back}` });
+    await startTrialCard(ana, { origin: "https://bamio.test", back: "/billing" }, deps);
+    expect(opened[1]!.successUrl).toBe("https://bamio.test/billing?trial_card={CHECKOUT_SESSION_ID}");
+
+    // Someone else's check, some other Checkout page, or one that wasn't finished: nothing is recorded.
+    checks.set("cs_test_other", check(ben));
+    await expect(confirmTrialCard(ana, "cs_test_other", deps)).rejects.toMatchObject({ status: 404 });
+    checks.set("cs_test_plain", check(ana, { forTrial: false }));
+    await expect(confirmTrialCard(ana, "cs_test_plain", deps)).rejects.toMatchObject({ status: 404 });
+    checks.set("cs_test_open", check(ana, { complete: false }));
+    await expect(confirmTrialCard(ana, "cs_test_open", deps)).rejects.toMatchObject({ status: 409, code: "card_incomplete" });
+    await expect(confirmTrialCard(ana, "not a session", deps)).rejects.toMatchObject({ status: 400 });
+    // A card from a phone's wallet has a different fingerprint on every device: refused, and taken off the customer again.
+    checks.set("cs_test_wallet", check(ana, { card: card("pm_wallet", "fp_device", { wallet: "apple_pay" }) }));
+    await expect(confirmTrialCard(ana, "cs_test_wallet", deps)).rejects.toMatchObject({ status: 409, code: "card_wallet" });
+    expect(detached).toEqual(["pm_wallet"]);
+    await expect(assertCanProcess(ana)).rejects.toMatchObject({ code: "card_required" });
+
+    // Typed in: the free video starts. Hearing about it twice (the return and the webhook) changes nothing.
+    checks.set("cs_test_ana", check(ana));
+    await confirmTrialCard(ana, "cs_test_ana", deps);
+    await confirmTrialCard(ana, "cs_test_ana", deps);
+    await expect(assertCanProcess(ana, { sec: 300, source: "link" })).resolves.toBeUndefined();
+    expect((await billingState(ana)).trial?.card).toEqual({ brand: "visa", last4: "4242" });
+    await expect(startTrialCard(ana, { origin: "https://bamio.test", back: "/new" }, deps)).rejects.toMatchObject({ status: 409, code: "has_card" });
+
+    // The same card on another account: refused and taken off that customer, even once the first account is deleted.
+    checks.set("cs_test_ben", check(ben, { card: card("pm_ben", "fp_one") }));
+    await expect(confirmTrialCard(ben, "cs_test_ben", deps)).rejects.toMatchObject({ status: 409, code: "card_used", message: expect.stringContaining("already started a free video") });
+    expect(detached).toEqual(["pm_wallet", "pm_ben"]);
+    await expect(assertCanProcess(ben)).rejects.toMatchObject({ code: "card_required" });
+    await releaseTrialCard(ana);
+    expect(await sql`select user_id, brand, last4 from trial_cards where fingerprint = 'fp_one'`).toMatchObject([{ user_id: null, brand: null, last4: null }]);
+    await expect(confirmTrialCard(ben, "cs_test_ben", deps)).rejects.toMatchObject({ code: "card_used" });
+    // A different card works.
+    checks.set("cs_test_ben2", check(ben, { card: card("pm_ben2", "fp_two", { brand: "mastercard", last4: "4444" }) }));
+    await confirmTrialCard(ben, "cs_test_ben2", deps);
+    expect((await billingState(ben)).trial?.card).toEqual({ brand: "mastercard", last4: "4444" });
+
+    // Stripe's webhook does the same for someone who closed the tab. A refused card isn't an error for Stripe to send again.
+    const done = (id: string, userId: string) => ({ type: "checkout.session.completed", data: { object: { id, mode: "setup", metadata: { bamio_user: userId, bamio_trial_card: "1" } } } }) as unknown as Stripe.Event;
+    checks.set("cs_test_cara", check(cara, { card: card("pm_cara", "fp_three") }));
+    await handleWebhook(done("cs_test_cara", cara), deps);
+    expect((await billingState(cara)).trial?.card).toEqual({ brand: "visa", last4: "4242" });
+    checks.set("cs_test_cara2", check(cara, { card: card("pm_late", "fp_two") }));
+    await expect(handleWebhook(done("cs_test_cara2", cara), deps)).resolves.toBeUndefined(); // she has her card already
+    checks.set("cs_test_ben3", check("user_card_dan", { card: card("pm_dan", "fp_two") }));
+    await expect(handleWebhook(done("cs_test_ben3", "user_card_dan"), deps)).resolves.toBeUndefined();
+    expect(detached.at(-1)).toBe("pm_dan");
+    expect((await billingState("user_card_dan")).trial?.card).toBeNull();
+
+    // An account with a plan has no card to add.
+    await givePlan("user_card_paid", "starter");
+    await expect(startTrialCard("user_card_paid", { origin: "https://bamio.test", back: "/new" }, deps)).rejects.toMatchObject({ status: 409, code: "has_plan" });
   });
 
   it("count AI minutes once per import, and stop at the plan's minutes", async () => {

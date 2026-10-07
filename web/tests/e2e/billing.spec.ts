@@ -27,7 +27,13 @@ async function setPlan(id: string, plan: "starter" | "pro" | null, usedSec = 0) 
   if (usedSec > 0) await sql`insert into usage_entries (user_id, key, sec, at) values (${id}, 'e2e-earlier', ${usedSec}, ${now - 3600_000})`;
 }
 
+/** A card on file for the free trial, the way the return from Stripe's card check records it. */
+async function giveCard(id: string) {
+  await sql`insert into trial_cards (fingerprint, user_id, brand, last4, created_at) values (${`fp_e2e_${id}`}, ${id}, 'visa', '4242', ${Date.now()}) on conflict do nothing`;
+}
+
 async function clearPlan(id: string) {
+  await sql`delete from trial_cards where user_id = ${id}`;
   await sql`delete from plan_grants where user_id = ${id}`;
   await sql`delete from billing_accounts where user_id = ${id}`;
   await sql`delete from usage_entries where user_id = ${id}`;
@@ -87,13 +93,44 @@ test.describe("plans", () => {
     }
   });
 
-  test("a new account's first video is free, up to 8 minutes", async ({ page }) => {
+  test("a new account's first video is free, up to 8 minutes, once a card is on file", async ({ page }) => {
     test.setTimeout(5 * 60_000);
     await clearPlan(id);
     // The trial keeps one project at a time: start from none (a failed run may have left one).
     for (const p of (await (await page.request.get("/api/projects")).json()) as { id: string }[]) await page.request.delete(`/api/projects/${p.id}`);
+
+    // No card yet: the free video is offered, and importing waits for the card.
     await page.goto("/new");
-    await expect(page.getByText("Your first video is free")).toBeVisible();
+    await expect(page.getByText("Your first video is free. Add a card to start")).toBeVisible();
+    await page.getByRole("button", { name: "Upload a file" }).click();
+    await page.locator('input[type="file"]').setInputFiles(SAMPLE_VIDEO);
+    await expect(page.getByRole("button", { name: "Import and find clips" })).toBeDisabled();
+    await page.screenshot({ path: "qa/billing/trial-card.png", fullPage: true });
+    // The notice fits a phone.
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(0);
+    await page.screenshot({ path: "qa/billing/trial-card-390.png" });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const refused = await page.request.post("/api/projects/upload", { data: { fileName: "a.mp4", size: 1000, findClips: false, clipLength: "short", language: "auto" } });
+    expect(refused.status()).toBe(402);
+    expect(((await refused.json()) as { error: { code: string } }).error.code).toBe("card_required");
+    // The card page is Stripe's, which refuses this server's fake key; the page says so.
+    await page.getByRole("button", { name: "Add a card" }).click();
+    await expect(page.getByRole("alert").filter({ hasText: "Stripe refused this server’s key" })).toBeVisible();
+    // Back from Stripe with a check it can't vouch for: no card is added, and the check's id leaves the address.
+    await page.goto("/new?trial_card=cs_test_e2e_unknown");
+    await expect(page.getByRole("alert").filter({ hasText: "Your card wasn’t added" })).toBeVisible();
+    await expect(page).toHaveURL(/\/new$/);
+    expect((await sql`select 1 from trial_cards where user_id = ${id}`).length).toBe(0);
+    await page.goto("/billing");
+    await expect(page.getByRole("heading", { name: "Your free trial" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Add a card" })).toBeVisible();
+
+    // Stripe has checked their card: the free video starts.
+    await giveCard(id);
+    await page.goto("/new");
+    await expect(page.getByText("Your first video is free", { exact: true })).toBeVisible();
+    await expect(page.getByText("Visa ending 4242 is on file")).toBeVisible();
     await expect(page.getByText("8 free minutes left.")).toBeVisible();
     await page.getByRole("button", { name: "Upload a file" }).click();
     await page.locator('input[type="file"]').setInputFiles(SAMPLE_VIDEO);
@@ -107,6 +144,8 @@ test.describe("plans", () => {
       await page.goto("/billing");
       await expect(page.getByRole("heading", { name: "Your free trial" })).toBeVisible();
       await expect(page.getByText("7 of 8 minutes left")).toBeVisible(); // the 40 s sample counts as a minute
+      await expect(page.getByText("Visa ending 4242 is on file")).toBeVisible();
+      await expect(page.getByRole("button", { name: "Add a card" })).toHaveCount(0);
       await page.screenshot({ path: "qa/billing/trial-billing.png", fullPage: true });
       // One project at a time: the next import waits until this one is deleted (or a plan is chosen).
       const second = await page.request.post("/api/projects/upload", { data: { fileName: "b.mp4", size: 1000, findClips: false, clipLength: "short", language: "auto" } });

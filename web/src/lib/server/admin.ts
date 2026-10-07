@@ -282,11 +282,12 @@ export async function userProjects(userId: string): Promise<AdminProject[]> {
   });
 }
 
-/** The user's free plan, their referral link's results and their latest emails. */
+/** The user's free plan, the card their free trial was started with, their referral link's results and their latest emails. */
 export async function userExtras(userId: string) {
   const sql = db();
-  const [[grant], [referrals], [referredBy], emails] = await Promise.all([
+  const [[grant], [trialCard], [referrals], [referredBy], emails] = await Promise.all([
     sql<{ plan: PlanId; created_at: number }[]>`select plan, created_at::float8 as created_at from plan_grants where user_id = ${userId}`,
+    sql<{ brand: string | null; last4: string | null; created_at: number }[]>`select brand, last4, created_at::float8 as created_at from trial_cards where user_id = ${userId}`,
     sql<{ pending: number; rewarded: number; cents: number }[]>`
       select count(*) filter (where status = 'pending')::int as pending, count(*) filter (where status <> 'pending')::int as rewarded,
              coalesce(sum(reward_cents), 0)::int as cents from referrals where referrer_user_id = ${userId}`,
@@ -294,7 +295,7 @@ export async function userExtras(userId: string) {
     sql<{ template: string; status: string; subject: string | null; updated_at: number; last_error: string | null }[]>`
       select template, status, subject, updated_at::float8 as updated_at, last_error from emails where user_id = ${userId} order by id desc limit 10`,
   ]);
-  return { grant: grant ?? null, referrals: referrals ?? { pending: 0, rewarded: 0, cents: 0 }, referredBy: referredBy ?? null, emails };
+  return { grant: grant ?? null, trialCard: trialCard ?? null, referrals: referrals ?? { pending: 0, rewarded: 0, cents: 0 }, referredBy: referredBy ?? null, emails };
 }
 
 /** Give a user a plan for free (or another one), or take it back (`plan` null). */

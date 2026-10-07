@@ -37,3 +37,6 @@
   .panel { padding: 22px; }
   .actions > :global(.btn) { flex: 1 1 auto; }
 }
+
+/* The free trial without a card yet: add one, or see the plans. */
+.trialActions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }

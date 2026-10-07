@@ -24,6 +24,7 @@ import type { Tx } from "@/lib/server/db";
 import { queueEmail } from "@/lib/server/email";
 import { HttpError } from "@/lib/server/http";
 import { markCredited, markEarned, owedRewards, pendingReferral, recordReferral, referralCode, referralStats } from "@/lib/server/referrals";
+import { claimTrialCard, readTrialCard, type TrialCard } from "@/lib/server/trial-cards";
 import { addUsage, countProjects, readPlanGrant, hasUsage as usageCounted, isUserId, MAX_PROJECTS_PER_USER, readBilling, updateBilling, usageBetween } from "@/lib/server/store";
 
 /*
@@ -36,6 +37,10 @@ import { addUsage, countProjects, readPlanGrant, hasUsage as usageCounted, isUse
  * of video imported, or of a followed stream transcribed), projects to keep, and a place in
  * the processing queues. Prices live in Stripe under the lookup keys of plans.ts (made by
  * `npm run stripe:setup`).
+ *
+ * An account that never had a plan gets its first video free (FREE_TRIAL), once it has put a
+ * card on file: Stripe checks and saves the card without charging it, and a card starts one
+ * trial only (trial-cards.ts keeps Stripe's fingerprint of it).
  *
  * Changes to a plan are emailed to the user (started, changed, ending, ended, a failed
  * payment), queued in the same transaction that saves the change, so each goes out once
@@ -265,17 +270,18 @@ async function allowance(userId: string, billing?: BillingRecord): Promise<Allow
   return { plan: best.plan, usedSec, allowanceSec: best.plan.minutes * 60, resetsAt: window.end, source: best.source, granted: best.granted };
 }
 
-type Trial = { usedSec: number; allowanceSec: number };
+type Trial = { usedSec: number; allowanceSec: number; card: TrialCard | null };
 
 /**
  * The free first video (FREE_TRIAL in plans.ts), for an account that has never had a plan,
- * paid or given: its minutes counted over the account's whole life. Null where it doesn't apply
- * (plans off, or the account has or had a plan: when that plan ends, it's "choose a plan" again).
+ * paid or given: its minutes counted over the account's whole life, and the card it was started
+ * with (none yet: it can't be used until one is added). Null where it doesn't apply (plans off,
+ * or the account has or had a plan: when that plan ends, it's "choose a plan" again).
  */
 async function trial(userId: string, billing?: BillingRecord): Promise<Trial | null> {
   if (!billingEnabled()) return null;
   if ((billing ?? (await billingRecord(userId))).subscription || (await readPlanGrant(userId))) return null;
-  return { usedSec: await usageBetween(userId, 0, Date.now() + 1), allowanceSec: FREE_TRIAL.minutes * 60 };
+  return { usedSec: await usageBetween(userId, 0, Date.now() + 1), allowanceSec: FREE_TRIAL.minutes * 60, card: await readTrialCard(userId) };
 }
 
 /** What the pages show: plan, renewal, minutes used, projects. `fresh`: read the plan from Stripe first. */
@@ -369,12 +375,15 @@ export async function assertCanProcess(userId: string, need?: { sec: number; sou
   }
 }
 
-/** Without a plan: the free first video, if the account still has it and the video fits. */
+const TRIAL_USED = `You’ve used your free ${FREE_TRIAL.minutes} minutes. Choose a plan to import more videos.`;
+
+/** Without a plan: the free first video, if the account still has it, has a card on file and the video fits. */
 async function assertTrial(userId: string, need?: { sec: number; source: keyof typeof SHORTER }): Promise<void> {
   const free = await trial(userId);
   if (!free) throw new HttpError(402, "plan_required", "Choose a plan to import videos.");
   const left = free.allowanceSec - free.usedSec;
-  if (left < USED_UP_SEC) throw new HttpError(402, "trial_used", `You’ve used your free ${FREE_TRIAL.minutes} minutes. Choose a plan to import more videos.`);
+  if (left < USED_UP_SEC) throw new HttpError(402, "trial_used", TRIAL_USED);
+  if (!free.card) throw new HttpError(402, "card_required", "Add a card to start your free video. It’s only checked: nothing is charged.");
   if (need && need.sec > left + GRACE_SEC) {
     throw new HttpError(
       402,
@@ -384,10 +393,12 @@ async function assertTrial(userId: string, need?: { sec: number; source: keyof t
   }
 }
 
-/** Before AI work on a video already imported (finding more clips, transcribing again): a working plan, or the free trial's project. */
+/** Before AI work on a video already imported (finding more clips, transcribing again): a working plan, or the free trial's project (with its card on file). */
 export async function assertPlan(userId: string): Promise<void> {
-  if (!billingEnabled()) return;
-  if (!(await allowance(userId)) && !(await trial(userId))) throw new HttpError(402, "plan_required", "Choose a plan to use AI on your videos.");
+  if (!billingEnabled() || (await allowance(userId))) return;
+  const free = await trial(userId);
+  if (!free) throw new HttpError(402, "plan_required", "Choose a plan to use AI on your videos.");
+  if (!free.card) throw new HttpError(402, "card_required", "Add a card under Plan & billing to use your free trial. It’s only checked: nothing is charged.");
 }
 
 /** AI processing left this month (or of the free trial), in seconds: Infinity with billing off, 0 without a plan. */
@@ -584,6 +595,132 @@ export async function createPortal(userId: string, origin: string, target?: { pl
   }
 }
 
+/* ------------------------------ The free trial's card ------------------------------ */
+
+/** A card check (a Checkout page in setup mode), as Stripe has it. */
+export type CardCheck = {
+  /** The Bamio user it was opened for. */
+  userId: string | null;
+  /** It is one of Bamio's trial card checks (not some other Checkout session). */
+  forTrial: boolean;
+  /** Stripe finished it and saved the card. */
+  complete: boolean;
+  /** `wallet`: "apple_pay", "google_pay"... when the card came from a wallet, not typed in. */
+  card: { id: string; fingerprint: string | null; brand: string; last4: string; wallet: string | null } | null;
+};
+
+/** The Stripe calls the trial's card needs (the tests pass their own). */
+export type TrialCardDeps = {
+  /** Open a page that checks and saves a card without charging it; its address. */
+  open: (input: { customer: string; userId: string; successUrl: string; cancelUrl: string }) => Promise<string>;
+  read: (sessionId: string) => Promise<CardCheck>;
+  /** Take a card off its Stripe customer again. */
+  detach: (paymentMethodId: string) => Promise<void>;
+};
+
+const TRIAL_CARD = "bamio_trial_card";
+
+function cardCheck(session: Stripe.Checkout.Session): CardCheck {
+  const intent = session.setup_intent && typeof session.setup_intent === "object" ? session.setup_intent : null;
+  const method = intent?.payment_method && typeof intent.payment_method === "object" ? intent.payment_method : null;
+  return {
+    userId: session.metadata?.bamio_user ?? null,
+    forTrial: session.mode === "setup" && session.metadata?.[TRIAL_CARD] === "1",
+    complete: session.status === "complete" && intent?.status === "succeeded",
+    card: method?.card
+      ? { id: method.id, fingerprint: method.card.fingerprint ?? null, brand: method.card.brand, last4: method.card.last4, wallet: method.card.wallet?.type ?? null }
+      : null,
+  };
+}
+
+const stripeTrialCardDeps: TrialCardDeps = {
+  open: async ({ customer, userId, successUrl, cancelUrl }) => {
+    const session = await stripe().checkout.sessions.create({
+      // Setup mode: the card is checked and saved to the customer. Nothing is charged and no subscription is made.
+      mode: "setup",
+      customer,
+      client_reference_id: userId,
+      // Setup mode has no price to take a currency from, and Stripe asks for one to choose payment methods by. Only cards are offered.
+      currency: "usd",
+      allowed_payment_method_types: ["card"],
+      metadata: { bamio_user: userId, [TRIAL_CARD]: "1" },
+      custom_text: { submit: { message: "Your card is only checked. Nothing is charged, and no plan starts by itself." } },
+      success_url: successUrl,
+      cancel_url: cancelUrl,
+    });
+    if (!session.url) throw new HttpError(502, "stripe", "Stripe didn’t return a page for the card. Try again.");
+    return session.url;
+  },
+  read: async (sessionId) => cardCheck(await stripe().checkout.sessions.retrieve(sessionId, { expand: ["setup_intent.payment_method"] })),
+  detach: async (paymentMethodId) => {
+    await stripe().paymentMethods.detach(paymentMethodId);
+  },
+};
+
+/**
+ * Start the card check for the free first video: answers with the Stripe page to send the
+ * browser to. `back` is the page on this site Stripe returns to (a path); the finished
+ * check's id is added to it as ?trial_card=, for confirmTrialCard.
+ */
+export async function startTrialCard(userId: string, input: { origin: string; back: string; email?: string }, deps: TrialCardDeps = stripeTrialCardDeps): Promise<string> {
+  if (!billingEnabled()) throw new HttpError(503, "billing_off", "Payments aren’t set up on this server.");
+  const billing = await billingRecord(userId);
+  if (await allowance(userId, billing)) throw new HttpError(409, "has_plan", "You have a plan, so there’s no card to add. Import your video.");
+  const free = await trial(userId, billing);
+  if (!free) throw new HttpError(402, "plan_required", "The free video is for accounts that never had a plan. Choose a plan to import videos.");
+  if (free.card) throw new HttpError(409, "has_card", "Your card is already on file. Import your video.");
+  if (free.allowanceSec - free.usedSec < USED_UP_SEC) throw new HttpError(402, "trial_used", TRIAL_USED);
+  try {
+    const open = async () =>
+      deps.open({
+        customer: await customerFor(userId, input.email),
+        userId,
+        successUrl: `${input.origin}${input.back}${input.back.includes("?") ? "&" : "?"}trial_card={CHECKOUT_SESSION_ID}`,
+        cancelUrl: `${input.origin}${input.back}`,
+      });
+    try {
+      return await open();
+    } catch (err) {
+      // The saved customer was deleted in Stripe (test data cleared): start over with a new one.
+      if (!isMissing(err, "customer")) throw err;
+      await updateBilling(userId, billingSchema, () => ({}));
+      return await open();
+    }
+  } catch (err) {
+    stripeError(err);
+  }
+}
+
+/**
+ * Back from Stripe's page (or told by its webhook): tie the checked card to the user's trial.
+ * Refused, with the card taken off the Stripe customer again, when it already started a trial
+ * on another account, or when it came from a phone's wallet (Apple Pay, Google Pay: each device
+ * gives the same card a different fingerprint, so one trial per card couldn't hold). Safe to
+ * repeat: the return and the webhook both call it.
+ */
+export async function confirmTrialCard(userId: string, sessionId: string, deps: TrialCardDeps = stripeTrialCardDeps): Promise<void> {
+  if (!billingEnabled()) throw new HttpError(503, "billing_off", "Payments aren’t set up on this server.");
+  if (!/^cs_[A-Za-z0-9_]{8,250}$/.test(sessionId)) throw new HttpError(400, "bad_request", "That isn’t a card check.");
+  let check: CardCheck;
+  try {
+    check = await deps.read(sessionId);
+  } catch (err) {
+    stripeError(err);
+  }
+  if (!check.forTrial || check.userId !== userId) throw new HttpError(404, "not_found", "Stripe doesn’t know that card check.");
+  const card = check.card;
+  if (!check.complete || !card) throw new HttpError(409, "card_incomplete", "The card wasn’t added. Try again.");
+  const refuse = async (code: string, message: string): Promise<never> => {
+    await deps.detach(card.id).catch((err: unknown) => console.warn("[bamio/billing] couldn’t take a refused trial card off its customer:", err instanceof Error ? err.message : err));
+    throw new HttpError(409, code, message);
+  };
+  if (card.wallet && card.wallet !== "link") await refuse("card_wallet", "Type your card’s number in for the free video: Apple Pay and Google Pay can’t be used for this.");
+  if (!card.fingerprint) await refuse("card_unknown", "Stripe couldn’t identify that card. Try a different one.");
+  else if (!(await claimTrialCard(userId, { fingerprint: card.fingerprint, brand: card.brand, last4: card.last4 }))) {
+    await refuse("card_used", "That card has already started a free video on Bamio. Use a different card, or choose a plan.");
+  }
+}
+
 /* ------------------------------ Referrals ------------------------------ */
 
 /** The Stripe calls a referral needs (the tests pass their own). */
@@ -670,11 +807,22 @@ export const WEBHOOK_EVENTS = [
 ] as const;
 
 /** Keep the billing record in step with Stripe. Subscriptions are read fresh from Stripe, so events arriving out of order don't matter. */
-export async function handleWebhook(event: Stripe.Event): Promise<void> {
+export async function handleWebhook(event: Stripe.Event, trialCards: TrialCardDeps = stripeTrialCardDeps): Promise<void> {
   try {
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object;
+        if (session.mode === "setup") {
+          // The free trial's card check, for someone who closed the tab before coming back.
+          const userId = session.metadata?.bamio_user;
+          if (session.metadata?.[TRIAL_CARD] === "1" && userId && isUserId(userId)) {
+            await confirmTrialCard(userId, session.id, trialCards).catch((err: unknown) => {
+              // A card that can't be used (taken, from a wallet): they're told when they come back, and there's nothing for Stripe to send again.
+              if (!(err instanceof HttpError && err.status < 500)) throw err;
+            });
+          }
+          return;
+        }
         const id = typeof session.subscription === "string" ? session.subscription : session.subscription?.id;
         if (session.mode === "subscription" && id) await syncSubscription(id, session.client_reference_id);
         return;

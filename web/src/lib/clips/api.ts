@@ -87,6 +87,11 @@ export const api = {
   referrals: () => request<ReferralState>("GET", "/api/referrals"),
   /** The Stripe Checkout page to send the browser to. */
   checkout: (plan: PlanId, interval: Interval) => request<{ url: string }>("POST", "/api/billing/checkout", { plan, interval }),
+  /** The free first video's card check: the Stripe page to send the browser to (the card is saved, never charged), then, back from it, tying the card to the trial. */
+  trialCard: {
+    start: (input: { from: "new" | "billing"; link?: string }) => request<{ url: string }>("POST", "/api/billing/trial-card", input),
+    confirm: (sessionId: string) => request<BillingState>("POST", "/api/billing/trial-card/confirm", { sessionId }),
+  },
   /** The Stripe billing portal page to send the browser to; with a plan, it opens on switching to it. */
   billingPortal: (target?: { plan: PlanId; interval: Interval }) => request<{ url: string }>("POST", "/api/billing/portal", target ?? {}),
   /** Who the user is in campaigns (null: they've never joined one): the name and channel shown, and how to pay them. */
@@ -125,7 +130,7 @@ export const api = {
 };
 
 /** Errors a plan can fix (no plan yet, minutes used up, as many projects as the plan keeps): worth a link to Pricing. */
-export const isPlanError = (err: unknown) => err instanceof ApiError && (err.status === 402 || err.code === "too_many");
+export const isPlanError = (err: unknown) => err instanceof ApiError && ((err.status === 402 && err.code !== "card_required") || err.code === "too_many");
 
 export const sourceUrl = (id: string) => `${base(id)}/source`;
 /** A followed stream's video while it grows (HLS). */

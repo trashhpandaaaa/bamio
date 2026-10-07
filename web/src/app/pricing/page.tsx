@@ -54,7 +54,7 @@ const FAQ: FaqItem[] = [
   },
   {
     q: "Can I try Bamio first?",
-    a: `Yes. Your first video is free, up to ${FREE_TRIAL.minutes} minutes of it, with every feature and no watermark. No card needed: sign up and import a video.`,
+    a: `Yes. Your first video is free, up to ${FREE_TRIAL.minutes} minutes of it, with every feature and no watermark. You add a card to start: it’s only checked, never charged, and no plan starts by itself. One free video per card.`,
   },
   {
     q: "What does “coming soon” mean?",
