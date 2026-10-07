@@ -51,8 +51,8 @@ export const FOLLOW_GRACE_SEC = 60;
  * How much of a stream following may record, from the AI minutes left when it starts
  * (`leftSec`; Infinity with plans off): no further back than that, and it stops once that
  * much is recorded. The minutes themselves are counted only as captions catch up, which can
- * lag far behind the recording, so the recording is what's capped (the free trial's 30
- * minutes are 30 minutes of stream, not 12 hours of it with 30 captioned).
+ * lag far behind the recording, so the recording is what's capped (the free trial's 8
+ * minutes are 8 minutes of stream, not 12 hours of it with 8 captioned).
  */
 export function followLimits(leftSec: number, backSec: number): { backSec: number; stopAtSec: number } {
   const left = Math.max(0, leftSec);

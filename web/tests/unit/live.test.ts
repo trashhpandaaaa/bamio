@@ -92,11 +92,11 @@ describe("live playlists", () => {
 });
 
 describe("following a stream", () => {
-  it("records no more of it than the AI minutes left (the free trial: 30 minutes of stream, not 12 hours)", () => {
-    // The free trial, untouched: 30 minutes back at most, and it stops after 31 minutes recorded.
-    expect(followLimits(30 * 60, 6 * 3600)).toEqual({ backSec: 30 * 60, stopAtSec: 31 * 60 });
+  it("records no more of it than the AI minutes left (the free trial: 8 minutes of stream, not 12 hours)", () => {
+    // The free trial, untouched: 8 minutes back at most, and it stops after 9 minutes recorded.
+    expect(followLimits(8 * 60, 6 * 3600)).toEqual({ backSec: 8 * 60, stopAtSec: 9 * 60 });
     // A stream that keeps little history starts where it can.
-    expect(followLimits(30 * 60, 20)).toEqual({ backSec: 20, stopAtSec: 31 * 60 });
+    expect(followLimits(8 * 60, 20)).toEqual({ backSec: 20, stopAtSec: 9 * 60 });
     // Minutes nearly gone: barely any; none left: only the minute of grace.
     expect(followLimits(90, 3600)).toEqual({ backSec: 90, stopAtSec: 150 });
     expect(followLimits(0, 3600)).toEqual({ backSec: 0, stopAtSec: 60 });

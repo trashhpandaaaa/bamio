@@ -134,7 +134,7 @@ export function formatPrice(cents: number): string {
  * account (minutes counted over the account's whole life, not monthly), one project at a time.
  * Only with plans on; a paid or given plan replaces it.
  */
-export const FREE_TRIAL = { minutes: 30, projects: 1 } as const;
+export const FREE_TRIAL = { minutes: 8, projects: 1 } as const;
 
 /** What a referrer earns, once per friend whose first payment goes through: credit on their Bamio bill. */
 export const REFERRAL_REWARD_CENTS = 500;

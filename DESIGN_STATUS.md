@@ -1,6 +1,6 @@
 # Bamio design status
 
-Last updated: 2026-10-06 (clipping campaigns replace the Clippers wall: admins set them up, clippers earn per view, payouts are recorded)
+Last updated: 2026-10-07 (the free trial is 8 AI minutes; before that, clipping campaigns replaced the Clippers wall)
 
 ## Current phase
 
@@ -105,6 +105,15 @@ The user pasted a production-readiness checklist (keys, Postgres, S3/R2, Redis a
 - **Health and deploy:** `GET /api/health` (public, nothing about users) reports the database, storage, media tools and the queue (waiting, running, oldest wait) with 200 or 503. A database that can't be reached gives a 503 "can't reach its database" everywhere. `web/Dockerfile` (one image for both roles: Node 24 slim, tini, a non-root user, migrations on start, a health check) and `web/compose.yaml` (Postgres 18, MinIO and its bucket, a web server that only queues, a worker; `--scale worker=N`).
 - **Decision: a Postgres queue instead of Redis and BullMQ.** Same guarantees for this load (durable, leased, retried, prioritised, cancellable), one less service to run and back up, and a job is queued in the same transaction as the project change that asks for it, so neither can exist without the other. `queue.ts` is small, so it can be swapped if volume ever needs it. Redis and Docker weren't available on this machine either.
 
+### Free trial: 8 minutes (2026-10-07)
+
+The user asked for the free first video to be 8 AI minutes, down from 30. It is one number, `FREE_TRIAL.minutes` in `plans.ts`, and everything reads it: the gates (`trial` in billing.ts), the cap on a followed stream's recording (8 minutes, plus the minute of grace), and the words on the landing page, pricing, the import page, Plan & billing and the terms.
+
+- A link longer than 8 minutes isn't a dead end: the import page says how long it is, how much of the trial is left, and offers "Import a part of it".
+- Accounts that had already used 8 minutes or more of the old 30 now see "You’ve used your free video". Nothing they imported is taken away.
+
+Verified: the unit tests (the trial's gates and the follow cap, at the new number), the build, the e2e suite, and the plan tests with plans on (`E2E_BILLING=1`, a fake Stripe key): a new account sees 8 free minutes, uses 1 on the sample, and is asked for a plan once they're gone.
+
 ### Clipping campaigns replace the Clippers wall (2026-10-06, evening)
 
 The wall (next entry) wasn't what the user meant: "clippers" is a **clipping campaign**. Their choices: creators post and clippers join; only the owner and admins create campaigns for now; payouts happen outside Bamio and are tracked in it; the wall goes. The wall had no entries in production, so nothing was lost.
@@ -163,7 +172,7 @@ The user pasted a review listing what Bamio needs before real users, and picked 
 
 - **Account deletion.** Clerk's own Delete account was switched on in production, so a user could delete their Clerk account while their projects, media and Stripe subscription stayed (and kept charging). Now: Profile → Delete account (tick, confirm) → `DELETE /api/account` records the request in `account_deletions` (migration 0007) and deletes the Clerk user at once; a sweeper in the workers (`accounts.ts`, like the mailer) ends the Stripe subscriptions (no refund) and deletes the customer, stops the jobs, removes the media and every row, then the Clerk user, retrying with backoff. Clerk's webhook (`/api/clerk/webhook`, `user.deleted`, Svix-signed) covers deletions in Clerk's dashboard. Clerk's own button is hidden. The e2e test found that `closeBilling` refused to run with plans off (test servers): it now does nothing then, like every Stripe call.
 - **Legal pages.** `/terms`, `/privacy`, `/takedown`, drafted from what the code actually does (providers: DigitalOcean in the US, Cloudflare, Clerk, Stripe, Google Gemini with transcript text only, Resend, Sentry; retention: emails 180 days, backups 14; the referral cookie; deletion). Company details in `src/lib/legal.ts`; with `ready: false` the pages are `noindex`, out of the footer, sitemap and FAQ. To publish: fill in the details, set `ready: true`, have a lawyer read them.
-- **Free first video.** For accounts that never had a plan: 30 minutes of video over the account's life (`FREE_TRIAL`), every feature, one project at a time; then `trial_used`. Ex-subscribers don't get it. Shown on the import page ("Your first video is free"), Plan & billing ("Your free trial: N of 30 minutes left"), Pricing (lede and FAQ) and the landing FAQ. Terms say it's once per person.
+- **Free first video.** For accounts that never had a plan: 30 minutes of video (8 since 2026-10-07) over the account's life (`FREE_TRIAL`), every feature, one project at a time; then `trial_used`. Ex-subscribers don't get it. Shown on the import page ("Your first video is free"), Plan & billing ("Your free trial: N of 30 minutes left"), Pricing (lede and FAQ) and the landing FAQ. Terms say it's once per person.
 - **Pricing.** 41 coming-soon lines down to 5: Pro shows 4K export, silence and filler-word removal, AI face tracking and custom caption styling (the planned order), Team shows team members. Starter lists only what's built, and now says so: three formats with drag-to-reframe, captions in over 100 languages, live stream capture.
 - **Monitoring.** Sentry (`@sentry/node` on the server and workers, `@sentry/nextjs` in browsers, loaded only with a DSN; no cookies, headers, bodies or tracing): unexpected route errors, Next's own, jobs that fail for a reason that isn't the user's, account deletions. In production every console line is JSON with the request id (Cloudflare's ray, returned as `x-request-id`) or the job. Alerts: every 5 minutes a worker emails the superadmins (`ops-alert`, once an hour per problem) about 3+ failed jobs in an hour, a job waiting 15+ minutes, or a deletion failing 3 times.
 - **CI and uptime.** `.github/workflows/ci.yml`: check (with Postgres), build, worker bundle, Docker image, and e2e on Chromium (needs `CLERK_SECRET_KEY` / `CLERK_PUBLISHABLE_KEY` secrets: skipped without). `uptime.yml`: `/api/health` every 10 minutes.

@@ -320,24 +320,25 @@ describe("plan limits", () => {
     process.env.STRIPE_SECRET_KEY = "sk_test_unit";
     const fresh = "user_trial";
     await db()`delete from usage_entries where user_id = ${fresh}`;
-    // Up to 30 minutes of video, with AI on it, one project at a time.
-    await expect(assertCanProcess(fresh, { sec: 25 * 60, source: "link" })).resolves.toBeUndefined();
+    // Up to 8 minutes of video, with AI on it, one project at a time.
+    await expect(assertCanProcess(fresh, { sec: 7 * 60, source: "link" })).resolves.toBeUndefined();
+    await expect(assertCanProcess(fresh, { sec: 25 * 60, source: "link" })).rejects.toMatchObject({ status: 402, code: "minutes_short", message: expect.stringContaining("Import a part of it") });
     await expect(assertCanProcess(fresh, { sec: 45 * 60, source: "upload" })).rejects.toMatchObject({
       status: 402,
       code: "minutes_short",
-      message: expect.stringContaining("your free trial has 30 minutes left. Upload a shorter video"),
+      message: expect.stringContaining("your free trial has 8 minutes left. Upload a shorter video"),
     });
     await expect(assertPlan(fresh)).resolves.toBeUndefined();
-    expect(await secondsLeft(fresh)).toBe(30 * 60);
+    expect(await secondsLeft(fresh)).toBe(8 * 60);
     expect(await projectLimit(fresh)).toBe(1);
     expect(await queuePriority(fresh)).toBe(0);
-    expect(await billingState(fresh)).toMatchObject({ enabled: true, active: false, plan: null, usage: null, trial: { usedSec: 0, allowanceSec: 1800 }, projects: { limit: 1 } });
+    expect(await billingState(fresh)).toMatchObject({ enabled: true, active: false, plan: null, usage: null, trial: { usedSec: 0, allowanceSec: 480 }, projects: { limit: 1 } });
     // Its minutes count over the account's whole life, and once used they're gone.
-    await recordUsage(fresh, "p1", 28 * 60);
+    await recordUsage(fresh, "p1", 6 * 60);
     expect(await secondsLeft(fresh)).toBe(2 * 60);
     await recordUsage(fresh, "p2", 2 * 60);
     await expect(assertCanProcess(fresh)).rejects.toMatchObject({ status: 402, code: "trial_used" });
-    expect((await billingState(fresh)).trial).toEqual({ usedSec: 1800, allowanceSec: 1800 });
+    expect((await billingState(fresh)).trial).toEqual({ usedSec: 480, allowanceSec: 480 });
     // An account that had a plan doesn't get a trial when it ends: its plan is shown, and doesn't work.
     await givePlan("user_ended", "pro", { status: "canceled" });
     await expect(assertCanProcess("user_ended")).rejects.toMatchObject({ code: "plan_required" });

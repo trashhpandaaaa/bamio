@@ -552,7 +552,7 @@ async function followProject(userId: string, projectId: string, signal: AbortSig
     await clearLive(userId, projectId);
     await mkdir(work.dir, { recursive: true });
     await job.set("recording", 0, "Connecting to the stream");
-    // No more of the stream than the AI minutes left (the free trial's 30): the recording is
+    // No more of the stream than the AI minutes left (the free trial's 8): the recording is
     // capped, since the minutes are counted only as the captions catch up.
     const limit = followLimits(await secondsLeft(userId), follow.backSec);
     capture = followLive(project.source, dir, { backSec: limit.backSec, signal, stopSignal: stop.signal }).then(
