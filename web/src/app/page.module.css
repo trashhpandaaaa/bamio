@@ -65,6 +65,8 @@
 .feature { display: grid; gap: 10px; align-content: start; }
 .feature > :first-child { margin-bottom: 10px; }
 .feature p { margin: 0; max-width: 48ch; font: var(--t-body); color: var(--text-secondary); }
+/* The link to the page that says more: its own line, tall enough to tap. */
+.featureLink { justify-self: start; display: inline-flex; align-items: center; min-height: var(--s-6); font: var(--t-label); }
 
 /* FAQ: the question list beside the heading. */
 .faq { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 32px 48px; align-items: start; }

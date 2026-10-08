@@ -1,12 +1,9 @@
 import type { Metadata } from "next";
 import { CaptionStudio } from "@/components/landing/caption-studio";
 import { UseCasePage, type UseCase } from "@/components/site/use-case";
-import { pageMetadata } from "@/lib/site";
+import { metadataForUseCase } from "@/lib/site";
 
-const title = "Podcast clips: turn video podcast episodes into shorts with AI";
-const description = "Turn video podcast episodes into vertical clips: Bamio finds the best moments, keeps the speaker in frame and captions every word, in 100+ languages.";
-
-export const metadata: Metadata = pageMetadata({ title, description, path: "/podcast-clips", absoluteTitle: true });
+export const metadata: Metadata = metadataForUseCase("/podcast-clips");
 
 const page: UseCase = {
   path: "/podcast-clips",
@@ -49,7 +46,7 @@ const page: UseCase = {
     { q: "Can I pick the moments myself?", a: "Yes. Mark a start and an end with I and O, or type the times, and the clip gets the same captions and framing as the AI's picks." },
     {
       q: "Which languages work?",
-      a: "Over 100, detected for you. English and 24 European languages get punctuation and capitals; in others the captions are lowercase, and you can fix any word in the editor.",
+      a: "Over 100, detected for you. English and 23 European languages get punctuation and capitals; in others the captions are lowercase, and you can fix any word in the editor.",
     },
     { q: "Who can I clip?", a: "Your own shows, or ones you have permission to use. Check with your guests and co-hosts before you post." },
   ],

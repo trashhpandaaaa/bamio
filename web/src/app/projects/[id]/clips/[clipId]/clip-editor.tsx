@@ -630,7 +630,9 @@ function TranscriptStatus({ project, clipEnd, onRetranscribe }: { project: Proje
       <span>
         {reason === "timing"
           ? "These captions come from an earlier transcript whose timing can be off. Transcribe again on this device for word-accurate captions"
-          : `Transcription now tells ${language} and English apart: English comes out as English, ${language} in its own script. Transcribe again for better captions`}{" "}
+          : reason === "spelling"
+            ? `${language} words ending in ς were written without it. Transcribe again for captions with every letter`
+            : `Transcription now tells ${language} and English apart: English comes out as English, ${language} in its own script. Transcribe again for better captions`}{" "}
         (caption word fixes will be replaced).
       </span>
       <button className="btn btn-secondary btn-sm" type="button" onClick={onRetranscribe} disabled={isJobActive(project.job.status)}>

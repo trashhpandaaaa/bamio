@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { AiMark } from "@/components/brand";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { LanguageDialog } from "@/components/language-dialog";
 import { JobSteps } from "@/components/job-steps";
 import { PlatformIcon } from "@/components/platform-icon";
 import { useToast } from "@/components/toast";
@@ -16,7 +17,7 @@ import { clipRangeError, formatTimecode, parseTimecode, sortClips } from "@/lib/
 import { languageName } from "@/lib/clips/languages";
 import { formatSpan } from "@/lib/clips/live";
 import { CLIP_LENGTHS, isFollowing, isJobActive, LIMITS, retranscribeReason, type Clip, type ClipLength, type Project } from "@/lib/clips/schema";
-import { PLATFORM_LABEL } from "@/lib/clips/url";
+import { sourceLabel } from "@/lib/clips/url";
 import { ClipCard } from "./clip-card";
 import { SourcePlayer, type PlayerHandle } from "./source-player";
 import styles from "./project.module.css";
@@ -112,8 +113,19 @@ function ProjectHeader({ project, setProject, onDelete }: { project: Project; se
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(project.title);
   const [saving, setSaving] = useState(false);
+  const [pickingLanguage, setPickingLanguage] = useState(false);
   const inputId = useId();
   const src = project.source;
+  // The language can be changed (and the video transcribed again) once it's ready and not growing.
+  const canChangeLanguage = project.hasTranscript && src.hasAudio && project.job.status === "ready" && !isFollowing(project);
+
+  async function changeLanguage(language: string) {
+    try {
+      setProject(await api.retranscribe(project.id, language));
+    } catch (err) {
+      toast({ tone: "error", title: "Couldn’t start transcribing", body: err instanceof Error ? err.message : undefined });
+    }
+  }
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -179,11 +191,19 @@ function ProjectHeader({ project, setProject, onDelete }: { project: Project; se
       </div>
       <p className="card-meta">
         <span className="badge">
-          <PlatformIcon platform={src.platform} size={14} /> {PLATFORM_LABEL[src.platform]}
+          <PlatformIcon platform={src.platform} size={14} /> {sourceLabel(src.platform, src.url)}
         </span>
         {src.uploader ? <span>{src.uploader}</span> : null}
         {src.durationSec > 0 ? <span className="t-mono">{formatTimecode(src.durationSec)}</span> : null}
-        {project.spokenLanguage ? <span>{languageName(project.spokenLanguage)}</span> : null}
+        {project.spokenLanguage ? (
+          canChangeLanguage ? (
+            <button className={`link ${styles.language}`} type="button" aria-label={`Spoken language: ${languageName(project.spokenLanguage)}. Change it`} onClick={() => setPickingLanguage(true)}>
+              {languageName(project.spokenLanguage)} <PencilSimple size={12} aria-hidden />
+            </button>
+          ) : (
+            <span>{languageName(project.spokenLanguage)}</span>
+          )
+        ) : null}
         {src.range ? (
           <span>
             Part {formatTimecode(src.range.start)} to {formatTimecode(src.range.end)}
@@ -201,6 +221,12 @@ function ProjectHeader({ project, setProject, onDelete }: { project: Project; se
           </a>
         ) : null}
       </p>
+      <LanguageDialog
+        open={pickingLanguage}
+        current={project.spokenLanguage ?? "auto"}
+        onConfirm={(language) => void changeLanguage(language)}
+        onClose={() => setPickingLanguage(false)}
+      />
     </header>
   );
 }
@@ -503,6 +529,11 @@ function Workspace({ project, setProject }: { project: Project; setProject: (p: 
                 <p>
                   <strong>Transcribe this video again for accurate timing</strong>
                   It was transcribed before on-device transcription, so caption timing and AI clip edges can be off, especially in long videos.
+                </p>
+              ) : retranscribeReason(project) === "spelling" ? (
+                <p>
+                  <strong>Transcribe this video again for better captions</strong>
+                  {languageName(project.spokenLanguage)} words ending in ς were written without it. Transcription now writes every letter. Caption word fixes will be replaced.
                 </p>
               ) : (
                 <p>

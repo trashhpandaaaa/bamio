@@ -1,5 +1,5 @@
 /*
- * Spoken languages. Every language is transcribed on the device: English and 24 European
+ * Spoken languages. Every language is transcribed on the device: English and 23 European
  * languages by NVIDIA Parakeet (with punctuation and capitals), everything else by Meta's
  * Omnilingual ASR (1,600+ languages, lowercase without punctuation). "auto" detects the
  * language from the speech (Whisper). The list below is what the pickers offer; a language
@@ -48,9 +48,9 @@ export function languageName(code: string | undefined): string {
 /** "auto" for automatic detection (older projects saved "other" for that). */
 export const isAutoLanguage = (code: string | undefined) => !code || code === AUTO_LANGUAGE || code === "other";
 
-/** What Parakeet transcribes: English and 24 European languages (keep in sync with EUROPEAN in workers/transcribe-core.mjs). */
+/** What Parakeet transcribes: English and 23 European languages (keep in sync with EUROPEAN in workers/transcribe-core.mjs). */
 export const PARAKEET_LANGUAGES = new Set(
-  ["en", "bg", "hr", "cs", "da", "nl", "et", "fi", "fr", "de", "el", "hu", "it", "lv", "lt", "mt", "pl", "pt", "ro", "sk", "sl", "es", "sv", "ru", "uk"],
+  ["en", "bg", "hr", "cs", "da", "nl", "et", "fi", "fr", "de", "hu", "it", "lv", "lt", "mt", "pl", "pt", "ro", "sk", "sl", "es", "sv", "ru", "uk"],
 );
 
 /** True when Meta's multilingual model transcribes the language (everything Parakeet doesn't). */

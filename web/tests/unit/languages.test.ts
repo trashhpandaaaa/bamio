@@ -1,17 +1,23 @@
 import { describe, expect, it } from "vitest";
 import {
+  asSentence,
   engineFor,
   engineForWindows,
   EUROPEAN,
+  englishLook,
   englishSpans,
+  englishStretches,
   indicScriptFixer,
   languageForScript,
+  looksEnglish,
   mainScript,
+  preferOtherReading,
   romanize,
   scriptOf,
   scriptOfLanguage,
   scriptShare,
   splitIntoWords,
+  splitLongSpeech,
   tidyIndic,
   tokensToWords,
   wordAgreement,
@@ -74,6 +80,9 @@ describe("words in any language", () => {
       "omni",
       "omni",
     ]);
+    // Greek is one of the European model's languages, but it can't write a final sigma.
+    expect(engineFor("el")).toBe("omni");
+    expect(EUROPEAN.size).toBe(23);
   });
 
   it("keeps the main script when detection names a language of another (Nepali heard as Malayalam)", () => {
@@ -105,6 +114,7 @@ describe("words in any language", () => {
     // Portuguese with a Galician guess stays on the European model, which also knows English.
     expect(engineForWindows([w("pt"), w("pt"), w("gl"), w("en"), w("pt")])).toEqual({ engine: "european", language: "pt" });
     expect(engineForWindows([w("ml"), w("ml"), w("hi")])).toEqual({ engine: "omni", language: "ml" });
+    expect(engineForWindows([w("el"), w("el"), w("el"), w("en")])).toEqual({ engine: "omni", language: "el" });
   });
 
   it("finds the script of a transcript and of a language", () => {
@@ -119,6 +129,9 @@ describe("words in any language", () => {
     expect(mainScript(["hello there my friend how are you doing today", "न"])).toBe("Latin");
     expect(mainScript(["", " "])).toBeNull();
     expect([scriptOfLanguage("ne"), scriptOfLanguage("ur"), scriptOfLanguage("ja"), scriptOfLanguage("sw")]).toEqual(["Devanagari", "Arabic", "Han", null]);
+    expect([scriptOfLanguage("el"), scriptOfLanguage("ru"), scriptOfLanguage("sr")]).toEqual(["Greek", "Cyrillic", "Cyrillic"]);
+    // Serbian and Uzbek are written in Latin letters too: a transcript in them is in its own script.
+    expect([scriptOfLanguage("sr", "Latin"), scriptOfLanguage("uz", "Latin"), scriptOfLanguage("ru", "Latin")]).toEqual(["Latin", "Latin", "Cyrillic"]);
   });
 
   it("names the language from the transcript's common words when detection disagrees", () => {
@@ -131,6 +144,61 @@ describe("words in any language", () => {
     // Another script with no common words known: its main language.
     expect(languageForScript("ta", "Devanagari", ["क ख"])).toBe("hi");
     expect(languageForScript("sw", "Latin", ["habari yako"])).toBe("sw");
+    // Serbian in Cyrillic is Serbian (it was once named Belarusian, the first Cyrillic language in the list), in Latin letters too.
+    expect(languageForScript("sr", "Cyrillic", ["а у ком моменту се ту нашла"])).toBe("sr");
+    expect(languageForScript("sr", "Latin", ["a u kom momentu se tu našla"])).toBe("sr");
+    expect(languageForScript("mn", "Cyrillic", ["сайн байна уу"])).toBe("mn");
+    // A Cyrillic transcript of a language that isn't written in Cyrillic: most likely Russian.
+    expect(languageForScript("cy", "Cyrillic", ["привет как дела"])).toBe("ru");
+  });
+
+  it("cuts a stretch of speech with no pause at its quietest moments", () => {
+    const rate = 1000;
+    // 53 s of sound with a quiet fifth of a second at 16.4 s and at 36.1 s.
+    const sound = Float32Array.from({ length: 53 * rate }, (_, i) => (i % 2 ? 0.5 : -0.5));
+    for (const at of [16.4, 36.1]) sound.fill(0.001, at * rate, (at + 0.2) * rate);
+    const pieces = splitLongSpeech(sound, 20 * rate, rate);
+    expect(pieces.map((p) => Math.round((p.start / rate) * 10) / 10)).toEqual([0, 16.5, 36.2]);
+    expect(pieces.reduce((n, p) => n + p.length, 0)).toBe(sound.length);
+    expect(Math.max(...pieces.map((p) => p.length))).toBeLessThanOrEqual(20 * rate);
+    // Even sound has no better place than another: about equal pieces, none tiny.
+    const even = splitLongSpeech(new Float32Array(41 * rate).fill(0.3), 20 * rate, rate);
+    expect(even.map((p) => Math.round(p.length / rate))).toEqual([14, 14, 14]);
+    expect(splitLongSpeech(new Float32Array(20 * rate), 20 * rate, rate)).toEqual([{ start: 0, length: 20 * rate }]);
+    expect(splitLongSpeech(new Float32Array(0), 20 * rate, rate)).toEqual([{ start: 0, length: 0 }]);
+  });
+
+  it("finds where the European model wrote another language as English, sentence by sentence", () => {
+    expect(englishLook("What is your city favorite in Madrid?")).toMatchObject({ words: 7, hits: 2 });
+    expect(looksEnglish("What is your city favorite in Madrid?")).toBe(true);
+    expect(looksEnglish("¿Cuál es tu sitio favorito en Madrid?")).toBe(false);
+    // Words Dutch, German and Danish share with English don't count.
+    expect(looksEnglish("Dat is in het water, want we hebben was")).toBe(false);
+    expect(looksEnglish("Le but de la soirée")).toBe(false);
+
+    const words = (text: string) => text.split(" ").map((t) => ({ text: t }));
+    const stretch = (text: string) => englishStretches(words(text)).map((r) => words(text).slice(r.from, r.to).map((w) => w.text).join(" "));
+    expect(stretch("Y'a trois ans. And it's been? It's super cool. And it's comment? Voilà. Ouais.")).toEqual(["And it's been? It's super cool. And it's comment?"]);
+    expect(stretch("Pareil, c'est l'Italie. And we're for des vacances or autre chose?")).toEqual(["And we're for des vacances or autre chose?"]);
+    expect(stretch("Venimos por eso. La gente de Madrid.")).toEqual([]);
+    expect(englishStretches([])).toEqual([]);
+  });
+
+  it("takes the second reading only where the first was broken English and the second isn't English", () => {
+    expect(preferOtherReading("What is your city favorite in Madrid?", "cuál es tu sitio favorito en madrid")).toBe(true);
+    expect(preferOtherReading("And we're for des vacances or autre chose?", "et vous y êtes allé pour des vacances ou autre chose")).toBe(true);
+    // English there too: the speech is English.
+    expect(preferOtherReading("So what do you think about this one?", "so what do you think about this one")).toBe(false);
+    // The same words but for an English phrase the speaker used: the first reading stays.
+    expect(preferOtherReading("Dat was echt zo'n what the hell moment.", "dat was echt zo'n wat de hel moment")).toBe(false);
+    // Hardly anything heard: not a reading to trust.
+    expect(preferOtherReading("What is your city favorite in Madrid?", "uiáiciam")).toBe(false);
+
+    const said = asSentence([{ text: "cuál" }, { text: "es" }, { text: "tu" }, { text: "sitio" }], "es");
+    expect(said.map((w) => w.text).join(" ")).toBe("Cuál es tu sitio.");
+    expect(asSentence([{ text: "istanbul'da" }], "tr")[0]!.text).toBe("İstanbul'da.");
+    expect(asSentence([{ text: "¿qué?" }], "es")[0]!.text).toBe("¿qué?");
+    expect(asSentence([], "es")).toEqual([]);
   });
 
   it("finds where the English model agrees, English runs among other words, and mixed-script spellings", () => {
@@ -160,6 +228,10 @@ describe("words in any language", () => {
     expect(retranscribeReason(project({ spokenLanguage: "de" }))).toBeNull();
     expect(retranscribeReason(project({ transcriptEngine: "gemini", transcriber: TRANSCRIBER_VERSION }))).toBe("timing");
     expect(retranscribeReason(project({ hasTranscript: false }))).toBeNull();
+    // Greek made by the European model lost every final sigma.
+    expect(retranscribeReason(project({ spokenLanguage: "el", transcriber: 2 }))).toBe("spelling");
+    expect(retranscribeReason(project({ spokenLanguage: "el", transcriber: TRANSCRIBER_VERSION }))).toBeNull();
+    expect(retranscribeReason(project({ spokenLanguage: "ne", transcriber: 2 }))).toBeNull();
     // The app and the worker agree on what Parakeet transcribes.
     expect([...PARAKEET_LANGUAGES].sort()).toEqual(["en", ...EUROPEAN].sort());
     expect([usesMultilingualModel("ne"), usesMultilingualModel("en-GB"), usesMultilingualModel("auto")]).toEqual([true, false, false]);

@@ -60,7 +60,7 @@ COPY --chown=bamio db ./db
 COPY --chown=bamio scripts ./scripts
 COPY --chown=bamio src/lib/server/caption-fonts.json ./src/lib/server/caption-fonts.json
 # yt-dlp into /app/.bin (re-run `node scripts/setup-media.mjs` in the container to update it).
-# The speech models (about 1.9 GB) go to the /data/models volume when a worker first starts.
+# The speech models (about 2.8 GB) go to the /data/models volume when a worker first starts.
 RUN BAMIO_PREFETCH=none node scripts/setup-media.mjs
 
 EXPOSE 3000

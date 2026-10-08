@@ -2,13 +2,9 @@ import type { Metadata } from "next";
 import { ClipFlow } from "@/components/landing/clip-flow";
 import { UseCasePage, type UseCase } from "@/components/site/use-case";
 import { formatPrice, PLANS } from "@/lib/billing/plans";
-import { pageMetadata } from "@/lib/site";
+import { metadataForUseCase } from "@/lib/site";
 
-const title = "YouTube to Shorts: turn long videos into Shorts with AI";
-const description =
-  "Paste a YouTube link and Bamio finds the moments that work as Shorts, frames them 9:16 and captions every word. Import only part of a long video. 1080p, no watermark.";
-
-export const metadata: Metadata = pageMetadata({ title, description, path: "/youtube-to-shorts", absoluteTitle: true });
+export const metadata: Metadata = metadataForUseCase("/youtube-to-shorts");
 
 const plans = `Plans start at ${formatPrice(PLANS.starter.price.month)} a month for ${PLANS.starter.minutes} minutes of video. Every plan exports 1080p with no watermark.`;
 

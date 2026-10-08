@@ -4,7 +4,7 @@ import { clipTarget, findHighlights, transcribeChunk, tidySegments } from "@/lib
 import { aiConfigured } from "@/lib/ai/server/gemini";
 import { buildAss } from "@/lib/clips/ass";
 import { captionLines, exportSignature, overlayTitle } from "@/lib/clips/logic";
-import { isFollowing, LIMITS, TRANSCRIBER_VERSION, type Clip, type ClipLength, type JobStatus, type Project, type Segment, type Transcript } from "@/lib/clips/schema";
+import { isFollowing, LIMITS, TRANSCRIBER_VERSION, type Clip, type ClipLength, type JobStatus, type Language, type Project, type Segment, type Transcript } from "@/lib/clips/schema";
 import { isAbortError } from "@/lib/server/bin";
 import { assertCanProcess, hasUsage, queuePriority, recordUsage, secondsLeft } from "@/lib/server/billing";
 import { assMarkup, ensureFont, fontsNeeded } from "@/lib/server/caption-fonts";
@@ -106,7 +106,7 @@ export async function startAnalysis(userId: string, projectId: string, clipLengt
  * languages before 2026-09-29), whose timing was approximate. Clips are kept; their
  * captions follow the new transcript.
  */
-export async function startRetranscribe(userId: string, projectId: string): Promise<Project> {
+export async function startRetranscribe(userId: string, projectId: string, language?: Language): Promise<Project> {
   const priority = await queuePriority(userId);
   return mutateProject(
     userId,
@@ -115,7 +115,8 @@ export async function startRetranscribe(userId: string, projectId: string): Prom
       if (p.job.status !== "ready" || !isPrepared(p)) throw new HttpError(409, "not_ready", "Wait for the video to finish processing.");
       if (!p.source.hasAudio) throw new HttpError(409, "no_audio", "This video has no sound to transcribe.");
       if (isFollowing(p)) throw new HttpError(409, "following", "The stream is still being followed. Its captions are made as it goes.");
-      return { ...p, job: { status: "queued", progress: 0, message: "Waiting to start", updatedAt: Date.now(), stages: ["transcribing"] } };
+      // A language picked now replaces the one the import asked for: the job transcribes in the project's language.
+      return { ...p, language: language ?? p.language, job: { status: "queued", progress: 0, message: "Waiting to start", updatedAt: Date.now(), stages: ["transcribing"] } };
     },
     { then: (tx) => enqueue({ kind: "retranscribe", userId, projectId, priority, maxAttempts: 2 }, tx) },
   );

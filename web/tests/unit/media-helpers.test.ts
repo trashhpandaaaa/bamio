@@ -3,7 +3,7 @@ import { assTime, buildAss, CAPTION_FONT, escapeAssText } from "@/lib/clips/ass"
 import { captionLines } from "@/lib/clips/logic";
 import { parseFfmpegProgress, parseYtdlpProgress } from "@/lib/clips/progress";
 import { renderArgs, renderFilter } from "@/lib/clips/render";
-import { detectPlatform, isPrivateAddress, parseVideoUrl } from "@/lib/clips/url";
+import { detectPlatform, isPrivateAddress, parseVideoUrl, playerUrl, sourceLabel } from "@/lib/clips/url";
 import { parseRange } from "@/lib/server/files";
 import { explainYtdlpError } from "@/lib/server/media";
 
@@ -53,12 +53,44 @@ describe("links", () => {
     expect(detectPlatform(new URL("https://vimeo.com/1"))).toBe("other");
   });
 
+  it("names other well-known sites, and calls the rest the web", () => {
+    expect(sourceLabel("youtube", "https://youtu.be/abc")).toBe("YouTube");
+    expect(sourceLabel("upload")).toBe("Upload");
+    expect(sourceLabel("other", "https://player.vimeo.com/video/76979871")).toBe("Vimeo");
+    expect(sourceLabel("other", "https://www.tiktok.com/@a/video/1")).toBe("TikTok");
+    expect(sourceLabel("other", "https://twitter.com/a/status/1")).toBe("X");
+    expect(sourceLabel("other", "https://notvimeo.com/1")).toBe("Web");
+    expect(sourceLabel("other", "https://example.com/clip.mp4")).toBe("Web");
+    expect(sourceLabel("other", "not a link")).toBe("Web");
+    expect(sourceLabel("other")).toBe("Web");
+  });
+
+  it("finds the player address of a Vimeo video, which a server can read when it can't read the page", () => {
+    const player = (link: string) => playerUrl(new URL(link))?.href ?? null;
+    expect(player("https://vimeo.com/76979871")).toBe("https://player.vimeo.com/video/76979871");
+    expect(player("https://www.vimeo.com/76979871/")).toBe("https://player.vimeo.com/video/76979871");
+    expect(player("https://vimeo.com/channels/staffpicks/76979871")).toBe("https://player.vimeo.com/video/76979871");
+    // An unlisted video's key goes along.
+    expect(player("https://vimeo.com/76979871/0a1b2c3d4e")).toBe("https://player.vimeo.com/video/76979871?h=0a1b2c3d4e");
+    expect(player("https://vimeo.com/76979871?h=0a1b2c3d4e")).toBe("https://player.vimeo.com/video/76979871?h=0a1b2c3d4e");
+    expect(player("https://vimeo.com/76979871?h=%22%3E")).toBe("https://player.vimeo.com/video/76979871");
+    // Not a video's page, or not Vimeo.
+    expect(player("https://vimeo.com/staffpicks")).toBeNull();
+    expect(player("https://player.vimeo.com/video/76979871")).toBeNull();
+    expect(player("https://www.youtube.com/watch?v=76979871")).toBeNull();
+  });
+
   it("turns yt-dlp errors into plain advice", () => {
     expect(explainYtdlpError("ERROR: Unsupported URL: https://x")).toMatch(/can’t read videos from that page/);
     expect(explainYtdlpError("Sign in to confirm you’re not a bot")).toMatch(/isn’t a bot/);
     expect(explainYtdlpError("ERROR: [youtube] x: Private video")).toMatch(/private/);
     expect(explainYtdlpError("ERROR: Video unavailable")).toMatch(/isn’t available/);
     expect(explainYtdlpError("something odd")).toMatch(/couldn’t read that link/);
+    expect(explainYtdlpError("ERROR: [vimeo] 76979871: The web client only works when logged-in.")).toMatch(/needs a sign-in/);
+    expect(explainYtdlpError("ERROR: [Rumble] v4: Unable to download webpage: HTTP Error 403: Forbidden")).toMatch(/upload the file instead/);
+    expect(explainYtdlpError("ERROR: [spotify] The requested site is known to use DRM protection")).toMatch(/copy-protected/);
+    // Numbers and letters inside a video's id aren't the error.
+    expect(explainYtdlpError("ERROR: [youtube] a403drmXq: something odd")).toMatch(/couldn’t read that link/);
   });
 });
 

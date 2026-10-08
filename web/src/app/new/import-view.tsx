@@ -17,7 +17,7 @@ import { ASPECT_LABEL, CAPTION_STYLE_LABEL, CLIP_LENGTH_LABEL, formatBytes } fro
 import { formatSpan, liveCaptureProblem, RECORD_CHOICES, REWIND_CHOICES } from "@/lib/clips/live";
 import { formatTimecode, parseTimecode } from "@/lib/clips/logic";
 import { ASPECTS, CAPTION_STYLES, CLIP_LENGTHS, LIMITS, type InspectResult } from "@/lib/clips/schema";
-import { parseVideoUrl, PLATFORM_LABEL } from "@/lib/clips/url";
+import { parseVideoUrl, sourceLabel } from "@/lib/clips/url";
 import { FALLBACK_DEFAULTS, readClipDefaults, type ClipDefaults } from "@/lib/profile/defaults";
 import styles from "./import.module.css";
 
@@ -394,7 +394,7 @@ function ImportForm({ defaults, initialUrl, initialMode, returnedCard }: { defau
                     <p className={styles.previewTitle}>{info.title}</p>
                     <p className="card-meta">
                       <span className="badge">
-                        <PlatformIcon platform={info.platform} size={14} /> {PLATFORM_LABEL[info.platform]}
+                        <PlatformIcon platform={info.platform} size={14} /> {sourceLabel(info.platform, info.url)}
                       </span>
                       {info.uploader ? <span>{info.uploader}</span> : null}
                       {info.live && info.durationSec > 0 ? <span>Streaming for {formatSpan(info.durationSec)}</span> : null}

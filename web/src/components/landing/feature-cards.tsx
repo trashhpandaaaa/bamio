@@ -26,21 +26,23 @@ const SAMPLES = [
   { lang: "en", words: ["Let’s", "start", "today’s", "video."] },
 ];
 
-export function LanguageCard() {
+/** `lead`: a language to show first and stay on (a language's own captions page), ahead of the usual ones. */
+export function LanguageCard({ lead }: { lead?: { lang: string; words: string[] } }) {
   const id = useId();
   const root = useRef<HTMLDivElement>(null);
   const reduce = useReducedMotion();
   const visible = useInView(root, { threshold: 0.3 });
+  const samples = lead ? [lead, ...SAMPLES.filter((s) => s.lang !== lead.lang).slice(0, SAMPLES.length - 1)] : SAMPLES;
   const [index, setIndex] = useState(0);
   // Cycles through the languages until the visitor picks one or pauses.
-  const [auto, setAuto] = useState(true);
+  const [auto, setAuto] = useState(!lead);
   const cycling = auto && !reduce && visible;
 
   useEffect(() => {
     if (!cycling) return;
-    const timer = setInterval(() => setIndex((i) => (i + 1) % SAMPLES.length), 2600);
+    const timer = setInterval(() => setIndex((i) => (i + 1) % samples.length), 2600);
     return () => clearInterval(timer);
-  }, [cycling]);
+  }, [cycling, samples.length]);
 
   return (
     <div ref={root} className={`studio ${styles.media}`}>
@@ -49,7 +51,7 @@ export function LanguageCard() {
           <span id={`${id}-label`} className="sr-only">
             Show captions in
           </span>
-          {SAMPLES.map((s, i) => (
+          {samples.map((s, i) => (
             <button
               key={s.lang}
               type="button"
@@ -72,7 +74,7 @@ export function LanguageCard() {
       </div>
       <div className={styles.phones}>
         {([-1, 0, 1] as const).map((offset) => {
-          const s = SAMPLES[(index + offset + SAMPLES.length) % SAMPLES.length]!;
+          const s = samples[(index + offset + samples.length) % samples.length]!;
           const center = offset === 0;
           return (
             <div

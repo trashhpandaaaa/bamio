@@ -12,7 +12,7 @@ import { api, thumbUrl } from "@/lib/clips/api";
 import { formatAgo, JOB_LABEL } from "@/lib/clips/labels";
 import { formatTimecode } from "@/lib/clips/logic";
 import { isJobActive, type Project } from "@/lib/clips/schema";
-import { PLATFORM_LABEL } from "@/lib/clips/url";
+import { sourceLabel } from "@/lib/clips/url";
 import styles from "./projects.module.css";
 
 export function ProjectsView() {
@@ -142,7 +142,7 @@ function ProjectCard({ project, onDelete }: { project: Project; onDelete: () => 
           </span>
         )}
         <span>
-          <PlatformIcon platform={project.source.platform} size={13} style={{ verticalAlign: "-2px" }} /> {PLATFORM_LABEL[project.source.platform]}
+          <PlatformIcon platform={project.source.platform} size={13} style={{ verticalAlign: "-2px" }} /> {sourceLabel(project.source.platform, project.source.url)}
         </span>
         <span>{formatAgo(project.updatedAt)}</span>
       </p>

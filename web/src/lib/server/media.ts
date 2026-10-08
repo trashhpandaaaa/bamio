@@ -6,7 +6,7 @@ import { isIP } from "node:net";
 import path from "node:path";
 import { parseFfmpegProgress, parseYtdlpProgress } from "@/lib/clips/progress";
 import { renderArgs, type RenderPlan } from "@/lib/clips/render";
-import { detectPlatform, isPrivateAddress, parseVideoUrl } from "@/lib/clips/url";
+import { detectPlatform, isPrivateAddress, parseVideoUrl, playerUrl } from "@/lib/clips/url";
 import { LIMITS, type InspectResult } from "@/lib/clips/schema";
 import { binPath, isAbortError, ProcessError, run } from "@/lib/server/bin";
 import { downloadIndexedPart } from "@/lib/server/dash";
@@ -85,7 +85,16 @@ export function explainYtdlpError(stderr: string): string {
     );
     return "The site asked for a sign-in to prove this isn’t a bot. Try again later, or download the video and upload it.";
   }
-  if (s.includes("private video") || s.includes("members-only") || s.includes("subscriber") || s.includes("login") || s.includes("sign in")) {
+  if (/\bdrm\b/.test(s)) return "That video is copy-protected, so it can’t be downloaded.";
+  if (
+    s.includes("private video") ||
+    s.includes("members-only") ||
+    s.includes("subscriber") ||
+    s.includes("login") ||
+    s.includes("logged-in") ||
+    s.includes("log in") ||
+    s.includes("sign in")
+  ) {
     return "That video is private or needs a sign-in, so Bamio can’t download it.";
   }
   if (s.includes("confirm your age") || s.includes("age-restricted") || s.includes("inappropriate")) {
@@ -95,6 +104,9 @@ export function explainYtdlpError(stderr: string): string {
   if (s.includes("geo") && s.includes("restrict")) return "That video isn’t available in this server’s region.";
   if (s.includes("unavailable") || s.includes("removed") || s.includes("404") || s.includes("does not exist")) {
     return "That video isn’t available. Check the link opens in your browser.";
+  }
+  if (s.includes("error 403") || s.includes("forbidden") || s.includes("cloudflare")) {
+    return "That site turns away downloads from servers like Bamio’s. Download the video yourself and upload the file instead.";
   }
   if (s.includes("timed out") || s.includes("connection") || s.includes("network")) return "The site didn’t answer. Check your connection and try again.";
   return "Bamio couldn’t read that link. Check it opens in your browser, or upload the file instead.";
@@ -113,24 +125,50 @@ type YtdlpInfo = {
   webpage_url?: string;
   release_timestamp?: number;
   timestamp?: number;
+  /** The media file itself, when the video has one format (a direct link to a file). */
+  url?: string;
+  formats?: { url?: string }[];
 };
+
+/**
+ * How long the media at an address is, in seconds (NaN when ffprobe can't tell). For links
+ * straight to a file, whose length the site doesn't state: ffprobe reads it from the start
+ * of the file.
+ */
+async function remoteDuration(mediaUrl: string, signal?: AbortSignal): Promise<number> {
+  try {
+    const url = await checkPublicUrl(mediaUrl);
+    const { stdout } = await run("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", "-i", url.href], { signal, timeoutMs: 45_000, collectStdout: 4096 });
+    return Number(stdout.trim().split(/\s/)[0]);
+  } catch (err) {
+    if (isAbortError(err)) throw err;
+    return NaN;
+  }
+}
 
 /** Read a link's title, length and thumbnail without downloading it. */
 export async function inspectUrl(input: string, signal?: AbortSignal): Promise<InspectResult> {
   const url = await checkPublicUrl(input);
   requireYtdlp();
-  let stdout: string;
-  try {
-    ({ stdout } = await run("yt-dlp", [...ytdlpArgs(), "-J", "--skip-download", "--", url.href], {
-      signal,
-      timeoutMs: 60_000,
-      collectStdout: 30 * 1024 * 1024,
-    }));
-  } catch (err) {
-    if (isAbortError(err)) throw err;
-    const tail = err instanceof ProcessError ? err.stderrTail : "";
-    throw new HttpError(422, "unreadable", explainYtdlpError(tail));
+  const ask = (address: URL) => run("yt-dlp", [...ytdlpArgs(), "-J", "--skip-download", "--", address.href], { signal, timeoutMs: 60_000, collectStdout: 30 * 1024 * 1024 });
+  // The site's player first, where a server can read that and not the page (Vimeo): twice, since it now and
+  // then answers 401 to a request it takes a moment later; the page itself if that fails too.
+  const player = playerUrl(url);
+  const addresses = player ? [player, player, url] : [url];
+  let stdout: string | undefined;
+  let failure: unknown;
+  for (const [i, address] of addresses.entries()) {
+    try {
+      ({ stdout } = await ask(address));
+      break;
+    } catch (err) {
+      if (isAbortError(err)) throw err;
+      // The first answer says the most: the page's own, where there's a player, is "sign in" for every video.
+      failure ??= err;
+      if (i < addresses.length - 1) await new Promise((resolve) => setTimeout(resolve, 800));
+    }
   }
+  if (stdout === undefined) throw new HttpError(422, "unreadable", explainYtdlpError(failure instanceof ProcessError ? failure.stderrTail : ""));
   let info: YtdlpInfo;
   try {
     info = JSON.parse(stdout) as YtdlpInfo;
@@ -151,7 +189,12 @@ export async function inspectUrl(input: string, signal?: AbortSignal): Promise<I
     // A live stream's length is how long it has been running (if the site says).
     durationSec = startedAt ? Math.max(0, Date.now() / 1000 - startedAt) : 0;
   } else if (!Number.isFinite(durationSec) || durationSec <= 0) {
-    throw new HttpError(422, "no_duration", "Bamio couldn’t tell how long that video is, so it can’t be imported.");
+    // A link straight to a file: the site doesn't say how long it is, the file does.
+    const media = info.url ?? info.formats?.at(-1)?.url;
+    durationSec = media && /^https?:\/\//.test(media) ? await remoteDuration(media, signal) : NaN;
+    if (!Number.isFinite(durationSec) || durationSec <= 0) {
+      throw new HttpError(422, "no_duration", "Bamio couldn’t tell how long that video is, so it can’t be imported.");
+    }
   }
   const title = (info.title ?? info.fulltitle ?? "").trim() || "Untitled video";
   const thumb = info.thumbnail && /^https:\/\//.test(info.thumbnail) ? info.thumbnail : undefined;

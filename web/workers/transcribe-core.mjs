@@ -436,13 +436,25 @@ const STOPWORDS = {
 const LANGUAGE_SCRIPT = {
   ...INDIC_LANGUAGES,
   ...Object.fromEntries(["ar", "fa", "ur", "ps", "sd", "ug", "ckb"].map((l) => [l, "Arabic"])),
-  ...Object.fromEntries(["be", "mk", "kk", "ky", "mn", "tg", "tt", "ba"].map((l) => [l, "Cyrillic"])),
+  // Russian first: it names a Cyrillic transcript when nothing else does. Serbian and Uzbek are written in Latin letters too.
+  ...Object.fromEntries(["ru", "uk", "bg", "sr", "be", "mk", "kk", "ky", "mn", "tg", "tt", "ba", "uz"].map((l) => [l, "Cyrillic"])),
+  el: "Greek",
   zh: "Han", yue: "Han", ja: "Han", ko: "Hangul", th: "Thai", lo: "Lao", km: "Khmer", my: "Myanmar", bo: "Tibetan",
   ka: "Georgian", hy: "Armenian", am: "Ethiopic", ti: "Ethiopic", he: "Hebrew", yi: "Hebrew", si: "Sinhala",
 };
 
-/** The script a language is written in, if it's one of those above (else it's Latin or unknown). */
-export const scriptOfLanguage = (language) => LANGUAGE_SCRIPT[String(language ?? "").toLowerCase().split("-")[0]] ?? null;
+/** Languages written in Latin letters as well as the script above: whichever a transcript came out in is right. */
+const ALSO_LATIN = new Set(["sr", "uz"]);
+
+/**
+ * The script a language is written in, if it's one of those above (else it's Latin or unknown).
+ * `written`: the script its transcript came out in, which is right too for Serbian and Uzbek in Latin letters.
+ */
+export function scriptOfLanguage(language, written) {
+  const base = String(language ?? "").toLowerCase().split("-")[0];
+  if (written === "Latin" && ALSO_LATIN.has(base)) return "Latin";
+  return LANGUAGE_SCRIPT[base] ?? null;
+}
 
 /**
  * The spoken language to report for a detected one. Whisper tiny mixes up languages that
@@ -457,7 +469,7 @@ export const scriptOfLanguage = (language) => LANGUAGE_SCRIPT[String(language ??
  */
 export function languageForScript(detected, script, texts) {
   const table = STOPWORDS[script ?? ""];
-  const sameScript = LANGUAGE_SCRIPT[detected] === script;
+  const sameScript = scriptOfLanguage(detected, script) === script;
   if (!script || (!table && sameScript)) return detected;
   const words = texts.join(" ").split(/\s+/);
   const hits = Object.entries(table ?? {}).map(([lang, list]) => {
@@ -470,14 +482,176 @@ export function languageForScript(detected, script, texts) {
   return Object.entries(LANGUAGE_SCRIPT).find(([, s]) => s === script)?.[0] ?? detected;
 }
 
+/* ------------------------------ Long stretches ------------------------------ */
+
+/**
+ * Where to cut a stretch of speech that's longer than a model hears well at once. The VAD
+ * ends a part at a pause, and under music or a crowd it may find none: a street interview once
+ * came through as 53 s in one piece, of which the European model wrote a few words (in broken
+ * English) and the multilingual one nothing. Pieces of at most `max` samples, about equal, each
+ * cut at the quietest fifth of a second near where an even split would fall, so a cut lands
+ * between words where it can.
+ *
+ * @param {Float32Array} samples
+ * @param {number} max   longest piece, in samples
+ * @param {number} rate  samples a second
+ * @returns {{ start: number, length: number }[]}
+ */
+export function splitLongSpeech(samples, max, rate = 16000) {
+  const pieces = [];
+  const frame = Math.max(1, Math.round(rate * 0.02));
+  const span = 10; // frames judged together: 0.2 s
+  let start = 0;
+  while (samples.length - start > max) {
+    const left = samples.length - start;
+    const even = left / Math.ceil(left / max);
+    const from = start + Math.max(frame, Math.floor(even - max / 4));
+    const to = start + Math.min(max, Math.ceil(even + max / 4));
+    const energy = [];
+    for (let at = from; at + frame <= to; at += frame) {
+      let sum = 0;
+      for (let k = at; k < at + frame; k++) sum += samples[k] * samples[k];
+      energy.push(sum);
+    }
+    /** How loud the fifth of a second from each frame on is. */
+    const loud = [];
+    let sum = 0;
+    for (let i = 0; i < energy.length; i++) {
+      sum += energy[i];
+      if (i >= span) sum -= energy[i - span];
+      if (i >= span - 1) loud.push(sum);
+    }
+    // The quietest; among stretches about as quiet (steady music has many), the nearest to an even split.
+    const quietest = Math.min(...loud);
+    const middle = (i) => from + Math.round((i + span / 2) * frame);
+    let cut = to;
+    for (let i = 0; i < loud.length; i++) {
+      if (loud[i] <= quietest * 1.1 && (cut === to || Math.abs(middle(i) - start - even) < Math.abs(cut - start - even))) cut = middle(i);
+    }
+    pieces.push({ start, length: cut - start });
+    start = cut;
+  }
+  pieces.push({ start, length: samples.length - start });
+  return pieces;
+}
+
+/* ------------------------------ English where it shouldn't be ------------------------------ */
+
+/**
+ * English words that aren't common words of the other European languages the European model
+ * transcribes ("is", "in", "was", "have", "been", "want", "we", "to", "on" are left out: Dutch,
+ * German, Danish, Polish and French use them). Several of them in a stretch of, say, a Spanish
+ * video, and the model has slipped into English.
+ */
+const ENGLISH_ONLY = new Set(
+  (
+    "the and what your this that with they there because about would which their where when you are but more from were who how why these those could should " +
+    "it she not did does if our some any than them him very really going something people think know much many little never always " +
+    "i'm i've i'll don't we're we've you're that's there's they're he's she's it's isn't doesn't didn't can't won't wasn't weren't haven't what's let's"
+  ).split(" "),
+);
+
+/** A text's words, lowercase, without punctuation. */
+const plainWords = (text) => String(text ?? "").toLowerCase().replace(/’/g, "'").replace(/[^\p{L}\p{M}' ]/gu, " ").split(/\s+/).filter(Boolean);
+
+/** How English a stretch reads: its words, and how many of them are plainly English. */
+export function englishLook(text) {
+  const words = plainWords(text);
+  const hits = words.filter((w) => ENGLISH_ONLY.has(w)).length;
+  return { words: words.length, hits, share: words.length ? hits / words.length : 0 };
+}
+
+/**
+ * A stretch of a video in another European language that reads as English. The European model
+ * sometimes writes such speech as broken English ("What is your city favorite in Madrid?" for
+ * "¿Cuál es tu sitio favorito en Madrid?"): worth hearing again with the multilingual model.
+ */
+export function looksEnglish(text) {
+  return readsEnglish(englishLook(text));
+}
+
+const readsEnglish = (look) => look.hits >= 2 && look.share >= 0.12;
+
+/**
+ * The stretches of a part's words (as index ranges, `to` exclusive) that read as English,
+ * sentence by sentence, so the sentences the European model got right keep its reading. A
+ * sentence beside one that reads as English joins it when it has an English word of its own,
+ * or is a few words between two of them ("It's super cool." among broken English).
+ *
+ * @param {{ text: string }[]} words
+ * @returns {{ from: number, to: number }[]}
+ */
+export function englishStretches(words) {
+  const sentences = [];
+  let from = 0;
+  for (let i = 0; i < words.length; i++) {
+    if (i === words.length - 1 || /[.?!…]["'»”)]*$/u.test(words[i].text)) {
+      const look = englishLook(words.slice(from, i + 1).map((w) => w.text).join(" "));
+      sentences.push({ from, to: i + 1, look, english: readsEnglish(look) });
+      from = i + 1;
+    }
+  }
+  const joins = sentences.map((s, i) => {
+    if (s.english) return true;
+    const before = sentences[i - 1]?.english ?? false;
+    const after = sentences[i + 1]?.english ?? false;
+    return ((before || after) && s.look.hits >= 1) || (before && after && s.look.words <= 4);
+  });
+  const stretches = [];
+  for (const [i, s] of sentences.entries()) {
+    if (!joins[i]) continue;
+    const last = stretches.at(-1);
+    if (last && last.to === s.from) last.to = s.to;
+    else stretches.push({ from: s.from, to: s.to });
+  }
+  return stretches;
+}
+
+/**
+ * Whether the multilingual model's reading of such a stretch should replace the European
+ * model's: it heard words there, (almost) none of them English, and mostly other words than
+ * the European model wrote. When it hears English too, the speech is English; when the two
+ * agree on more than half the words, the European model only wrote an English phrase the speaker used
+ * ("dat was echt een what the hell moment"). Either way its reading, with its punctuation, stays.
+ */
+export function preferOtherReading(europeanText, otherText) {
+  const european = englishLook(europeanText);
+  const other = englishLook(otherText);
+  if (other.words < Math.max(2, european.words * 0.4) || other.share > Math.min(0.06, european.share / 3)) return false;
+  const heard = new Set(plainWords(otherText));
+  const written = plainWords(europeanText);
+  return written.filter((w) => heard.has(w)).length <= written.length / 2;
+}
+
+/**
+ * A sentence's first letter as a capital and a full stop at its end, for a reading that comes
+ * without either (in place, on `words`).
+ *
+ * @template {{ text: string }} W
+ * @param {W[]} words
+ * @param {string} [locale]
+ * @returns {W[]}
+ */
+export function asSentence(words, locale) {
+  if (words.length === 0) return words;
+  const first = words[0];
+  const [head = "", ...rest] = [...first.text];
+  first.text = head.toLocaleUpperCase(locale) + rest.join("");
+  const last = words[words.length - 1];
+  if (!/\p{P}$/u.test(last.text)) last.text += ".";
+  return words;
+}
+
 /* ------------------------------ Engines ------------------------------ */
 
 /**
- * The 24 languages besides English that NVIDIA Parakeet TDT 0.6B v3 transcribes (with
+ * The 23 languages besides English that NVIDIA Parakeet TDT 0.6B v3 transcribes here (with
  * punctuation and capitals). English has its own model; everything else goes to Meta's
- * Omnilingual ASR, which covers 1,600+ languages.
+ * Omnilingual ASR, which covers 1,600+ languages. Greek is one of v3's languages too, but it
+ * has no final sigma to write with: every word ending in one lost it ("αρκετέ φορέ" for
+ * "αρκετές φορές"), about one word in five, so Greek goes to Omnilingual.
  */
-export const EUROPEAN = new Set(["bg", "hr", "cs", "da", "nl", "et", "fi", "fr", "de", "el", "hu", "it", "lv", "lt", "mt", "pl", "pt", "ro", "sk", "sl", "es", "sv", "ru", "uk"]);
+export const EUROPEAN = new Set(["bg", "hr", "cs", "da", "nl", "et", "fi", "fr", "de", "hu", "it", "lv", "lt", "mt", "pl", "pt", "ro", "sk", "sl", "es", "sv", "ru", "uk"]);
 
 /** Which model transcribes a language: "english", "european" or "omni". */
 export function engineFor(language) {

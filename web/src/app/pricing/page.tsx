@@ -6,13 +6,13 @@ import { JsonLd } from "@/components/site/json-ld";
 import { SiteFooter, SiteHeader, type SiteLink } from "@/components/site/site-chrome";
 import { formatPrice, FREE_TRIAL, intervalSchema, planIdSchema, PLANS, quarterSaving } from "@/lib/billing/plans";
 import { billingEnabled, billingState } from "@/lib/server/billing";
-import { breadcrumbData, faqData, ORGANIZATION, pageMetadata, softwareData, WEBSITE } from "@/lib/site";
+import { breadcrumbData, faqData, ORGANIZATION, pageMetadata, PRICING_DESCRIPTION, softwareData, WEBSITE } from "@/lib/site";
 import { PricingPlans } from "./pricing-plans";
 import styles from "./pricing.module.css";
 
 export const metadata: Metadata = pageMetadata({
   title: `Pricing: AI clip maker plans from ${formatPrice(PLANS.starter.price.month)} a month`,
-  description: "Bamio plans: Starter, Pro and Team. AI clip finding, word-by-word captions in 100+ languages and 1080p exports with no watermark. Pay monthly, or every 3 months and save.",
+  description: PRICING_DESCRIPTION,
   path: "/pricing",
 });
 

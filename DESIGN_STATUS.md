@@ -1,6 +1,6 @@
 # Bamio design status
 
-Last updated: 2026-10-07 (campaigns are for subscribers; podcasters, streamers and businesses can ask to run one; the free trial needs a card and is 8 minutes)
+Last updated: 2026-10-08 (accuracy across languages and sites measured and fixed: long speech cut, a second listen for the language, Greek moved, Vimeo and direct files import; 5 new search pages and 15 language pages)
 
 ## Current phase
 
@@ -22,6 +22,7 @@ On 2026-09-27 the user said the only features needed are (1) **video clipping** 
 | Pricing (`/pricing`) | Starter, Pro (most popular) and Team, monthly or every 3 months ("Save $6 compared to $36 monthly"...); included features, then a folded "Coming soon" list per plan; buy with Stripe Checkout, switch plans in Stripe's portal; billing questions. Public. |
 | Plan & billing (`/billing`) | The plan and its renewal, AI minutes left this month, projects kept, Manage billing (Stripe portal). In the account menu when plans are on. |
 | Campaigns (`/clippers`) | Clipping campaigns, for subscribers: what each pays per 1,000 views, its budget and leaderboard; clippers join, send the links to clips they posted and see what they earned and were paid. Without a plan: that campaigns exist, how many are open, and the way to the plans. "Run a campaign": podcasters, streamers and businesses ask for one with a form, and Bamio's team sets it up (see Clipping campaigns, Run a campaign, Campaigns are for subscribers). |
+| Pages for search | One page per search, static like the landing page: an AI video clipper, YouTube to Shorts, YouTube to TikTok, video to Reels, podcast, Twitch, Kick and gaming clips, auto captions, and captions in each of 15 languages (`/auto-captions/<language>`, each with a demo and a few lines in the language itself). Titles, descriptions and structured data are held to the facts by tests (see Accuracy across languages and sites, and pages for search). |
 | Admin (`/admin`) | For the people who run Bamio (see Admin panel): overview numbers, users, jobs and errors, money. 404 for everyone else. |
 | Data and storage | Projects, transcripts, jobs, billing and usage in Postgres; media (sources, thumbnails, frames, exports, a followed stream's segments) in a local folder or S3 / R2 / MinIO, per Clerk user and project. |
 
@@ -104,6 +105,47 @@ The user pasted a production-readiness checklist (keys, Postgres, S3/R2, Redis a
 - **Workers** (`worker.ts`): pools for imports (2 at once), exports (2) and streams (4), set with `BAMIO_*_SLOTS`. Each kind has a time limit (import 8 h, find clips and transcribe again 6 h, export 2 h, follow its maximum plus 2 h). On SIGTERM a worker stops claiming, aborts its jobs and hands them back without counting an attempt. The web server runs a worker itself (`instrumentation.ts`) unless `BAMIO_WORKER=off`; then `node dist/worker.mjs` (esbuild bundle, `npm run build:worker`) runs on any machine with the same environment. Job handlers were made safe to run again: an import that finds its video already prepared goes straight to transcription, and a followed stream resumed by another worker finishes what was captured.
 - **Health and deploy:** `GET /api/health` (public, nothing about users) reports the database, storage, media tools and the queue (waiting, running, oldest wait) with 200 or 503. A database that can't be reached gives a 503 "can't reach its database" everywhere. `web/Dockerfile` (one image for both roles: Node 24 slim, tini, a non-root user, migrations on start, a health check) and `web/compose.yaml` (Postgres 18, MinIO and its bucket, a web server that only queues, a worker; `--scale worker=N`).
 - **Decision: a Postgres queue instead of Redis and BullMQ.** Same guarantees for this load (durable, leased, retried, prioritised, cancellable), one less service to run and back up, and a job is queued in the same transaction as the project change that asks for it, so neither can exist without the other. `queue.ts` is small, so it can be swapped if volume ever needs it. Redis and Docker weren't available on this machine either.
+
+### Accuracy across languages and sites, and pages for search (2026-10-08)
+
+The user asked for Bamio to work more accurately across all languages and all platforms, and for the SEO to be worked on. Three parts, each measured before it was changed.
+
+**Languages.** A new harness, `npm run lang:eval` (`scripts/lang-eval.mjs`), finds a captioned YouTube video in each of 44 languages, transcribes two minutes with the language left to detect, and compares the language named, the script written and the letters with YouTube's captions. The first run found four faults; all four are fixed, and the run was repeated on the same videos.
+
+- **Speech with no pause came out garbled, in every language.** The VAD ends a part of speech at a pause; under music or a crowd it finds none, and its "20 seconds at most" is a wish, not a limit. A Spanish street interview came through as 53 seconds in one piece: the European model wrote a few words of broken English for it, the multilingual one eight letters. Parts over 20 seconds are now cut at their quietest fifth of a second (`splitLongSpeech`). Spanish went from 52% to 78% agreement, Vietnamese 69 to 79, Tamil 50 to 58. This matters most for streams, which is what Bamio is for: game sound and music under the voice.
+- **The language was named wrong for 4 of 32 videos.** Whisper tiny took Norwegian for Swedish, Serbian for Russian, and English with an accent or an advert for Hindi or Welsh; the wrong model then transcribed the video. Whisper small names 31 of the 32, so it listens too, in a process of its own (its memory is gone before the transcription model loads), whenever tiny hears anything but English. English videos pay nothing extra. Norwegian went from 53% to 67%, Serbian from 64% to 82%. A transcript that turns out to be three quarters English is named English. And the user can now fix a wrong language: the language beside a project's title opens a picker and transcribes again.
+- **Greek lost its final sigma.** Parakeet v3 has no "ς" in its vocabulary, so every Greek word ending in one came out without it ("αρκετέ φορέ" for "αρκετές φορές"), about one word in five. No repair can put a dropped letter back, so Greek goes to Omnilingual now (63% to 72%; lowercase without punctuation, every letter there). Greek projects are offered "Transcribe again".
+- **The European model sometimes writes another language as broken English** ("And it's comment?" for "Et c'était comment ?"), on normal-length parts too. Sentences that read as English (`englishStretches`: two or more plainly English words, an eighth of the sentence) are heard again by Omnilingual 300M; its reading replaces them when it isn't English and shares at most half its words with the first (so an English phrase a Dutch speaker really used stays as written). French went from 56% to 67%.
+- A Cyrillic transcript of Serbian was being named Belarusian (the first Cyrillic language in a table). Fixed, with Serbian and Uzbek known to be written in Latin letters too.
+
+After: 39 videos transcribed, the language of every one named correctly (the "Persian" sample turned out to be an interview in English, and is named English), and none of the 37 with captions to compare lower than before by more than a point. Agreement with YouTube's own automatic captions is a rough yardstick (its Korean captions are worse than Bamio's transcript), so low numbers were read, not trusted. Not found with captions to compare: Croatian, Tagalog, Urdu, Hebrew, Cantonese.
+
+Decisions:
+- **Greek gives up punctuation for spelling.** A caption with every fifth word misspelt is worse than one without commas.
+- **Serbian comes out in Cyrillic**, as Omnilingual writes it. Most Serbian creators caption in Latin letters, and the two map one for one, so converting is a small job if the user wants it; it wasn't done unasked.
+- **The second listen costs about 640 MB more to download and 20 to 30 seconds on a video that isn't English.** The models are about 2.8 GB now (was 1.9).
+- `TRANSCRIBER_VERSION` is 3. Only Greek is offered a re-transcription: for other videos nobody can tell from the stored transcript whether a long stretch was lost.
+
+**Sites.** yt-dlp here is already the newest release, so what fails is the sites' own doing. `npm run sites:check` (`scripts/platform-probe.mjs`) asks about one public video on each of about 15 sites.
+
+- **Vimeo works again.** Its video pages answer only signed-in browsers now; its player answers anyone. `playerUrl` turns `vimeo.com/<id>` (and channel, showcase and unlisted links) into the player's address, which is asked first, twice (it sometimes answers 401 once), and kept as the project's address so the download works too.
+- **A link straight to a video file imports.** The site states no length for one, and Bamio refused it; ffprobe now reads the length from the file (`remoteDuration`).
+- **Clearer reasons when a site can't be read:** it turns servers away (Rumble: "download the video yourself and upload the file"), it wants a sign-in, the video is copy-protected. Well-known sites are named (Vimeo, TikTok, Reddit...) instead of "Web".
+- Working: YouTube, Shorts, Twitch, Kick, Vimeo, Dailymotion, TikTok, Facebook, Reddit, Streamable, the Internet Archive, direct files. Not working, and not Bamio's to fix: Rumble (403 to servers), TED (yt-dlp's extractor is broken), Instagram (sign-in), Bilibili (region), Spotify (copy protection). Sound-only sources (SoundCloud, an MP3) are still refused: Bamio makes videos.
+
+**Search.** Technical faults first, then pages for what people search.
+
+- Four descriptions were longer than the 160 characters search results show; a test now holds every page to it. Titles and descriptions live with the pages' addresses in `USE_CASES`. `/clippers` had no structured data.
+- **Five new pages**, each on one search with its own copy and questions: `/ai-video-clipper`, `/youtube-to-tiktok`, `/video-to-reels`, `/kick-clips` (Twitch and Kick had shared a page; each has its own now, linked to the other) and `/gaming-clips`.
+- **Fifteen language pages** under `/auto-captions/<language>` (Spanish, Portuguese, French, German, Italian, Russian, Hindi, Nepali, Arabic, Japanese, Korean, Chinese, Indonesian, Turkish, Vietnamese): what's particular about captions in that language, from what the transcriber does with it (punctuation or not, the script and its font, how a mix with English comes out, words found in scripts without spaces), a demo captioned in the language, and a few lines in the language itself that end by saying the app is in English. Only languages the evaluation showed working. A test checks the font each page names against the font table and the punctuation claim against the model list.
+- The landing page links to the captions and live-stream pages; every page lists the others.
+
+Decisions:
+- **Nothing here promises a ranking.** OpusClip, Vizard and CapCut hold the English head terms with years of links; these pages go after narrower searches (a language, Kick, a file format) where a new site can be the best answer. What moves rankings from here is outside the code: Search Console, links from creators and directories, and time.
+- **No page claims what Bamio doesn't do.** The pages say plainly that Bamio doesn't post to TikTok or Instagram, doesn't translate, and has no subtitle file; the gaming page says a video where nobody speaks gets no AI clips.
+- **Not done, proposed:** the whole site in other languages (hreflang, a translated interface) is the real answer to searches made in Spanish or Hindi, and a project of its own. Comparison pages ("OpusClip alternative") need facts about other products that the owner should supply. The home page's headline stays in Bamio's voice; the search words are in its title, description and first paragraph.
+
+Verified: 220 unit tests (new: cutting long speech, English stretches and when a second reading replaces them, Greek's model, Serbian's name and scripts, Vimeo's player address, site names, error advice, every page's title and description, each language page's font and punctuation), the build (all new pages static), the e2e suite (new: changing a project's language transcribes again; opt-in: a Vimeo page and a direct file link imported and a clip exported from each), the real-language suite (Hindi, Japanese, Arabic, Spanish detected, captioned and exported), the layout test at five widths and the sweep in both themes with the new pages added.
 
 ### Campaigns are for subscribers (2026-10-07, night)
 
@@ -606,7 +648,9 @@ The user asked: "make the live stream video work without recording as well, add 
    - Account deletion (Clerk's user-deleted webhook removes the user's projects, media, billing record and emails), and the legal pages (terms, privacy, takedown).
 7. Emails: verify the sending domain in Resend, set `RESEND_API_KEY`, `EMAIL_FROM` and `BAMIO_APP_URL`, run `npm run email:check`, then buy a test plan to see the welcome email arrive. Switch off Stripe's failed-payment emails. Later: a welcome email on sign-up (Clerk webhook), and a one-click unsubscribe header if Bamio ever sends marketing email.
 8. Possible upgrades: punctuation and capitals for languages Omnilingual writes without them (a punctuation model, or Omnilingual's LLM variant when sherpa-onnx supports it), speaker-aware auto-reframe (face tracking), batch export as a zip, more caption styles and fonts, keyword highlights, background music, direct posting to TikTok and YouTube.
-9. Keep yt-dlp current (`npm run setup:media`); sites change often.
+9. Keep yt-dlp current (`npm run setup:media`); sites change often. `npm run sites:check` shows which sites answer today (run it on the Droplet too); TED and Rumble are worth another look after each yt-dlp release.
+9a. Search: submit the sitemap in Google Search Console and Bing Webmaster Tools, watch which of the new pages get impressions, and write more only where there's demand. Bigger steps, each the user's call: the site in other languages (hreflang and a translated interface), comparison pages with facts the owner supplies, a short real clip of Bamio's own export on each page.
+9b. Languages: `npm run lang:eval` after any change to the transcriber. Still unmeasured for want of a captioned video: Croatian, Tagalog, Urdu, Hebrew, Cantonese. Serbian comes out in Cyrillic; converting to Latin letters is one table if creators ask. Sound-only sources (a podcast's MP3) could become videos with a still picture.
 10. Responsive checks are automated now (`E2E_RESPONSIVE=1`); still to do: a look at real projects (long titles, many clips, live streams) in both themes with a live Gemini key.
 
 ## Previous engineering phase (v0.1, superseded 2026-09-27)

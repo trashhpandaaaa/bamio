@@ -244,19 +244,28 @@ export const isFollowing = (p: Pick<Project, "source">) => {
  * The on-device transcriber's version, saved with each transcript it makes.
  * 2 (2026-09-30): the multilingual model's transcripts tell English from the video's language
  * (English as English, with punctuation; the language in its own script).
+ * 3 (2026-10-07): speech with no pause to end on is cut every 20 seconds (longer stretches came
+ * out garbled); a language that isn't English is detected by a second, better model; the
+ * European model's slips into English are heard again; Greek moved to the multilingual model
+ * (the European one has no final sigma: "αρκετέ φορέ" for "αρκετές φορές").
  */
-export const TRANSCRIBER_VERSION = 2;
+export const TRANSCRIBER_VERSION = 3;
 
 /**
  * Why "Transcribe again" would give a better transcript, if it would: "timing" when it wasn't
  * made on the device (older projects, and languages other than English before every language
  * was: caption timing can be off), "languages" when the multilingual model made it before
- * version 2 (English and the video's language were mixed up).
+ * version 2 (English and the video's language were mixed up), "spelling" for Greek before
+ * version 3 (words ending in a final sigma lost it).
  */
-export function retranscribeReason(p: Pick<Project, "hasTranscript" | "transcriptEngine" | "transcriber" | "spokenLanguage" | "source">): "timing" | "languages" | null {
+export function retranscribeReason(
+  p: Pick<Project, "hasTranscript" | "transcriptEngine" | "transcriber" | "spokenLanguage" | "source">,
+): "timing" | "languages" | "spelling" | null {
   if (!p.hasTranscript || !p.source.hasAudio || isFollowing(p)) return null;
   if (p.transcriptEngine !== "device") return "timing";
-  if ((p.transcriber ?? 1) < 2 && usesMultilingualModel(p.spokenLanguage)) return "languages";
+  const version = p.transcriber ?? 1;
+  if (version < 3 && p.spokenLanguage?.toLowerCase().split("-")[0] === "el") return "spelling";
+  if (version < 2 && usesMultilingualModel(p.spokenLanguage)) return "languages";
   return null;
 }
 
@@ -290,6 +299,9 @@ export const createUploadSchema = z.object({
 });
 
 export const findClipsSchema = z.object({ clipLength: clipLengthSchema });
+
+/** Transcribe again: in another spoken language when one is given ("auto" to detect it again). */
+export const retranscribeSchema = z.object({ language: languageSchema.optional() });
 
 export const addClipSchema = z.object({
   start: z.number().min(0),

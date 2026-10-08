@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { connection } from "next/server";
 import { Budget, Platforms, StatusBadge } from "@/components/campaigns/parts";
+import { JsonLd } from "@/components/site/json-ld";
 import { SiteFooter, SiteHeader } from "@/components/site/site-chrome";
 import { SITE_LINKS } from "@/components/site/use-case";
 import { formatPrice } from "@/lib/billing/plans";
@@ -11,15 +12,12 @@ import { compactNumber } from "@/lib/campaigns/money";
 import type { CampaignCard } from "@/lib/campaigns/schema";
 import { campaignAccess, canSeeCampaigns } from "@/lib/server/campaign-access";
 import { listCampaigns, openCampaignCount } from "@/lib/server/campaigns";
-import { pageMetadata } from "@/lib/site";
+import { breadcrumbData, CLIPPERS_DESCRIPTION, CLIPPERS_TITLE, ORGANIZATION, pageMetadata, SITE_URL, WEBSITE } from "@/lib/site";
 import { RunCampaign } from "./run-campaign";
 import { YourCampaigns } from "./your-campaigns";
 import styles from "./clippers.module.css";
 
-const title = "Clipping campaigns: get paid per view for your clips";
-const description = "Join a clipping campaign and earn for every 1,000 views on your clips. Podcasters, streamers and businesses: run one and pay clippers per view.";
-
-export const metadata: Metadata = pageMetadata({ title, description, path: "/clippers", absoluteTitle: true });
+export const metadata: Metadata = pageMetadata({ title: CLIPPERS_TITLE, description: CLIPPERS_DESCRIPTION, path: "/clippers", absoluteTitle: true });
 
 const STEPS = [
   { title: "Pick a campaign", text: "Each one says what to clip, what it pays per 1,000 views and how much of its budget is left." },
@@ -149,6 +147,15 @@ export default async function ClippersPage({ searchParams }: { searchParams: Pro
         <div className={styles.end} />
       </main>
       <SiteFooter links={SITE_LINKS} />
+      {/* What the page is, never the campaigns themselves: those are for subscribers. */}
+      <JsonLd
+        data={[
+          ORGANIZATION,
+          WEBSITE,
+          { "@type": "WebPage", "@id": `${SITE_URL}/clippers`, url: `${SITE_URL}/clippers`, name: "Clipping campaigns", description: CLIPPERS_DESCRIPTION, isPartOf: { "@id": `${SITE_URL}/#website` } },
+          breadcrumbData({ name: "Clipping campaigns", path: "/clippers" }),
+        ]}
+      />
     </>
   );
 }

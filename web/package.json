@@ -16,6 +16,8 @@
     "email:check": "node scripts/check-email.mjs",
     "plan:grant": "node scripts/grant-plan.mjs",
     "seo:indexnow": "node scripts/indexnow.mjs",
+    "lang:eval": "node scripts/lang-eval.mjs",
+    "sites:check": "node scripts/platform-probe.mjs",
     "stripe:setup": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/setup-stripe.mjs",
     "db:local": "node scripts/db-local.mjs",
     "db:migrate": "node scripts/db-migrate.mjs",

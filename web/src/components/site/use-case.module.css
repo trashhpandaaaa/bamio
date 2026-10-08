@@ -11,6 +11,7 @@
 
 .section { padding-top: 112px; }
 .section > h2 { max-width: 18ch; margin-bottom: 32px; }
+.section > h2.wide { max-width: none; }
 
 /* Three steps, side by side. */
 .steps { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
@@ -41,6 +42,21 @@
 .moreLink:hover { border-color: var(--line-control); }
 .moreLink:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
+/* A few lines in the language a captions page is about. */
+.own { display: grid; gap: 12px; padding: 32px; border-radius: var(--r-lg); background: var(--surface); border: 1px solid var(--line); }
+.own h2 { margin: 0; }
+.own p { margin: 0; max-width: 70ch; font: var(--t-body-lg); color: var(--text-secondary); }
+
+/* More pages of the same kind: a row of pills that wraps. */
+.related { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 10px; }
+.relatedLink {
+  display: inline-flex; align-items: center; min-height: 44px; padding: 0 18px;
+  border-radius: var(--r-pill); background: var(--surface); border: 1px solid var(--line); color: var(--text); text-decoration: none;
+  font: var(--t-label); transition: border-color var(--dur-fast) var(--ease-out);
+}
+.relatedLink:hover { border-color: var(--line-control); }
+.relatedLink:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
 /* Closing panel: volt, with the link field (ink text in both themes). */
 .cta {
   display: grid; grid-template-columns: minmax(0, 1fr); justify-items: center; gap: 28px; padding: 72px 40px; text-align: center;
@@ -60,6 +76,7 @@
   .visual { margin-top: 36px; }
   .section { padding-top: 80px; }
   .step { padding: 22px; }
+  .own { padding: 22px; }
   .more { grid-template-columns: minmax(0, 1fr); }
   .cta { padding: 40px 20px; }
 }

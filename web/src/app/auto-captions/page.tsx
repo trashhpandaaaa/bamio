@@ -1,13 +1,10 @@
 import type { Metadata } from "next";
 import { LanguageCard } from "@/components/landing/feature-cards";
 import { UseCasePage, type UseCase } from "@/components/site/use-case";
-import { pageMetadata } from "@/lib/site";
+import { CAPTION_LANGUAGES } from "@/lib/caption-languages";
+import { metadataForUseCase } from "@/lib/site";
 
-const title = "Auto captions for short videos, word by word, in 100+ languages";
-const description =
-  "Word-by-word captions for TikTok, Shorts and Reels, timed from the audio and burned into a 1080p MP4. Detected in 100+ languages, with the right font for every script.";
-
-export const metadata: Metadata = pageMetadata({ title, description, path: "/auto-captions", absoluteTitle: true });
+export const metadata: Metadata = metadataForUseCase("/auto-captions");
 
 const page: UseCase = {
   path: "/auto-captions",
@@ -15,6 +12,7 @@ const page: UseCase = {
   headline: ["auto captions,", "word by word."],
   lede: "Bamio times every word from the audio and highlights it as it's said. Pick a style, fix a word if you need to, and export a vertical video with the captions burned in.",
   visual: <LanguageCard />,
+  related: { title: "Captions by language", links: CAPTION_LANGUAGES.map((l) => ({ href: `/auto-captions/${l.slug}`, label: `${l.name} captions` })) },
   steps: [
     { title: "Import the video", text: "Paste a link from YouTube, Twitch, Kick or 1,000+ other sites, or upload a file up to 4 GB." },
     {
@@ -34,7 +32,7 @@ const page: UseCase = {
   faq: [
     {
       q: "Which languages are supported?",
-      a: "Over 100, detected for you: English, Spanish, Hindi, Nepali, Japanese, Arabic, Korean and many more. English and 24 European languages get punctuation and capitals; in others the captions are lowercase.",
+      a: "Over 100, detected for you: English, Spanish, Hindi, Nepali, Japanese, Arabic, Korean and many more. English and 23 European languages get punctuation and capitals; in others the captions are lowercase.",
     },
     { q: "How accurate are the captions?", a: "Very close for English and widely spoken languages, rougher for some others. Every word can be fixed in the editor before you export." },
     { q: "Do I get a subtitle file?", a: "Bamio burns the captions into the video, which is what TikTok, Shorts and Reels viewers see on autoplay. A separate subtitle file isn't available yet." },

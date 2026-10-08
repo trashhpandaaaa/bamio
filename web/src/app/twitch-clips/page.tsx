@@ -1,17 +1,14 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { MomentFinder } from "@/components/landing/moment-finder";
 import { UseCasePage, type UseCase } from "@/components/site/use-case";
-import { pageMetadata } from "@/lib/site";
+import { metadataForUseCase } from "@/lib/site";
 
-const title = "Twitch clip maker: clip Twitch and Kick streams, even live";
-const description =
-  "Paste a Twitch or Kick link and Bamio turns the stream into vertical clips with word-by-word captions. Follow a live stream from its start and clip while it's still on.";
-
-export const metadata: Metadata = pageMetadata({ title, description, path: "/twitch-clips", absoluteTitle: true });
+export const metadata: Metadata = metadataForUseCase("/twitch-clips");
 
 const page: UseCase = {
   path: "/twitch-clips",
-  name: "Twitch and Kick clips",
+  name: "Twitch clips",
   headline: ["clip your stream", "while it's live."],
   lede: "Paste a Twitch, Kick or YouTube live link. Bamio follows the stream from as far back as the site keeps it, captions it as it goes and finds the moments, so you can post clips before the stream ends.",
   visual: <MomentFinder />,
@@ -41,7 +38,15 @@ const page: UseCase = {
       q: "How far back can Bamio go?",
       a: "On Twitch, to the start of the stream, when the streamer keeps past broadcasts. On YouTube, as far as the stream's rewind history (often an hour). Kick only keeps about 30 seconds, so a Kick capture starts from now.",
     },
-    { q: "Does it work with Kick?", a: "Yes, live streams and past broadcasts. Live Kick streams are recorded from the moment you start, since Kick keeps no rewind history." },
+    {
+      q: "Does it work with Kick?",
+      a: (
+        <>
+          Yes, live streams and past broadcasts. Live Kick streams are recorded from the moment you start, since Kick keeps no rewind history. <Link href="/kick-clips">More on Kick clips</Link>.
+        </>
+      ),
+      text: "Yes, live streams and past broadcasts. Live Kick streams are recorded from the moment you start, since Kick keeps no rewind history.",
+    },
     {
       q: "Will Twitch's ads end up in my clips?",
       a: "When a stream has no VOD (past broadcasts off), Bamio records the live picture, which can include Twitch's ads. Trim them out in the editor.",

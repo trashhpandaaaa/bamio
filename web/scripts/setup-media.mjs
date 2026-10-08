@@ -3,7 +3,7 @@
  * 1. Downloads the official yt-dlp binary for this OS into web/.bin/ and verifies it
  *    against the release's SHA2-256SUMS. Re-run any time to update (sites change often).
  * 2. Downloads the on-device speech models for every language (see workers/speech-models.mjs:
- *    about 1.9 GB, or 1 GB with BAMIO_SPEECH_MODEL=fast; BAMIO_PREFETCH=english for English
+ *    about 2.8 GB, or 1 GB with BAMIO_SPEECH_MODEL=fast; BAMIO_PREFETCH=english for English
  *    only, none for none) and the caption fonts for every script (about 30 MB), checksum verified, into
  *    web/.models/ (or BAMIO_MODELS_DIR), so no import waits for a download. Anything
  *    skipped here is downloaded the first time it's needed.

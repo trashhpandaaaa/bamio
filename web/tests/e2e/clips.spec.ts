@@ -183,6 +183,23 @@ test.describe("clipping", () => {
     await page.getByRole("dialog").getByRole("button", { name: "Delete clip" }).click();
     await expect(cards).toHaveCount(aiCount);
 
+    // The spoken language can be changed, which transcribes the video again (here: detected again, English again).
+    await page.getByRole("button", { name: "Spoken language: English. Change it" }).click();
+    const languageDialog = page.getByRole("dialog", { name: "Change the spoken language" });
+    await expect(languageDialog.getByLabel("Spoken language")).toHaveValue("en");
+    await shot(page, "13b-language");
+    await languageDialog.getByLabel("Spoken language").selectOption("auto");
+    await languageDialog.getByRole("button", { name: "Transcribe again" }).click();
+    await expect(languageDialog).toBeHidden();
+    await expect(page.getByRole("button", { name: "Spoken language: English. Change it" })).toBeVisible({ timeout: 120_000 });
+    await expect(cards).toHaveCount(aiCount);
+    const again = (await (await page.request.get(new URL(projectUrl).pathname.replace("/projects/", "/api/projects/"))).json()) as { language?: string; transcriptRev: number };
+    expect(again.language).toBe("auto");
+    expect(again.transcriptRev).toBeGreaterThan(0);
+    // A language that isn't one is refused.
+    const badLanguage = await page.request.post(`${new URL(projectUrl).pathname.replace("/projects/", "/api/projects/")}/retranscribe`, { data: { language: "not a language" } });
+    expect(badLanguage.status()).toBe(400);
+
     // Delete the whole project from the list.
     await page.goto("/projects");
     const title = "sample-talk";
@@ -222,4 +239,28 @@ test.describe("live link import", () => {
     await expect(card.getByRole("link", { name: /^Download/ })).toBeVisible({ timeout: 150_000 });
     expect((await page.request.delete(new URL(page.url()).pathname.replace("/projects/", "/api/projects/"))).status()).toBe(204);
   });
+
+  // Vimeo's page answers only signed-in browsers: Bamio asks its player. A link straight to a file states no length: Bamio measures it.
+  for (const site of [
+    { name: "Vimeo, by the video's page", link: "https://vimeo.com/22439234", title: /The Mountain/, label: "Vimeo" },
+    { name: "a file, by its direct link", link: "https://download.samplelib.com/mp4/sample-15s.mp4", title: /sample-15s/, label: "Web" },
+  ]) {
+    test(`imports from ${site.name}, and exports a clip`, async ({ page }) => {
+      await signIn(page);
+      await page.goto("/new");
+      await page.getByLabel("Video link").fill(site.link);
+      await expect(page.getByText(site.title).first()).toBeVisible({ timeout: 60_000 });
+      await expect(page.locator(".badge", { hasText: site.label }).first()).toBeVisible();
+      await page.getByRole("button", { name: /^Import/ }).click();
+      await page.waitForURL(/\/projects\/[0-9a-f-]{36}$/, { timeout: 90_000 });
+      await expect(page.getByRole("heading", { name: /Clips/ })).toBeVisible({ timeout: 240_000 });
+      await page.getByLabel("Start").fill("0:01");
+      await page.getByLabel("End").fill("0:07");
+      await page.getByRole("button", { name: "Add clip" }).click();
+      const card = page.getByTestId("clip-card").filter({ hasText: "Clip at 0:01" });
+      await card.getByRole("button", { name: "Export" }).click();
+      await expect(card.getByRole("link", { name: /^Download/ })).toBeVisible({ timeout: 150_000 });
+      expect((await page.request.delete(new URL(page.url()).pathname.replace("/projects/", "/api/projects/"))).status()).toBe(204);
+    });
+  }
 });

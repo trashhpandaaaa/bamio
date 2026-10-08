@@ -24,9 +24,11 @@ export const SITE_LINKS: SiteLink[] = [
 ];
 
 export type UseCase = {
-  path: (typeof USE_CASES)[number]["href"];
+  path: string;
   /** The short name, for breadcrumbs and the label above the headline. */
   name: string;
+  /** The page this one belongs under, for the breadcrumb (a language's page under Auto captions). */
+  parent?: { name: string; path: string };
   /** The headline: plain words, then the highlighted ending. */
   headline: [string, string];
   lede: string;
@@ -37,6 +39,10 @@ export type UseCase = {
   faq: FaqItem[];
   /** Under the demo, for stock footage it shows. */
   credit?: string;
+  /** A few lines in another language, for people searching in it (a language's captions page). */
+  own?: { lang: string; rtl?: boolean; headline: string; text: string };
+  /** More pages of the same kind, listed before "More with Bamio" (captions by language). */
+  related?: { title: string; links: SiteLink[] };
 };
 
 export function UseCasePage({ page }: { page: UseCase }) {
@@ -61,6 +67,17 @@ export function UseCasePage({ page }: { page: UseCase }) {
         </section>
 
         <div className={`container ${styles.visual}`}>{page.visual}</div>
+
+        {page.own ? (
+          <section className={`container ${styles.section}`} aria-labelledby="own-title" lang={page.own.lang} dir={page.own.rtl ? "rtl" : undefined}>
+            <div className={styles.own}>
+              <h2 id="own-title" className="t-heading-lg">
+                {page.own.headline}
+              </h2>
+              <p>{page.own.text}</p>
+            </div>
+          </section>
+        ) : null}
 
         <section className={`container ${styles.section}`} aria-labelledby="steps-title">
           <h2 id="steps-title" className="t-display-lg">
@@ -100,6 +117,23 @@ export function UseCasePage({ page }: { page: UseCase }) {
           <FaqList items={page.faq} name="faq" />
         </section>
 
+        {page.related ? (
+          <nav className={`container ${styles.section}`} aria-labelledby="related-title">
+            <h2 id="related-title" className={`t-heading-lg ${styles.wide}`}>
+              {page.related.title}
+            </h2>
+            <ul className={styles.related}>
+              {page.related.links.map((link) => (
+                <li key={link.href}>
+                  <Link href={link.href} className={styles.relatedLink}>
+                    {link.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        ) : null}
+
         <nav className={`container ${styles.section}`} aria-labelledby="more-title">
           <h2 id="more-title" className="t-heading-lg">
             More with Bamio
@@ -131,8 +165,16 @@ export function UseCasePage({ page }: { page: UseCase }) {
           ORGANIZATION,
           WEBSITE,
           softwareData(),
-          { "@type": "WebPage", "@id": `${SITE_URL}${page.path}`, url: `${SITE_URL}${page.path}`, name: page.name, about: { "@id": `${SITE_URL}/#app` }, isPartOf: { "@id": `${SITE_URL}/#website` } },
-          breadcrumbData({ name: page.name, path: page.path }),
+          {
+            "@type": "WebPage",
+            "@id": `${SITE_URL}${page.path}`,
+            url: `${SITE_URL}${page.path}`,
+            name: page.name,
+            description: page.lede,
+            about: { "@id": `${SITE_URL}/#app` },
+            isPartOf: { "@id": `${SITE_URL}/#website` },
+          },
+          breadcrumbData({ name: page.name, path: page.path }, page.parent),
           faqData(faqPlain(page.faq)),
         ]}
       />

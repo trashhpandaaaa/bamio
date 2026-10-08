@@ -85,7 +85,7 @@ The first build takes 5 to 10 minutes. Then:
 ```bash
 docker compose ps                  # app, postgres and caddy: running (app: healthy after a minute)
 docker compose logs -f app         # the app's log (Ctrl+C to stop watching)
-docker compose exec app node scripts/setup-media.mjs   # download the speech models now (~1.9 GB), not on the first import
+docker compose exec app node scripts/setup-media.mjs   # download the speech models now (~2.8 GB), not on the first import
 ```
 
 Open `https://bamio.yourdomain.com`, sign in and import a video. `https://bamio.yourdomain.com/api/health` should say `"status":"ok"`.

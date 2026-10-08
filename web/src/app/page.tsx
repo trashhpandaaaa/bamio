@@ -39,7 +39,7 @@ const FAQ: FaqItem[] = [
   },
   {
     q: "Which languages work?",
-    a: "Over 100, detected for you, or pick one yourself. English and 24 European languages get punctuation and capitals. Captions use a font made for each script, and when a video mixes a language with English, each part keeps its own script.",
+    a: "Over 100, detected for you, or pick one yourself. English and 23 European languages get punctuation and capitals. Captions use a font made for each script, and when a video mixes a language with English, each part keeps its own script.",
   },
   {
     q: "Can I clip a live stream?",
@@ -224,11 +224,17 @@ export default function Home() {
               <LanguageCard />
               <h3 className="t-heading-md">Every language, detected</h3>
               <p>Spanish, Chinese, Japanese, Korean, Portuguese and 100 more, detected for you. Mixed with English? Each part is written in its own script.</p>
+              <Link href="/auto-captions" className={`link ${styles.featureLink}`}>
+                Captions by language
+              </Link>
             </article>
             <article className={styles.feature}>
               <LiveCard />
               <h3 className="t-heading-md">Clip live streams</h3>
               <p>Paste a live Twitch, YouTube or Kick link. Bamio follows the stream, so you can clip while it’s still on.</p>
+              <Link href="/twitch-clips" className={`link ${styles.featureLink}`}>
+                Clipping live streams
+              </Link>
             </article>
           </div>
         </section>

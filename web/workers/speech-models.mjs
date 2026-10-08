@@ -7,11 +7,14 @@
  * Which model transcribes what (see engineFor in transcribe-core.mjs), with
  * BAMIO_SPEECH_MODEL=accurate (default) or fast:
  *   English:   NVIDIA Parakeet TDT 0.6B v2 (about 480 MB) or 110M (about 110 MB), CC-BY-4.0.
- *   European:  NVIDIA Parakeet TDT 0.6B v3 (about 490 MB), CC-BY-4.0: 24 more European
- *              languages, with punctuation and capitals.
+ *   European:  NVIDIA Parakeet TDT 0.6B v3 (about 490 MB), CC-BY-4.0: 23 more European
+ *              languages, with punctuation and capitals (not its Greek: see EUROPEAN).
  *   Any other: Meta Omnilingual ASR CTC 1B (about 790 MB) or 300M (about 290 MB),
  *              Apache-2.0: 1,600+ languages, lowercase without punctuation.
- *   Detecting the language: OpenAI Whisper tiny (about 115 MB), MIT.
+ *   Detecting the language: OpenAI Whisper tiny (about 115 MB), and Whisper small (about
+ *              640 MB to download, 375 MB kept) for a second, more careful listen whenever
+ *              the first one hears anything but English. MIT.
+ *   A second opinion where the European model slips into English: Omnilingual 300M.
  *   Finding the speech: Silero VAD (MIT).
  */
 import { spawnSync } from "node:child_process";
@@ -35,6 +38,8 @@ export const MODELS = {
   "omni-accurate": { dir: "sherpa-onnx-omnilingual-asr-1600-languages-1B-ctc-v2-int8-2026-02-05", kind: "omnilingual", files: ctc, sha256: "f4deae6e6cbf4ca785b89eaa3836156581208bf977ea2e6d7ae84d7efcfc3a40", bytes: 787_296_506 },
   "omni-fast": { dir: "sherpa-onnx-omnilingual-asr-1600-languages-300M-ctc-v2-int8-2026-02-05", kind: "omnilingual", files: ctc, sha256: "951b32409aade32bd525310bb39e9666773ba3fc611a39e817f620936d76c631", bytes: 292_313_120 },
   // The archive also holds float32 copies, deleted after unpacking.
+  // Names close relatives apart far better than tiny (Norwegian from Swedish, Serbian from Russian, accented English from Welsh).
+  "lid-accurate": { dir: "sherpa-onnx-whisper-small", kind: "whisper", files: { encoder: "small-encoder.int8.onnx", decoder: "small-decoder.int8.onnx", tokens: "small-tokens.txt" }, sha256: "486a46afbb7ba798507190ffe02fea2dd726049af212e774537efac6afb210a6", bytes: 639_387_718, drop: ["small-encoder.onnx", "small-decoder.onnx"] },
   lid: { dir: "sherpa-onnx-whisper-tiny", kind: "whisper", files: { encoder: "tiny-encoder.int8.onnx", decoder: "tiny-decoder.int8.onnx", tokens: "tiny-tokens.txt" }, sha256: "c46116994e539aa165266d96b325252728429c12535eb9d8b6a2b10f129e66b1", bytes: 116_204_861, drop: ["tiny-encoder.onnx", "tiny-decoder.onnx"] },
 };
 const VAD = {

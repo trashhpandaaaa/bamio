@@ -39,6 +39,60 @@ export const PLATFORM_LABEL: Record<Platform, string> = {
   other: "Web",
 };
 
+/** Other sites people paste links from, by the end of the host name. */
+const SITE_NAMES: [string, string][] = [
+  ["vimeo.com", "Vimeo"],
+  ["tiktok.com", "TikTok"],
+  ["instagram.com", "Instagram"],
+  ["facebook.com", "Facebook"],
+  ["fb.watch", "Facebook"],
+  ["x.com", "X"],
+  ["twitter.com", "X"],
+  ["reddit.com", "Reddit"],
+  ["redd.it", "Reddit"],
+  ["dailymotion.com", "Dailymotion"],
+  ["dai.ly", "Dailymotion"],
+  ["rumble.com", "Rumble"],
+  ["streamable.com", "Streamable"],
+  ["bilibili.com", "Bilibili"],
+  ["ted.com", "TED"],
+  ["loom.com", "Loom"],
+  ["archive.org", "Internet Archive"],
+  ["drive.google.com", "Google Drive"],
+  ["dropbox.com", "Dropbox"],
+  ["soundcloud.com", "SoundCloud"],
+  ["linkedin.com", "LinkedIn"],
+  ["trovo.live", "Trovo"],
+];
+
+/** Where a video came from, by name: the platform, or for other sites the site's own name when it's a well-known one ("Web" otherwise). */
+export function sourceLabel(platform: Platform, url?: string): string {
+  if (platform !== "other" || !url) return PLATFORM_LABEL[platform];
+  let host: string;
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    return PLATFORM_LABEL.other;
+  }
+  return SITE_NAMES.find(([site]) => host === site || host.endsWith(`.${site}`))?.[1] ?? PLATFORM_LABEL.other;
+}
+
+/**
+ * Another address for the same video that a server can read when it can't read the page:
+ * Vimeo's pages answer only signed-in browsers, its player answers anyone (an unlisted
+ * video's key goes along as ?h=). Null when there's none.
+ */
+export function playerUrl(url: URL): URL | null {
+  const host = url.hostname.toLowerCase().replace(/^www\./, "");
+  if (host !== "vimeo.com") return null;
+  const video = /^\/(?:channels\/[^/]+\/|groups\/[^/]+\/videos\/|album\/\d+\/video\/|showcase\/\d+\/video\/)?(\d+)(?:\/([0-9a-f]{6,40}))?\/?$/.exec(url.pathname);
+  if (!video) return null;
+  const player = new URL(`https://player.vimeo.com/video/${video[1]}`);
+  const key = video[2] ?? url.searchParams.get("h");
+  if (key && /^[0-9a-f]{6,40}$/.test(key)) player.searchParams.set("h", key);
+  return player;
+}
+
 /**
  * True for IP literals in loopback, private, link-local, CGNAT, multicast or reserved
  * ranges (IPv4 and IPv6). Hostnames return false here; the server also resolves them.

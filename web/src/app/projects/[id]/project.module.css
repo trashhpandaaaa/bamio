@@ -8,6 +8,9 @@
 .renameForm { display: flex; gap: 8px; align-items: center; flex: 1; max-width: 640px; }
 .deleteProject { margin-left: auto; color: var(--error); }
 .head :global(.card-meta) a { display: inline-flex; align-items: center; gap: 4px; }
+/* The spoken language, as a link that opens the picker (a button, so it needs the look of the links beside it). */
+.language { display: inline-flex; align-items: center; gap: 4px; min-height: var(--s-6); padding: 0; border: 0; background: none; font: inherit; color: inherit; cursor: pointer; }
+.language:hover { color: var(--text); }
 
 /* ---------- States ---------- */
 .processing { display: grid; gap: 16px; padding: 28px; border-radius: var(--r-lg); background: var(--surface); color: var(--text); max-width: 760px; }
