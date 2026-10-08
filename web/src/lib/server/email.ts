@@ -1,4 +1,5 @@
 import "server-only";
+import { CONTACT_EMAIL } from "@/lib/contact";
 import { createClerkClient } from "@clerk/backend";
 import { isClerkAPIResponseError } from "@clerk/backend/errors";
 import { randomUUID } from "node:crypto";
@@ -120,7 +121,8 @@ async function resendSend(email: OutgoingEmail): Promise<{ id: string }> {
         subject: email.subject,
         html: email.html,
         text: email.text,
-        ...(process.env.EMAIL_REPLY_TO ? { replyTo: process.env.EMAIL_REPLY_TO } : {}),
+        // Someone who answers an email reaches a person: the contact address, unless another is set.
+        replyTo: process.env.EMAIL_REPLY_TO || CONTACT_EMAIL,
         tags: [{ name: "template", value: email.template }],
       },
       { idempotencyKey: email.idempotencyKey },

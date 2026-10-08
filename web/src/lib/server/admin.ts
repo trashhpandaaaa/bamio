@@ -1,4 +1,5 @@
 import "server-only";
+import { CONTACT_EMAIL } from "@/lib/contact";
 import { statfs } from "node:fs/promises";
 import { clerkClient } from "@clerk/nextjs/server";
 import type postgres from "postgres";
@@ -449,7 +450,7 @@ export async function adminJobAction(admin: Admin, jobId: number, action: "retry
   if (!job) throw new HttpError(404, "not_found", "That job doesn’t exist.");
   if (action === "cancel") {
     if (job.status !== "queued" && job.status !== "running") throw new HttpError(409, "not_active", "That job isn’t queued or running.");
-    await cancelJob(job, "Stopped by the Bamio team. Try again, or contact us if it keeps happening.");
+    await cancelJob(job, `Stopped by the Bamio team. Try again, or write to ${CONTACT_EMAIL} if it keeps happening.`);
   } else {
     if (job.status !== "failed" && job.status !== "cancelled") throw new HttpError(409, "not_failed", "Only a failed or cancelled job can be retried.");
     if (!job.latest) throw new HttpError(409, "not_latest", "A newer job of this kind exists for this project.");

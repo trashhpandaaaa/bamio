@@ -7,6 +7,7 @@ import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { StatusBadge } from "@/components/campaigns/parts";
 import { useToast } from "@/components/toast";
 import { formatPrice } from "@/lib/billing/plans";
+import { CONTACT_EMAIL, CONTACT_MAILTO } from "@/lib/contact";
 import { api } from "@/lib/clips/api";
 import { CLIP_PLATFORM_IDS, CLIP_PLATFORMS, type ClipPlatform } from "@/lib/campaigns/links";
 import { CAMPAIGN_LIMITS, campaignRequestSchema, parseDollars, REQUEST_KIND_IDS, REQUEST_KINDS, type MyCampaignRequest, type RequestKind } from "@/lib/campaigns/schema";
@@ -124,7 +125,13 @@ export function RunCampaign({ startOpen }: { startOpen: boolean }) {
               Sign in to set up a campaign
             </Link>
           )}
-          <p className={styles.small}>Bamio’s team looks at every campaign before it opens. You pay clippers directly: no money passes through Bamio.</p>
+          <p className={styles.small}>
+            Bamio’s team looks at every campaign before it opens. You pay clippers directly: no money passes through Bamio. Questions first? Write to{" "}
+            <a className={styles.mail} href={CONTACT_MAILTO}>
+              {CONTACT_EMAIL}
+            </a>
+            .
+          </p>
         </div>
       )}
     </section>
@@ -393,7 +400,13 @@ function RequestForm({ onSent, onCancel }: { onSent: (requests: MyCampaignReques
           Not now
         </button>
       </div>
-      <p className={styles.panelSmall}>By sending this you agree to pay clippers what their clips earn under these terms, up to your budget.</p>
+      <p className={styles.panelSmall}>
+        By sending this you agree to pay clippers what their clips earn under these terms, up to your budget. Something to ask first? Write to{" "}
+        <a className={styles.mail} href={CONTACT_MAILTO}>
+          {CONTACT_EMAIL}
+        </a>
+        .
+      </p>
     </form>
   );
 }

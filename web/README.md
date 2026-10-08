@@ -50,7 +50,7 @@ BAMIO_AI_MOCK=1 npm run dev
 | `STRIPE_WEBHOOK_SECRET` | none | Signing secret of the Stripe webhook (`whsec_...`). |
 | `BAMIO_APP_URL` | the request's address (`http://localhost:3000` for emails in development) | The site's address, e.g. `https://bamio.example.com`: where Stripe sends people back to, and the links in emails. Required for emails in production. |
 | `BAMIO_BILLING` | on with a key | `off` turns plans off even with a Stripe key: for local work, and the end-to-end test server (Playwright sets it). |
-| `RESEND_API_KEY`, `EMAIL_FROM` | not set (no emails) | Emails to users through [Resend](https://resend.com): the API key, and the sender on a domain verified in Resend, e.g. `Bamio <hello@your-domain.com>`. `EMAIL_REPLY_TO` optionally. See Emails. |
+| `RESEND_API_KEY`, `EMAIL_FROM` | not set (no emails) | Emails to users through [Resend](https://resend.com): the API key, and the sender on a domain verified in Resend, e.g. `Bamio <hello@your-domain.com>`. Replies go to the contact address (`CONTACT_EMAIL` in `src/lib/contact.ts`) unless `EMAIL_REPLY_TO` names another. See Emails. |
 | `YTDLP_COOKIES` | not set | A cookies.txt from a spare YouTube account, passed to every yt-dlp call. Servers in data centres get YouTube's "confirm you're not a bot" without it. See DEPLOY.md. |
 | `BAMIO_EMAIL` | on with a key | `off`: no emails. `preview`: emails are written and logged, never sent (no key needed; the end-to-end test server, which Playwright sets). |
 

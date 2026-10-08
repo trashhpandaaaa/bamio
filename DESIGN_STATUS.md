@@ -1,6 +1,6 @@
 # Bamio design status
 
-Last updated: 2026-10-08 (accuracy across languages and sites measured and fixed: long speech cut, a second listen for the language, Greek moved, Vimeo and direct files import; 5 new search pages and 15 language pages)
+Last updated: 2026-10-08 (a contact address, alexza@bamio.app, shown and used for replies; accuracy across languages and sites measured and fixed: long speech cut, a second listen for the language, Greek moved, Vimeo and direct files import; 5 new search pages and 15 language pages)
 
 ## Current phase
 
@@ -105,6 +105,16 @@ The user pasted a production-readiness checklist (keys, Postgres, S3/R2, Redis a
 - **Workers** (`worker.ts`): pools for imports (2 at once), exports (2) and streams (4), set with `BAMIO_*_SLOTS`. Each kind has a time limit (import 8 h, find clips and transcribe again 6 h, export 2 h, follow its maximum plus 2 h). On SIGTERM a worker stops claiming, aborts its jobs and hands them back without counting an attempt. The web server runs a worker itself (`instrumentation.ts`) unless `BAMIO_WORKER=off`; then `node dist/worker.mjs` (esbuild bundle, `npm run build:worker`) runs on any machine with the same environment. Job handlers were made safe to run again: an import that finds its video already prepared goes straight to transcription, and a followed stream resumed by another worker finishes what was captured.
 - **Health and deploy:** `GET /api/health` (public, nothing about users) reports the database, storage, media tools and the queue (waiting, running, oldest wait) with 200 or 503. A database that can't be reached gives a 503 "can't reach its database" everywhere. `web/Dockerfile` (one image for both roles: Node 24 slim, tini, a non-root user, migrations on start, a health check) and `web/compose.yaml` (Postgres 18, MinIO and its bucket, a web server that only queues, a worker; `--scale worker=N`).
 - **Decision: a Postgres queue instead of Redis and BullMQ.** Same guarantees for this load (durable, leased, retried, prioritised, cancellable), one less service to run and back up, and a job is queued in the same transaction as the project change that asks for it, so neither can exist without the other. `queue.ts` is small, so it can be swapped if volume ever needs it. Redis and Docker weren't available on this machine either.
+
+### A contact address (2026-10-08, later)
+
+The user sent a screenshot of the campaign form and an address, alexza@bamio.app, to use for contact. Until now Bamio gave people no way to write to it: the campaign section said "Bamio's team" with no address, the legal drafts had a placeholder, and a reply to one of Bamio's emails went to the sender address.
+
+- **One address, in one place** (`CONTACT_EMAIL` in `src/lib/contact.ts`), shown under "Set up a campaign" and at the foot of the campaign form ("Something to ask first? Write to..."), in the footer of every public page, on the legal drafts in place of the placeholder, and in the two messages that said "contact us". Search engines get it with the organization's details.
+- **Replies to Bamio's emails go to it**, unless `EMAIL_REPLY_TO` is set (it isn't on the Droplet).
+- Decisions: the campaign form still goes to the admin panel, and the daily "requests are waiting" alert still goes to the superadmins; nothing new is mailed to the contact address by the app. The legal pages stay drafts (`COMPANY.ready` is false): only their email is real now.
+
+Verified: 220 unit tests, the build, the e2e suite (the address and its mailto link in the campaign section and the footer), the layout test at five widths (the open form included) and the sweep in both themes.
 
 ### Accuracy across languages and sites, and pages for search (2026-10-08)
 

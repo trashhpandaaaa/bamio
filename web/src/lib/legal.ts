@@ -1,4 +1,5 @@
 import type { SiteLink } from "@/components/site/site-chrome";
+import { CONTACT_EMAIL } from "@/lib/contact";
 
 /*
  * Who runs Bamio, for the Terms, the Privacy Policy and the Takedown page. Placeholders until
@@ -14,7 +15,7 @@ export const COMPANY = {
   country: "[Country of registration]",
   address: "[Registered address]",
   /** Read by a person: legal, privacy and takedown requests come here. */
-  email: "[legal@your-domain]",
+  email: CONTACT_EMAIL,
 };
 
 /** When the texts last changed (shown on each page). */

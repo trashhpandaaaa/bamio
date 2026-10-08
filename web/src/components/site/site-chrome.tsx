@@ -4,6 +4,7 @@ import { Wordmark } from "@/components/brand";
 import { MobileMenu } from "@/components/landing/mobile-menu";
 import { FooterAccountLinks, ProjectsLink, SignInLink } from "@/components/site/account-links";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { CONTACT_EMAIL, CONTACT_MAILTO } from "@/lib/contact";
 import { COMPANY, LEGAL_PAGES } from "@/lib/legal";
 import { USE_CASES } from "@/lib/site";
 import styles from "./site-chrome.module.css";
@@ -62,6 +63,9 @@ export function SiteFooter({ links, roomForBar = false, credit }: { links: SiteL
         <div className={styles.footerBrand}>
           <Wordmark size={30} />
           <p>Make the first second count.</p>
+          <a className={styles.contact} href={CONTACT_MAILTO}>
+            {CONTACT_EMAIL}
+          </a>
         </div>
         <nav className={styles.footerNav} aria-label="Footer">
           <div>

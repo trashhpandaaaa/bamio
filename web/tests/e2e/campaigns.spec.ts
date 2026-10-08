@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { CONTACT_EMAIL } from "../../src/lib/contact";
 import { signIn } from "./auth";
 import { clearCampaigns, connect, DEMO, seedCampaign } from "./campaign-seed";
 
@@ -62,6 +63,9 @@ test("the campaigns page invites podcasters, streamers and businesses to run a c
   const section = page.getByRole("region", { name: "Run a campaign" });
   for (const who of ["Podcasters", "Streamers", "Businesses"]) await expect(section.getByRole("heading", { name: who })).toBeVisible();
   await expect(section.getByText("We check it and open it")).toBeVisible();
+  // Where to write with a question first, here and in the footer.
+  await expect(section.getByRole("link", { name: CONTACT_EMAIL })).toHaveAttribute("href", `mailto:${CONTACT_EMAIL}`);
+  await expect(page.getByRole("contentinfo").getByRole("link", { name: CONTACT_EMAIL })).toHaveAttribute("href", `mailto:${CONTACT_EMAIL}`);
   // Signed out: the form is behind signing in, which comes back to it.
   await expect(section.getByRole("link", { name: "Sign in to set up a campaign" })).toHaveAttribute("href", `/sign-in?redirect_url=${encodeURIComponent("/clippers?run=1")}`);
   await expect(section.getByLabel("Your content")).toHaveCount(0);

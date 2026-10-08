@@ -1,4 +1,5 @@
 import "server-only";
+import { CONTACT_EMAIL } from "@/lib/contact";
 import { existsSync } from "node:fs";
 import { lookup } from "node:dns/promises";
 import { copyFile, mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
@@ -624,7 +625,7 @@ export async function renderClip(
     const made = await probe(tmp, opts.signal).catch(() => null);
     if (!made?.hasVideo || made.durationSec < Math.min(1, plan.duration * 0.5)) {
       console.error(`[bamio/media] render came out empty (${made ? `${made.durationSec.toFixed(2)} s` : "unreadable"} of ${plan.duration.toFixed(2)} s) from ${path.basename(plan.input)}`);
-      throw new HttpError(500, "render_empty", "The export came out empty. Try again; if it keeps happening, tell us which video.");
+      throw new HttpError(500, "render_empty", `The export came out empty. Try again; if it keeps happening, write to ${CONTACT_EMAIL} and say which video.`);
     }
     await replaceFile(tmp, plan.output);
     return (await stat(plan.output)).size;

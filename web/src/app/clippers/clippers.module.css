@@ -8,6 +8,8 @@
 .end { height: 112px; }
 .small { margin: 24px 0 0; max-width: 72ch; font: var(--t-body-sm); color: var(--text-secondary); }
 .small a { color: var(--text); text-underline-offset: 3px; }
+/* The address to write to, inside a sentence: tall enough to tap. */
+.mail { display: inline-flex; align-items: center; min-height: var(--s-6); color: var(--text); text-underline-offset: 3px; overflow-wrap: anywhere; }
 
 /* Campaign cards, as many across as fit. Each is one link. */
 .grid { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); gap: 16px; }

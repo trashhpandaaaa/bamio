@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { INTERVALS, PLAN_IDS, PLANS } from "@/lib/billing/plans";
+import { CONTACT_EMAIL } from "@/lib/contact";
 
 /*
  * The public site, for search engines and link previews: its address, how pages describe
@@ -118,6 +119,8 @@ export const ORGANIZATION = {
   url: SITE_URL,
   logo: `${SITE_URL}/icon-512.png`,
   slogan: "Make the first second count.",
+  email: CONTACT_EMAIL,
+  contactPoint: { "@type": "ContactPoint", contactType: "customer support", email: CONTACT_EMAIL, availableLanguage: "English" },
 };
 
 export const WEBSITE = {
