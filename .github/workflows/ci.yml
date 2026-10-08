@@ -104,7 +104,8 @@ jobs:
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/bamio
       CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
-      # Test servers: mock AI, plans off, emails written but never sent.
+      # Test servers: mock AI, plans off, emails written but never sent, no ads (set for the build too: static pages keep what it saw).
+      BAMIO_ADS: "off"
       BAMIO_AI_MOCK: "1"
       BAMIO_BILLING: "off"
       BAMIO_EMAIL: preview

@@ -31,6 +31,7 @@ export default defineConfig({
         timeout: 120_000,
         // Plans off, whatever web/.env says; E2E_BILLING turns them on with a fake key, so no request reaches a real Stripe account.
         // Emails are written and logged, never sent (web/.env may hold a Resend key). Campaign clips' views aren't looked up on their sites.
-        env: { BAMIO_AI_MOCK: "1", BAMIO_EMAIL: "preview", BAMIO_VIEW_COUNTS: "off", ...(process.env.E2E_BILLING ? { STRIPE_SECRET_KEY: "sk_test_e2e_fake" } : { BAMIO_BILLING: "off" }) },
+        // No ads either: the suite never calls Google.
+        env: { BAMIO_AI_MOCK: "1", BAMIO_EMAIL: "preview", BAMIO_VIEW_COUNTS: "off", BAMIO_ADS: "off", ...(process.env.E2E_BILLING ? { STRIPE_SECRET_KEY: "sk_test_e2e_fake" } : { BAMIO_BILLING: "off" }) },
       },
 });

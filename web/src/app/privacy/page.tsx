@@ -72,7 +72,10 @@ export default function PrivacyPage() {
           </li>
           <li>To keep Bamio secure, stop abuse and fix errors. This is our legitimate interest in a working, safe service.</li>
         </ul>
-        <p>We don’t sell your data, don’t show ads and don’t track you across other sites.</p>
+        <p>
+          We don’t sell your data. Bamio shows ads from Google AdSense; what that means for you is under “Ads” below. Bamio doesn’t give your videos, transcripts
+          or clips to Google for them.
+        </p>
       </section>
 
       <section>
@@ -97,6 +100,10 @@ export default function PrivacyPage() {
           </li>
           <li>
             <strong>Resend</strong>: sends Bamio’s emails.
+          </li>
+          <li>
+            <strong>Google (AdSense)</strong>: shows the ads. Its script loads with Bamio’s pages, so Google sees your IP address, your browser and which page you’re
+            on. See “Ads” below.
           </li>
           <li>
             <strong>Sentry</strong>: error reports.
@@ -148,8 +155,36 @@ export default function PrivacyPage() {
           <li>The referral cookie (60 days) remembers which link brought you.</li>
           <li>Your theme (light or dark) is saved in your browser.</li>
           <li>Stripe sets its own cookies on its payment pages, to prevent fraud.</li>
+          <li>Google sets cookies for the ads (see “Ads”). Those are the only ones here for advertising.</li>
         </ul>
-        <p>None of them are for advertising.</p>
+      </section>
+
+      <section>
+        <h2>Ads</h2>
+        <p>
+          Bamio shows ads through Google AdSense. Google and the advertisers it works with use cookies to show and measure ads, and to choose them from your visits
+          to this site and to other sites. That’s how an ad here can be about something you looked at elsewhere.
+        </p>
+        <ul>
+          <li>
+            You can switch off personalised ads in{" "}
+            <a href="https://www.google.com/settings/ads" rel="noopener noreferrer">
+              Google’s Ads Settings
+            </a>
+            , and for other advertising companies at{" "}
+            <a href="https://www.aboutads.info/choices/" rel="noopener noreferrer">
+              aboutads.info
+            </a>
+            . You’ll still see ads; they just won’t be chosen from what you’ve done.
+          </li>
+          <li>
+            <a href="https://policies.google.com/technologies/partner-sites" rel="noopener noreferrer">
+              How Google uses information from sites that use its services
+            </a>
+            .
+          </li>
+        </ul>
+        <p>Bamio doesn’t send your videos, transcripts, clips or edits to Google for ads, and files you open in the editor never leave your device.</p>
       </section>
 
       <section>

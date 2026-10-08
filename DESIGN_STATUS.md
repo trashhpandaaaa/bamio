@@ -1,6 +1,6 @@
 # Bamio design status
 
-Last updated: 2026-10-08 (a video editor in the browser, free for every account; a contact address, alexza@bamio.app, shown and used for replies; accuracy across languages and sites measured and fixed: long speech cut, a second listen for the language, Greek moved, Vimeo and direct files import; 5 new search pages and 15 language pages)
+Last updated: 2026-10-08 (Google AdSense on every page; a video editor in the browser, free for every account; a contact address, alexza@bamio.app, shown and used for replies; accuracy across languages and sites measured and fixed: long speech cut, a second listen for the language, Greek moved, Vimeo and direct files import; 5 new search pages and 15 language pages)
 
 ## Current phase
 
@@ -106,6 +106,19 @@ The user pasted a production-readiness checklist (keys, Postgres, S3/R2, Redis a
 - **Workers** (`worker.ts`): pools for imports (2 at once), exports (2) and streams (4), set with `BAMIO_*_SLOTS`. Each kind has a time limit (import 8 h, find clips and transcribe again 6 h, export 2 h, follow its maximum plus 2 h). On SIGTERM a worker stops claiming, aborts its jobs and hands them back without counting an attempt. The web server runs a worker itself (`instrumentation.ts`) unless `BAMIO_WORKER=off`; then `node dist/worker.mjs` (esbuild bundle, `npm run build:worker`) runs on any machine with the same environment. Job handlers were made safe to run again: an import that finds its video already prepared goes straight to transcription, and a followed stream resumed by another worker finishes what was captured.
 - **Health and deploy:** `GET /api/health` (public, nothing about users) reports the database, storage, media tools and the queue (waiting, running, oldest wait) with 200 or 503. A database that can't be reached gives a 503 "can't reach its database" everywhere. `web/Dockerfile` (one image for both roles: Node 24 slim, tini, a non-root user, migrations on start, a health check) and `web/compose.yaml` (Postgres 18, MinIO and its bucket, a web server that only queues, a worker; `--scale worker=N`).
 - **Decision: a Postgres queue instead of Redis and BullMQ.** Same guarantees for this load (durable, leased, retried, prioritised, cancellable), one less service to run and back up, and a job is queued in the same transaction as the project change that asks for it, so neither can exist without the other. `queue.ts` is small, so it can be swapped if volume ever needs it. Redis and Docker weren't available on this machine either.
+
+### Ads (2026-10-08, night)
+
+The user sent their Google AdSense script and asked for it to be added.
+
+- **The script is in the head of every page** (`app/layout.tsx`, publisher `ca-pub-2429736538102794` from `src/lib/ads.ts`), exactly as Google gives it, so AdSense can verify the site and its Auto ads can run. `public/ads.txt` names the same publisher, which AdSense asks for.
+- **The privacy page changed with it.** It said "we don't show ads" and that no cookie was for advertising; it now says Bamio shows ads from Google AdSense, that Google and its partners use cookies to choose and measure them from visits here and elsewhere, how to switch personalised ads off (Google's Ads Settings, aboutads.info), and that Bamio doesn't give videos, transcripts or clips to Google for ads. AdSense's terms require those statements.
+- **Test servers and CI leave the script out** (`BAMIO_ADS=off`, for the build and the start), so the suite never calls Google.
+
+Decisions and things for the user:
+- **Where ads appear is set in AdSense, not in code.** With Auto ads on, they can appear on every page, the app and the editor included, for subscribers too. AdSense's page exclusions can keep them off `/projects`, `/editor` and the rest; leaving the script off those pages in code is a small change if wanted.
+- **Europe:** Google requires a consent message for visitors in the EU, the UK and Switzerland. AdSense has one (Privacy & messaging) that works through this same script once it's switched on there. Until it is, the privacy page doesn't claim consent is asked.
+- **Speed:** an ad script and the ads it loads make pages heavier, which search rankings notice. Worth watching on the landing page.
 
 ### A video editor in the browser (2026-10-08, evening)
 

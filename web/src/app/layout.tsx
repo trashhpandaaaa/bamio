@@ -2,6 +2,7 @@ import { ClerkProvider } from "@clerk/nextjs";
 import type { Metadata, Viewport } from "next";
 import { Bricolage_Grotesque, Geist_Mono } from "next/font/google";
 import { ToastProvider } from "@/components/toast";
+import { ADSENSE_SCRIPT, adsEnabled } from "@/lib/ads";
 import { clerkAppearance, clerkLocalization } from "@/lib/clerk-appearance";
 import { HOME_DESCRIPTION, HOME_TITLE, SITE_NAME, SITE_URL } from "@/lib/site";
 import "@/styles/tokens.css";
@@ -70,6 +71,8 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         {/* Scripts (CORS) and the session calls (with cookies) use separate connections. */}
         {clerk ? <link rel="preconnect" href={clerk} crossOrigin="anonymous" /> : null}
         {clerk ? <link rel="preconnect" href={clerk} /> : null}
+        {/* Google AdSense, as Google gives it: in the head of every page, where its crawler looks. Async, so it never holds the page up. */}
+        {adsEnabled() ? <script async src={ADSENSE_SCRIPT} crossOrigin="anonymous" /> : null}
       </head>
       <body>
         <ClerkProvider

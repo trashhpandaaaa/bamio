@@ -1,9 +1,10 @@
-import { readdirSync, existsSync } from "node:fs";
+import { readdirSync, existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import robots from "@/app/robots";
 import sitemap from "@/app/sitemap";
 import { PLANS } from "@/lib/billing/plans";
 import { CAPTION_LANGUAGES, captionLanguageMeta, punctuated } from "@/lib/caption-languages";
+import { ADSENSE_CLIENT, ADSENSE_SCRIPT } from "@/lib/ads";
 import { CONTACT_EMAIL, CONTACT_MAILTO } from "@/lib/contact";
 import { COMPANY, LEGAL_PAGES } from "@/lib/legal";
 import { fontRuns } from "@/lib/server/caption-fonts";
@@ -81,6 +82,13 @@ describe("search engines", () => {
     expect(m.alternates?.canonical).toBe("/podcast-clips");
     expect(m.openGraph).toMatchObject({ url: "/podcast-clips", title: "T", description: "D", siteName: "Bamio" });
     expect(m.twitter).toMatchObject({ card: "summary_large_image" });
+  });
+
+  it("find the ads' publisher in ads.txt, the same one the script names", () => {
+    expect(ADSENSE_CLIENT).toMatch(/^ca-pub-[0-9]{16}$/);
+    expect(ADSENSE_SCRIPT).toBe(`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${ADSENSE_CLIENT}`);
+    // ads.txt: who may sell this site's ad space. Google's line, with the publisher id without its "ca-".
+    expect(readFileSync("public/ads.txt", "utf8").trim()).toBe(`google.com, ${ADSENSE_CLIENT.replace("ca-", "")}, DIRECT, f08c47fec0942fa0`);
   });
 
   it("get structured data with the real prices, and plain-text answers", () => {
