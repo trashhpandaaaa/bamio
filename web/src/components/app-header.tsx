@@ -22,8 +22,11 @@ export function AppHeader() {
           <Link href="/projects" aria-current={onProjects ? "page" : undefined}>
             Projects
           </Link>
-          <Link href="/new" aria-current={pathname === "/new" ? "page" : undefined}>
+          <Link href="/new" aria-current={pathname === "/new" ? "page" : undefined} data-optional="">
             Import
+          </Link>
+          <Link href="/editor" aria-current={pathname === "/editor" ? "page" : undefined}>
+            Editor
           </Link>
         </nav>
         <div className={styles.right}>

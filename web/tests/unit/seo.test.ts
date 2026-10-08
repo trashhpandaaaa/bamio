@@ -21,7 +21,7 @@ describe("search engines", () => {
     const routes = readdirSync("src/app", { withFileTypes: true })
       .filter((d) => d.isDirectory() && existsSync(`src/app/${d.name}/page.tsx`) && !d.name.startsWith("["))
       .map((d) => `/${d.name}`);
-    const privateRoutes = ["/admin", "/billing", "/new", "/projects", "/profile", "/sign-in", "/sign-up"];
+    const privateRoutes = ["/admin", "/billing", "/editor", "/new", "/projects", "/profile", "/sign-in", "/sign-up"];
     expect(routes.filter((r) => !privateRoutes.includes(r)).sort()).toEqual(["/pricing", "/clippers", ...USE_CASES.map((u) => u.href), ...LEGAL_PAGES.map((p) => p.href)].sort());
     for (const u of [...USE_CASES, { href: "/clippers" }, { href: "/auto-captions/[language]" }]) expect(existsSync(`src/app${u.href}/opengraph-image.tsx`), u.href).toBe(true);
   });
@@ -70,7 +70,7 @@ describe("search engines", () => {
     const r = robots();
     const rules = Array.isArray(r.rules) ? r.rules[0]! : r.rules;
     expect(rules.allow).toBe("/");
-    expect(rules.disallow).toEqual(expect.arrayContaining(["/api/", "/projects", "/new", "/profile", "/billing"]));
+    expect(rules.disallow).toEqual(expect.arrayContaining(["/api/", "/projects", "/new", "/editor", "/profile", "/billing"]));
     expect(rules.disallow).not.toContain("/pricing");
     expect(r.sitemap).toBe(`${SITE_URL}/sitemap.xml`);
   });

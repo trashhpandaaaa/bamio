@@ -31,6 +31,10 @@ export default function PrivacyPage() {
             their exports, your edits and your clip settings.
           </li>
           <li>
+            <strong>The editor</strong> is the exception: videos, photos and sounds you open in it stay on your device. They are read, edited and exported in your
+            browser, the edit is saved in your browser’s own storage, and none of it is sent to Bamio. Clearing the browser’s data for this site deletes them.
+          </li>
+          <li>
             <strong>Your plan:</strong> which plan you have, its renewal date, the AI minutes you used and your Stripe customer number. Your card is entered on Stripe’s
             page and its number never reaches us. For the free first video Stripe checks a card and tells us its brand, its last four digits and a fingerprint (a code
             that is the same for the same card), so that a card starts one free trial only.

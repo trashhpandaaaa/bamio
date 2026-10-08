@@ -1,6 +1,6 @@
 # Bamio design status
 
-Last updated: 2026-10-08 (a contact address, alexza@bamio.app, shown and used for replies; accuracy across languages and sites measured and fixed: long speech cut, a second listen for the language, Greek moved, Vimeo and direct files import; 5 new search pages and 15 language pages)
+Last updated: 2026-10-08 (a video editor in the browser, free for every account; a contact address, alexza@bamio.app, shown and used for replies; accuracy across languages and sites measured and fixed: long speech cut, a second listen for the language, Greek moved, Vimeo and direct files import; 5 new search pages and 15 language pages)
 
 ## Current phase
 
@@ -22,6 +22,7 @@ On 2026-09-27 the user said the only features needed are (1) **video clipping** 
 | Pricing (`/pricing`) | Starter, Pro (most popular) and Team, monthly or every 3 months ("Save $6 compared to $36 monthly"...); included features, then a folded "Coming soon" list per plan; buy with Stripe Checkout, switch plans in Stripe's portal; billing questions. Public. |
 | Plan & billing (`/billing`) | The plan and its renewal, AI minutes left this month, projects kept, Manage billing (Stripe portal). In the account menu when plans are on. |
 | Campaigns (`/clippers`) | Clipping campaigns, for subscribers: what each pays per 1,000 views, its budget and leaderboard; clippers join, send the links to clips they posted and see what they earned and were paid. Without a plan: that campaigns exist, how many are open, and the way to the plans. "Run a campaign": podcasters, streamers and businesses ask for one with a form, and Bamio's team sets it up (see Clipping campaigns, Run a campaign, Campaigns are for subscribers). |
+| Editor (`/editor`) | A video editor that runs in the browser, for every account, plan or no plan: a timeline of clips (split, trim by dragging an edge, drag to reorder, undo), speed, volume, fades, crop or fit over a blurred copy, turn and flip, eight looks, slow zooms; text in four styles with four movements and emoji stickers; music and voiceovers recorded over the picture; one-click silence removal, a progress bar, snapshots; 9:16, 1:1, 4:5 or 16:9; MP4 export at 1080p or 720p made on the device. Nothing is uploaded; edits are kept in the browser. An exported Bamio clip opens in it ("Open in editor"). |
 | Pages for search | One page per search, static like the landing page: an AI video clipper, YouTube to Shorts, YouTube to TikTok, video to Reels, podcast, Twitch, Kick and gaming clips, auto captions, and captions in each of 15 languages (`/auto-captions/<language>`, each with a demo and a few lines in the language itself). Titles, descriptions and structured data are held to the facts by tests (see Accuracy across languages and sites, and pages for search). |
 | Admin (`/admin`) | For the people who run Bamio (see Admin panel): overview numbers, users, jobs and errors, money. 404 for everyone else. |
 | Data and storage | Projects, transcripts, jobs, billing and usage in Postgres; media (sources, thumbnails, frames, exports, a followed stream's segments) in a local folder or S3 / R2 / MinIO, per Clerk user and project. |
@@ -105,6 +106,38 @@ The user pasted a production-readiness checklist (keys, Postgres, S3/R2, Redis a
 - **Workers** (`worker.ts`): pools for imports (2 at once), exports (2) and streams (4), set with `BAMIO_*_SLOTS`. Each kind has a time limit (import 8 h, find clips and transcribe again 6 h, export 2 h, follow its maximum plus 2 h). On SIGTERM a worker stops claiming, aborts its jobs and hands them back without counting an attempt. The web server runs a worker itself (`instrumentation.ts`) unless `BAMIO_WORKER=off`; then `node dist/worker.mjs` (esbuild bundle, `npm run build:worker`) runs on any machine with the same environment. Job handlers were made safe to run again: an import that finds its video already prepared goes straight to transcription, and a followed stream resumed by another worker finishes what was captured.
 - **Health and deploy:** `GET /api/health` (public, nothing about users) reports the database, storage, media tools and the queue (waiting, running, oldest wait) with 200 or 503. A database that can't be reached gives a 503 "can't reach its database" everywhere. `web/Dockerfile` (one image for both roles: Node 24 slim, tini, a non-root user, migrations on start, a health check) and `web/compose.yaml` (Postgres 18, MinIO and its bucket, a web server that only queues, a worker; `--scale worker=N`).
 - **Decision: a Postgres queue instead of Redis and BullMQ.** Same guarantees for this load (durable, leased, retried, prioritised, cancellable), one less service to run and back up, and a job is queued in the same transaction as the project change that asks for it, so neither can exist without the other. `queue.ts` is small, so it can be swapped if volume ever needs it. Redis and Docker weren't available on this machine either.
+
+### A video editor in the browser (2026-10-08, evening)
+
+The user asked for a video editing system for all users, subscribed or not: browser based, where you can do everything, with some cool features.
+
+**How it's built, and why.** Everything happens in the browser tab, the export included. The files are read where they are on the user's device, the edit is saved in the browser's own storage (IndexedDB), and the video is rendered there with WebCodecs. That is what lets it be free for everyone: Bamio's servers do no work and hold no files, so there's nothing to limit and no plan to ask for, and the user's video never leaves their device. It needs a sign-in (an account, not a plan) like the rest of the app.
+
+**What it does** (`/editor`):
+- **A timeline.** Videos and photos play one after another on a main track; text and sounds sit over it, placed freely. Split at the playhead (S), drag an edge to trim, drag a clip to reorder, duplicate, delete, undo and redo a hundred steps back, snapping to the ends of things and the playhead. Clips show thumbnails and the shape of their sound.
+- **Each clip:** speed from a quarter to four times, volume and mute, fades in and out, fill the frame or fit whole over a blurred copy (or a colour), zoom and position (or drag the picture in the preview), turn, flip, eight colour looks with brightness, contrast and colour, and a slow push in or pull out.
+- **Text:** four styles in Bamio's type (Bold with an outline, Box, Volt, Plain), seven colours, four movements (pop, fade, rise, type on), dragged into place on the preview; ready-made title, caption and call to action; emoji as stickers.
+- **Sound:** music or any sound from the device with volume and fades, and a voiceover recorded from the microphone while the edit plays.
+- **The cool parts:** *Remove silences* finds the pauses in the talk and cuts them all in one go (gentle, normal or tight; one undo brings them back); a progress bar that fills as the video plays; a snapshot of any frame at full size; an exported Bamio clip opens straight in the editor ("Open in editor" on its card) to add music, text or other clips.
+- **Frame and export:** 9:16, 1:1, 4:5 or 16:9. MP4 (H.264, AAC) at 1080p or 720p, 30 frames a second, no watermark, with a progress bar, the time left and a preview before downloading. A browser that can't encode H.264 gets a WebM and is told so.
+- **Kept:** the edit and its files are saved in the browser as you work; the list of edits, a reload and tomorrow all find it. Files the browser dropped are asked for again by name.
+- **A public page**, `/video-editor`, with a picture of the editor (stock footage in it) and its own "Open the editor" button; the pricing page says the editor is free, the privacy page that its files stay on the device.
+
+**How it's put together:** the edit is one validated document (`src/lib/editor/model.ts`); every change is a pure function (`timeline.ts`), which makes undo a stack of documents; one drawing function (`compose.ts`) draws a frame for both the preview and the export, in shares of the frame, so what's exported is what was seen. The preview plays the files' own `<video>` elements and follows their clock; the export decodes with Mediabunny, draws, encodes and mixes the sound in 8-second pieces with the Web Audio API.
+
+Decisions:
+- **In the browser, not on the server.** A server-side editor would have needed limits and plans for free users (storage, CPU, abuse); this needs none, and "nothing is uploaded" is a promise most editors can't make.
+- **Ten minutes at most per export**, because the file is built in the browser's memory. Longer videos can be opened and cut down.
+- **No automatic captions in the editor.** They need Bamio's transcriber, which runs on the server and is what plans pay for. AI clips arrive with their captions burned in and open in the editor.
+- **Speed changes the pitch**, in the preview and the export alike, so the two always match.
+- **Edits live in the browser, not the account:** another device has its own. Syncing would mean uploading, which is the one thing this doesn't do.
+- **One new dependency:** Mediabunny (MPL-2.0), for reading and writing video files in the browser.
+
+Found by the tests on the way: the preview stopped redrawing after the first pause (a stale animation-frame id); a closed export dialog was showing (its own `display` overrode the browser's); and the site's security header forbade the microphone everywhere, so voiceovers could never have worked live (now allowed on `/editor` only).
+
+Verified: 235 unit tests (new: the timeline's arithmetic, splitting, trimming, reordering, cutting ranges out, fades, text movement, silences); the e2e suite, 21 passing (new: the editor needs a sign-in and opens without a plan; a video is cut, sped up, captioned, exported at 720p and the file checked with ffprobe, with no request sent to the server and the edit still there after a reload; two videos, a photo and music combined in a vertical frame, reordered and trimmed by dragging, silences cut, exported at 1080 x 1920 with the sound mixed; a voiceover recorded with a stand-in microphone; an exported clip opened in the editor); the layout test at five widths and the sweep in both themes with the editor and its public page added.
+
+Not verified: Safari and Firefox (only Edge is installed here; the editor says so when a browser can't export), real phones, and videos in formats this browser can't decode (HEVC from some phones: the editor refuses them with a reason).
 
 ### A contact address (2026-10-08, later)
 
@@ -660,6 +693,7 @@ The user asked: "make the live stream video work without recording as well, add 
 8. Possible upgrades: punctuation and capitals for languages Omnilingual writes without them (a punctuation model, or Omnilingual's LLM variant when sherpa-onnx supports it), speaker-aware auto-reframe (face tracking), batch export as a zip, more caption styles and fonts, keyword highlights, background music, direct posting to TikTok and YouTube.
 9. Keep yt-dlp current (`npm run setup:media`); sites change often. `npm run sites:check` shows which sites answer today (run it on the Droplet too); TED and Rumble are worth another look after each yt-dlp release.
 9a. Search: submit the sitemap in Google Search Console and Bing Webmaster Tools, watch which of the new pages get impressions, and write more only where there's demand. Bigger steps, each the user's call: the site in other languages (hreflang and a translated interface), comparison pages with facts the owner supplies, a short real clip of Bamio's own export on each page.
+9c. Editor: try it on Safari, Firefox and real phones; then, by what people ask for: transitions between clips, a second video layer (picture in picture), pitch kept when the speed changes, word-by-word captions from Bamio's transcriber for subscribers, and exports longer than ten minutes (written to disk as they're made, where the browser allows).
 9b. Languages: `npm run lang:eval` after any change to the transcriber. Still unmeasured for want of a captioned video: Croatian, Tagalog, Urdu, Hebrew, Cantonese. Serbian comes out in Cyrillic; converting to Latin letters is one table if creators ask. Sound-only sources (a podcast's MP3) could become videos with a still picture.
 10. Responsive checks are automated now (`E2E_RESPONSIVE=1`); still to do: a look at real projects (long titles, many clips, live streams) in both themes with a live Gemini key.
 

@@ -41,6 +41,11 @@ export type UseCase = {
   credit?: string;
   /** A few lines in another language, for people searching in it (a language's captions page). */
   own?: { lang: string; rtl?: boolean; headline: string; text: string };
+  /**
+   * Where the page sends people when that isn't the link field: the editor's page opens the
+   * editor. `note`: a line under the button. `closing`: the headline of the panel at the end.
+   */
+  action?: { href: string; label: string; note?: string; closing: string };
   /** More pages of the same kind, listed before "More with Bamio" (captions by language). */
   related?: { title: string; links: SiteLink[] };
 };
@@ -57,13 +62,23 @@ export function UseCasePage({ page }: { page: UseCase }) {
             {page.headline[0]} <span className="hl">{page.headline[1]}</span>
           </h1>
           <p className={styles.lede}>{page.lede}</p>
-          <div className={styles.action}>
-            <LinkForm variant="hero" id="hero-link" />
-            <Link href="/new?mode=upload" className={`btn btn-secondary btn-lg ${styles.upload}`}>
-              <UploadSimple size={18} aria-hidden />
-              Upload a file
-            </Link>
-          </div>
+          {page.action ? (
+            <div className={styles.actionOne}>
+              <Link href={page.action.href} className={`btn btn-primary btn-lg ${styles.upload}`}>
+                {page.action.label}
+                <ArrowRight size={18} aria-hidden />
+              </Link>
+              {page.action.note ? <p>{page.action.note}</p> : null}
+            </div>
+          ) : (
+            <div className={styles.action}>
+              <LinkForm variant="hero" id="hero-link" />
+              <Link href="/new?mode=upload" className={`btn btn-secondary btn-lg ${styles.upload}`}>
+                <UploadSimple size={18} aria-hidden />
+                Upload a file
+              </Link>
+            </div>
+          )}
         </section>
 
         <div className={`container ${styles.visual}`}>{page.visual}</div>
@@ -153,9 +168,16 @@ export function UseCasePage({ page }: { page: UseCase }) {
         <section id="get-started" className={`container ${styles.section}`} aria-labelledby="cta-title">
           <div className={styles.cta}>
             <h2 id="cta-title" className="t-display-lg">
-              paste a link, get the clips.
+              {page.action?.closing ?? "paste a link, get the clips."}
             </h2>
-            <LinkForm variant="panel" />
+            {page.action ? (
+              <Link href={page.action.href} className="btn btn-primary btn-lg">
+                {page.action.label}
+                <ArrowRight size={18} aria-hidden />
+              </Link>
+            ) : (
+              <LinkForm variant="panel" />
+            )}
           </div>
         </section>
       </main>

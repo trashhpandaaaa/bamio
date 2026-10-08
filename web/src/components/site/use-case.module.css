@@ -7,6 +7,9 @@
 .lede { margin: 0; max-width: 52ch; font: var(--t-body-lg); color: var(--text-secondary); }
 .action { display: grid; grid-template-columns: minmax(0, 620px) auto; align-items: start; gap: 14px; width: 100%; justify-content: center; margin-top: 10px; }
 .upload { --btn-h: 64px; }
+/* One button instead of the link field, with a line under it. */
+.actionOne { display: grid; justify-items: center; gap: 12px; margin-top: 10px; }
+.actionOne p { margin: 0; font: var(--t-body-sm); color: var(--text-tertiary); }
 .visual { margin-top: 56px; }
 
 .section { padding-top: 112px; }

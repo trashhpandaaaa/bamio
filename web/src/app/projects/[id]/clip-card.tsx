@@ -1,6 +1,6 @@
 "use client";
 
-import { DownloadSimple, Export, PencilSimple, Play, Trash, WarningCircle } from "@phosphor-icons/react";
+import { DownloadSimple, Export, FilmSlate, PencilSimple, Play, Trash, WarningCircle } from "@phosphor-icons/react";
 import Link from "next/link";
 import { AiMark } from "@/components/brand";
 import { exportUrl, thumbUrl } from "@/lib/clips/api";
@@ -16,7 +16,7 @@ export function exportState(clip: Clip, project: Project) {
   if (ex.status === "queued" || ex.status === "rendering") return { kind: "busy" as const, progress: ex.progress, queued: ex.status === "queued" };
   if (ex.status === "failed") return { kind: "failed" as const, error: ex.error ?? "The export failed." };
   const stale = ex.signature !== undefined && ex.signature !== exportSignature(clip, project.transcriptRev);
-  return { kind: "done" as const, stale, bytes: ex.bytes, href: exportUrl(project.id, clip.id, ex.version) };
+  return { kind: "done" as const, stale, bytes: ex.bytes, version: ex.version, href: exportUrl(project.id, clip.id, ex.version) };
 }
 
 export function ClipCard({
@@ -92,9 +92,15 @@ export function ClipCard({
             <PencilSimple size={16} aria-hidden /> Edit
           </Link>
           {state.kind === "done" && !state.stale ? (
-            <a className="btn btn-secondary btn-sm" href={state.href} download>
-              <DownloadSimple size={16} aria-hidden /> Download{state.bytes ? ` (${formatBytes(state.bytes)})` : ""}
-            </a>
+            <>
+              <a className="btn btn-secondary btn-sm" href={state.href} download>
+                <DownloadSimple size={16} aria-hidden /> Download{state.bytes ? ` (${formatBytes(state.bytes)})` : ""}
+              </a>
+              {/* The exported clip, opened in the editor (/editor) to add music, text or other clips to it. */}
+              <Link className="btn btn-secondary btn-sm" href={`/editor?project=${project.id}&clip=${clip.id}&v=${state.version ?? 0}&name=${encodeURIComponent(clip.title.slice(0, 60))}`} title="Add music, text or other clips in the editor">
+                <FilmSlate size={16} aria-hidden /> Open in editor
+              </Link>
+            </>
           ) : (
             <button className="btn btn-secondary btn-sm" type="button" onClick={onExport} disabled={state.kind === "busy"}>
               <Export size={16} aria-hidden /> {state.kind === "done" || state.kind === "failed" ? "Export again" : "Export"}

@@ -35,6 +35,12 @@ export const USE_CASES = [
     description: "An AI video clipper for long videos: paste a link or upload a file, and Bamio picks the best moments, scores them and exports captioned vertical clips.",
   },
   {
+    href: "/video-editor",
+    label: "Video editor",
+    title: "Free online video editor: no upload, no watermark",
+    description: "A free video editor in your browser: cut, combine, add text and music, remove silences in one click and export MP4s with no watermark. Nothing is uploaded.",
+  },
+  {
     href: "/youtube-to-shorts",
     label: "YouTube to Shorts",
     title: "YouTube to Shorts: turn long videos into Shorts with AI",
@@ -151,6 +157,7 @@ export function softwareData() {
       "Word-by-word captions in 100+ languages, detected automatically",
       "Reframe to 9:16, 1:1 or 16:9",
       "1080p MP4 export with no watermark",
+      "A free video editor that runs in the browser: nothing is uploaded",
     ],
     offers: PLAN_IDS.flatMap((id) =>
       INTERVALS.map((interval) => ({

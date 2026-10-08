@@ -173,6 +173,20 @@ test.describe("clipping", () => {
     expect(range.status()).toBe(206);
     expect((await range.body()).length).toBe(100);
 
+    // The exported clip opens in the video editor (to add music, text or other clips), as a new edit kept in this browser.
+    const clipUrl = page.url();
+    await page.goto(projectUrl);
+    await page.getByTestId("clip-card").filter({ has: page.getByRole("link", { name: /^Download/ }) }).getByRole("link", { name: "Open in editor" }).click();
+    await expect(page).toHaveURL(/\/editor\?edit=[0-9a-z]+$/, { timeout: 60_000 });
+    // Named after the clip.
+    await expect(page.getByLabel("Name of this edit")).toHaveValue(/^Moment 1: /);
+    // Its file is there where this browser can decode H.264 (the open-source Chromium on CI can't, and says so).
+    await expect(page.getByRole("listbox", { name: "Clips" }).getByRole("option").or(page.getByText(/can’t (decode|play)/))).toBeVisible({ timeout: 60_000 });
+    await page.getByRole("button", { name: "Edits" }).click();
+    await page.getByRole("button", { name: /^Delete Moment 1: / }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Delete edit" }).click();
+    await page.goto(clipUrl);
+
     // Editing after export marks the file as out of date.
     await page.getByRole("group", { name: "Format" }).getByRole("button", { name: "16:9 Wide" }).click();
     await expect(page.getByRole("button", { name: "Export again" })).toBeVisible();

@@ -27,6 +27,16 @@ const LINKS: SiteLink[] = [
 
 const FAQ: FaqItem[] = [
   {
+    q: "Is anything free?",
+    a: (
+      <>
+        Yes. The <Link href="/video-editor">video editor</Link> is free for every account, with no watermark: it runs in your browser, so it costs Bamio nothing to offer. Plans pay for what
+        Bamio’s servers do: importing long videos, transcribing them and finding the clips with AI.
+      </>
+    ),
+    text: "Yes. The video editor is free for every account, with no watermark: it runs in your browser, so it costs Bamio nothing to offer. Plans pay for what Bamio’s servers do: importing long videos, transcribing them and finding the clips with AI.",
+  },
+  {
     q: "What’s an AI processing minute?",
     a: "A minute of video Bamio imports: it transcribes every word and finds the clips. A 30-minute podcast uses 30 minutes; importing only part of a video uses only that part, and a followed live stream uses what’s captioned. Finding more clips, editing and exporting use none.",
   },

@@ -31,5 +31,6 @@
   .right .themeCompact { display: inline-flex; }
 }
 @media (max-width: 420px) {
-  .nav a:last-child { display: none; }
+  /* Import is on the Projects page too; the editor is only here. */
+  .nav a[data-optional] { display: none; }
 }

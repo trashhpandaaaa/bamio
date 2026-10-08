@@ -104,6 +104,7 @@ async function pages(page: Page) {
     { name: "podcast-clips", path: "/podcast-clips", ready: (p) => expect(p.locator("#hero-link")).toBeVisible() },
     { name: "twitch-clips", path: "/twitch-clips", ready: (p) => expect(p.locator("#hero-link")).toBeVisible() },
     { name: "auto-captions", path: "/auto-captions", ready: (p) => expect(p.locator("#hero-link")).toBeVisible() },
+    { name: "video-editor-page", path: "/video-editor", ready: (p) => expect(p.getByRole("link", { name: "Open the editor" }).first()).toBeVisible() },
     { name: "ai-video-clipper", path: "/ai-video-clipper", ready: (p) => expect(p.locator("#hero-link")).toBeVisible() },
     { name: "youtube-to-tiktok", path: "/youtube-to-tiktok", ready: (p) => expect(p.locator("#hero-link")).toBeVisible() },
     { name: "video-to-reels", path: "/video-to-reels", ready: (p) => expect(p.locator("#hero-link")).toBeVisible() },
@@ -182,5 +183,35 @@ test("a project and the editor fit phones, tablets and desktops", async ({ page 
     ]);
   } finally {
     expect((await page.request.delete(projectPath.replace("/projects/", "/api/projects/"))).status()).toBe(204);
+  }
+});
+
+test("the video editor fits phones, tablets and desktops", async ({ page }) => {
+  test.setTimeout(10 * 60_000);
+  mkdirSync(OUT, { recursive: true });
+  await signIn(page);
+  await page.goto("/editor");
+  // An edit with a clip and text in it where this browser can decode the sample (H.264); an empty one elsewhere.
+  const decodes = await page.evaluate(async () => typeof VideoDecoder !== "undefined" && (await VideoDecoder.isConfigSupported({ codec: "avc1.640028" }).then((s) => s.supported === true, () => false)));
+  if (decodes) {
+    await page.getByTestId("editor-new-files").setInputFiles(SAMPLE_VIDEO);
+    await expect(page.getByRole("listbox", { name: "Clips" }).getByRole("option")).toHaveCount(1, { timeout: 90_000 });
+    await page.getByRole("tab", { name: "Text" }).click();
+    await page.getByRole("button", { name: "Add text" }).click();
+  } else {
+    await page.getByRole("button", { name: "Start empty" }).click();
+  }
+  await page.waitForURL(/\/editor\?edit=/);
+  await expect(page.getByText("Saved on this device")).toBeVisible({ timeout: 30_000 });
+  const editPath = new URL(page.url()).pathname + new URL(page.url()).search;
+  try {
+    await audit(page, "video-editor", [
+      { name: "edits", path: "/editor", ready: (p) => expect(p.getByRole("heading", { name: "Your edits on this device" })).toBeVisible() },
+      { name: "video-editor", path: editPath, ready: (p) => expect(p.getByRole("button", { name: "Export", exact: true })).toBeVisible() },
+    ]);
+  } finally {
+    await page.goto("/editor");
+    await page.getByRole("button", { name: /^Delete / }).first().click();
+    await page.getByRole("dialog").getByRole("button", { name: "Delete edit" }).click();
   }
 });

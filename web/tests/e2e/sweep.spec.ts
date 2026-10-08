@@ -111,6 +111,7 @@ test("public pages", async ({ page }) => {
       { name: "podcast-clips", path: "/podcast-clips", ready: heading },
       { name: "twitch-clips", path: "/twitch-clips", ready: heading },
       { name: "auto-captions", path: "/auto-captions", ready: heading },
+      { name: "video-editor-page", path: "/video-editor", ready: heading },
       { name: "ai-video-clipper", path: "/ai-video-clipper", ready: heading },
       { name: "youtube-to-tiktok", path: "/youtube-to-tiktok", ready: heading },
       { name: "video-to-reels", path: "/video-to-reels", ready: heading },
@@ -152,6 +153,18 @@ test("signed-in pages, a project and the editor", async ({ page }) => {
   try {
     await expect(page.getByTestId("clip-card").first()).toBeVisible({ timeout: 180_000 });
     const editPath = await page.getByTestId("clip-card").first().getByRole("link", { name: "Edit" }).getAttribute("href");
+    // An edit in the video editor too, with the sample in it where this browser can decode it (H.264). It lives in this test's browser only.
+    await page.goto("/editor");
+    const decodes = await page.evaluate(async () => typeof VideoDecoder !== "undefined" && (await VideoDecoder.isConfigSupported({ codec: "avc1.640028" }).then((s) => s.supported === true, () => false)));
+    if (decodes) {
+      await page.getByTestId("editor-new-files").setInputFiles(SAMPLE_VIDEO);
+      await expect(page.getByRole("listbox", { name: "Clips" }).getByRole("option")).toHaveCount(1, { timeout: 90_000 });
+      await page.getByRole("tab", { name: "Text" }).click();
+      await page.getByRole("button", { name: "Add text" }).click();
+    } else await page.getByRole("button", { name: "Start empty" }).click();
+    await page.waitForURL(/\/editor\?edit=/);
+    await expect(page.getByText("Saved on this device")).toBeVisible({ timeout: 30_000 });
+    const editorPath = new URL(page.url()).pathname + new URL(page.url()).search;
     await sweep(
       page,
       [
@@ -161,6 +174,8 @@ test("signed-in pages, a project and the editor", async ({ page }) => {
         { name: "project", path: projectPath, ready: (p) => expect(p.getByTestId("clip-card").first()).toBeVisible() },
         { name: "editor", path: editPath!, ready: (p) => expect(p.getByRole("button", { name: "Export", exact: true })).toBeVisible() },
         { name: "billing", path: "/billing", ready: (p) => expect(p.getByRole("heading", { level: 2 }).first()).toBeVisible() },
+        { name: "edits", path: "/editor", ready: (p) => expect(p.getByRole("heading", { name: "Your edits on this device" })).toBeVisible() },
+        ...(editorPath ? [{ name: "video-editor", path: editorPath, ready: (p: Page) => expect(p.getByRole("button", { name: "Export", exact: true })).toBeVisible() }] : []),
         { name: "profile", path: "/profile", ready: (p) => expect(p.locator(".cl-userProfile-root, .cl-rootBox").first()).toBeVisible() },
         { name: "clip-defaults", path: "/profile/clip-defaults", ready: (p) => expect(p.getByRole("heading", { name: "Clip defaults" })).toBeVisible() },
         { name: "notifications", path: "/profile/notifications", ready: (p) => expect(p.getByRole("heading", { name: "Notifications" })).toBeVisible() },

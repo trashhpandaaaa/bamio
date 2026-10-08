@@ -40,6 +40,12 @@ const nextConfig: NextConfig = {
         ],
       },
       {
+        // The editor records voiceovers: there, and only there, Bamio's own pages may ask for the microphone
+        // (the browser still asks the person). Listed after the rule above, so this is the one that counts.
+        source: "/editor",
+        headers: [{ key: "Permissions-Policy", value: "camera=(), microphone=(self), geolocation=()" }],
+      },
+      {
         // The landing page's demo footage changes rarely (scripts/landing-footage.mjs): browsers and
         // Cloudflare keep it a week, and use a stale copy for a day while fetching a new one.
         source: "/landing/:file*",
