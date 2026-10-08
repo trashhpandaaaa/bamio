@@ -93,6 +93,7 @@ export function explainYtdlpError(stderr: string): string {
     s.includes("login") ||
     s.includes("logged-in") ||
     s.includes("log in") ||
+    s.includes("authentication is required") ||
     s.includes("sign in")
   ) {
     return "That video is private or needs a sign-in, so Bamio can’t download it.";

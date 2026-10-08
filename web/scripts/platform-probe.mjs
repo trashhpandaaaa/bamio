@@ -2,6 +2,8 @@
  * Which sites can Bamio read right now? Asks yt-dlp about one public video on each, the way
  * inspectUrl does, and says what came back (or why not). Sites change often: run it when
  * someone reports a link that won't import, and after updating yt-dlp (npm run setup:media).
+ * Uses the YouTube cookies the app uses (YTDLP_COOKIES), where there are any: without them
+ * YouTube asks a server to sign in.
  * A site that fails here and on the server may still work from one of them only (some turn
  * away data centres), so run it on the Droplet too.
  *
@@ -9,9 +11,11 @@
  *   node scripts/platform-probe.mjs vimeo ted  only these
  */
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import path from "node:path";
 
 const ytdlp = path.join(process.cwd(), ".bin", process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp");
+const cookies = process.env.YTDLP_COOKIES && existsSync(process.env.YTDLP_COOKIES) ? ["--cookies", process.env.YTDLP_COOKIES] : [];
 const SITES = {
   youtube: "https://www.youtube.com/watch?v=jNQXAC9IVRw",
   "youtube-short": "https://www.youtube.com/shorts/jNQXAC9IVRw",
@@ -34,7 +38,7 @@ const SITES = {
 
 function ask(url) {
   return new Promise((resolve) => {
-    const child = spawn(ytdlp, ["--no-playlist", "--no-warnings", "--ignore-config", "--js-runtimes", `node:${process.execPath}`, "-J", "--skip-download", "--", url], { windowsHide: true });
+    const child = spawn(ytdlp, ["--no-playlist", "--no-warnings", "--ignore-config", "--js-runtimes", `node:${process.execPath}`, ...cookies, "-J", "--skip-download", "--", url], { windowsHide: true });
     let out = "";
     let err = "";
     child.stdout.on("data", (d) => (out += d));

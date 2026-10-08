@@ -87,6 +87,7 @@ describe("links", () => {
     expect(explainYtdlpError("ERROR: Video unavailable")).toMatch(/isn’t available/);
     expect(explainYtdlpError("something odd")).toMatch(/couldn’t read that link/);
     expect(explainYtdlpError("ERROR: [vimeo] 76979871: The web client only works when logged-in.")).toMatch(/needs a sign-in/);
+    expect(explainYtdlpError("ERROR: [Reddit] 6rrwyj: Account authentication is required. Use --cookies-from-browser or --cookies")).toMatch(/needs a sign-in/);
     expect(explainYtdlpError("ERROR: [Rumble] v4: Unable to download webpage: HTTP Error 403: Forbidden")).toMatch(/upload the file instead/);
     expect(explainYtdlpError("ERROR: [spotify] The requested site is known to use DRM protection")).toMatch(/copy-protected/);
     // Numbers and letters inside a video's id aren't the error.

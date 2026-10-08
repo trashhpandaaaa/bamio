@@ -123,7 +123,7 @@ After: 39 videos transcribed, the language of every one named correctly (the "Pe
 Decisions:
 - **Greek gives up punctuation for spelling.** A caption with every fifth word misspelt is worse than one without commas.
 - **Serbian comes out in Cyrillic**, as Omnilingual writes it. Most Serbian creators caption in Latin letters, and the two map one for one, so converting is a small job if the user wants it; it wasn't done unasked.
-- **The second listen costs about 640 MB more to download and 20 to 30 seconds on a video that isn't English.** The models are about 2.8 GB now (was 1.9).
+- **The second listen costs about 640 MB more to download and, on the Droplet's two CPUs, 36 seconds on a video that isn't English** (measured there: two minutes of Norwegian took 190 s in all with the multilingual model, two minutes of French 129 s with the European one and its repair; memory in use peaked near 1.9 GB, about what the multilingual model alone needed before). Long videos don't notice; a two-minute one does. The models are about 2.8 GB now (was 1.9).
 - `TRANSCRIBER_VERSION` is 3. Only Greek is offered a re-transcription: for other videos nobody can tell from the stored transcript whether a long stretch was lost.
 
 **Sites.** yt-dlp here is already the newest release, so what fails is the sites' own doing. `npm run sites:check` (`scripts/platform-probe.mjs`) asks about one public video on each of about 15 sites.
@@ -131,7 +131,7 @@ Decisions:
 - **Vimeo works again.** Its video pages answer only signed-in browsers now; its player answers anyone. `playerUrl` turns `vimeo.com/<id>` (and channel, showcase and unlisted links) into the player's address, which is asked first, twice (it sometimes answers 401 once), and kept as the project's address so the download works too.
 - **A link straight to a video file imports.** The site states no length for one, and Bamio refused it; ffprobe now reads the length from the file (`remoteDuration`).
 - **Clearer reasons when a site can't be read:** it turns servers away (Rumble: "download the video yourself and upload the file"), it wants a sign-in, the video is copy-protected. Well-known sites are named (Vimeo, TikTok, Reddit...) instead of "Web".
-- Working: YouTube, Shorts, Twitch, Kick, Vimeo, Dailymotion, TikTok, Facebook, Reddit, Streamable, the Internet Archive, direct files. Not working, and not Bamio's to fix: Rumble (403 to servers), TED (yt-dlp's extractor is broken), Instagram (sign-in), Bilibili (region), Spotify (copy protection). Sound-only sources (SoundCloud, an MP3) are still refused: Bamio makes videos.
+- Working from the Droplet (checked there after deploying): YouTube and Shorts (with the cookies file; without it YouTube asks a server to sign in), Twitch, Kick, Vimeo, Dailymotion, TikTok, Facebook, Streamable, the Internet Archive, direct files. Not working, and not Bamio's to fix: Reddit (works from a home connection, asks servers to sign in), Rumble (403 to servers), TED (yt-dlp's extractor is broken), Instagram (sign-in), Bilibili (region), Spotify and some of Vimeo's own videos (copy protection). Sound-only sources (SoundCloud, an MP3) are still refused: Bamio makes videos.
 
 **Search.** Technical faults first, then pages for what people search.
 
