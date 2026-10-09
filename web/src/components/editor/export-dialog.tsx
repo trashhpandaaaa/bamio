@@ -1,12 +1,14 @@
 "use client";
 
-import { CheckCircle, DownloadSimple, Warning } from "@phosphor-icons/react";
+import { CheckCircle, DownloadSimple, LockSimple, Warning } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
-import { exportEdit, ExportError, exportSize, exportSupport, type ExportHeight, type ExportResult } from "@/lib/editor/export";
+import { exportEdit, ExportError, exportSize, exportSupport, type ExportFps, type ExportHeight, type ExportResult } from "@/lib/editor/export";
+import { can } from "@/lib/editor/features";
 import { clock } from "@/lib/editor/model";
 import { exportProblem, totalDuration } from "@/lib/editor/timeline";
 import { useEditor } from "./context";
 import styles from "./editor.module.css";
+import { PlanNote } from "./plan-note";
 
 type Run = { state: "idle" } | { state: "running"; done: number; startedAt: number } | { state: "done"; result: ExportResult; url: string } | { state: "failed"; message: string };
 
@@ -20,10 +22,14 @@ function pageFont(): string {
 
 /** Render the edit to a video file, here in the browser, and hand it over to download. */
 export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { edit, assets, missing } = useEditor();
+  const { edit, assets, missing, level } = useEditor();
+  // 720p and 30 frames a second for everyone; 1080p and 60 with the plans that have them.
+  const hd = can(level, "hd");
+  const smooth = can(level, "smooth");
   const ref = useRef<HTMLDialogElement>(null);
   const stopper = useRef<AbortController | null>(null);
-  const [height, setHeight] = useState<ExportHeight>(1080);
+  const [height, setHeight] = useState<ExportHeight>(hd ? 1080 : 720);
+  const [fps, setFps] = useState<ExportFps>(30);
   const [run, setRun] = useState<Run>({ state: "idle" });
   /** The clock, read once a second while rendering (for the time left). */
   const [now, setNow] = useState(0);
@@ -70,7 +76,7 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
     setRun({ state: "running", done: 0, startedAt });
     try {
       await document.fonts?.load(`800 40px ${pageFont()}`);
-      const result = await exportEdit(edit, assets, { height, font: pageFont(), signal: controller.signal, onProgress: (done) => setRun({ state: "running", done, startedAt }) });
+      const result = await exportEdit(edit, assets, { height: hd ? height : 720, fps: smooth ? fps : 30, font: pageFont(), signal: controller.signal, onProgress: (done) => setRun({ state: "running", done, startedAt }) });
       if (controller.signal.aborted) return;
       setRun({ state: "done", result, url: URL.createObjectURL(result.blob) });
     } catch (err) {
@@ -105,15 +111,25 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
             </p>
           ) : null}
           <div className="seg" role="group" aria-label="Quality">
-            <button type="button" aria-pressed={height === 1080} onClick={() => setHeight(1080)}>
-              1080p
+            <button type="button" aria-pressed={height === 1080} disabled={!hd} onClick={() => setHeight(1080)}>
+              {hd ? null : <LockSimple size={14} weight="fill" aria-hidden />} 1080p
             </button>
             <button type="button" aria-pressed={height === 720} onClick={() => setHeight(720)}>
-              720p (faster)
+              720p{hd ? " (faster)" : ""}
             </button>
           </div>
+          {hd ? null : <PlanNote feature="hd" />}
+          <div className="seg" role="group" aria-label="Frames a second">
+            <button type="button" aria-pressed={fps === 30} onClick={() => setFps(30)}>
+              30 a second
+            </button>
+            <button type="button" aria-pressed={fps === 60} disabled={!smooth} title="Smoother for gameplay and sport, when the video was recorded at 60" onClick={() => setFps(60)}>
+              {smooth ? null : <LockSimple size={14} weight="fill" aria-hidden />} 60 a second
+            </button>
+          </div>
+          {smooth ? null : <PlanNote feature="smooth" />}
           <p className="dialog-body">
-            {clock(total, false)} long, {size.width} x {size.height}, 30 frames a second, no watermark. It’s made here on your device: keep this tab open and in front until it’s done.
+            {clock(total, false)} long, {size.width} x {size.height}, {fps} frames a second, no watermark. It’s made here on your device: keep this tab open and in front until it’s done.
           </p>
           {problem ? (
             <p className={`notice is-warning ${styles.exportNote}`}>
@@ -151,7 +167,7 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
         <>
           <video className={styles.exportVideo} src={run.url} controls playsInline />
           <p className="dialog-body">
-            <CheckCircle size={16} weight="fill" aria-hidden /> {clock(run.result.seconds, false)}, {run.result.width} x {run.result.height}, {megabytes(run.result.blob.size)}
+            <CheckCircle size={16} weight="fill" aria-hidden /> {clock(run.result.seconds, false)}, {run.result.width} x {run.result.height}, {run.result.fps} frames a second, {megabytes(run.result.blob.size)}
             {run.result.extension === "webm" ? ". This browser can’t make an MP4, so it’s a WebM: Chrome or Edge will give you an MP4." : ""}
           </p>
           <div className="dialog-actions">

@@ -4,8 +4,8 @@ import { TOKENS } from "@/lib/brand-tokens";
 /*
  * The editor's document: an edit made in the browser (/editor). Everything about it lives on
  * the user's device: this document and the media files in IndexedDB, the preview and the
- * export in the browser. Nothing is uploaded, which is why the editor is free for every
- * account. One main track of clips played one after another (no gaps), text layers and audio
+ * export in the browser. Nothing is uploaded, which is why its basics are free for every
+ * account (what needs a plan is in features.ts). One main track of clips played one after another (no gaps), text layers and audio
  * clips placed freely in time over it. Times are seconds.
  */
 
@@ -34,8 +34,8 @@ export const EDITOR_LIMITS = {
   minSpeed: 0.25,
   maxSpeed: 4,
   name: 80,
-  /** Frames a second of the export. */
-  fps: 30,
+  /** Frames a second of the export, unless 60 is asked for (and of a step with the arrow keys). */
+  fps: 30 as const,
 };
 
 /** Colour looks: a canvas filter each (see lookFilter). */
@@ -89,6 +89,13 @@ export const TEXT_COLORS = [
   { value: "#FF7AD9", name: "Pink" },
   { value: "#FFB020", name: "Amber" },
 ] as const;
+
+/**
+ * Where TikTok, Reels and Shorts put their own buttons, names and captions over a 9:16 video,
+ * as shares of the frame: text is best kept out of these edges. Roughly: each app differs and
+ * changes, and published guides disagree, so this takes the larger of their figures.
+ */
+export const SAFE_ZONE = { top: 0.13, bottom: 0.2, left: 0.055, right: 0.17 } as const;
 
 export const MOTIONS = { none: "None", in: "Push in", out: "Pull out" } as const;
 export type Motion = keyof typeof MOTIONS;
@@ -164,6 +171,8 @@ export const audioSchema = z.object({
   volume: unit,
   fadeIn: z.number().finite().min(0).max(10),
   fadeOut: z.number().finite().min(0).max(10),
+  /** Quieter while someone talks, back up in the pauses (duck.ts). Left out: it plays as it is. */
+  duck: z.boolean().optional(),
 });
 
 export const editSchema = z.object({

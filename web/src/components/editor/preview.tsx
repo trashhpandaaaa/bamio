@@ -1,9 +1,9 @@
 "use client";
 
-import { Camera, CaretLeft, CaretRight, FilmSlate, Pause, Play, Plus } from "@phosphor-icons/react";
-import { useEffect, useRef } from "react";
+import { Camera, CaretLeft, CaretRight, FilmSlate, FrameCorners, Pause, Play, Plus } from "@phosphor-icons/react";
+import { useEffect, useRef, useState } from "react";
 import { textBoxAt } from "@/lib/editor/compose";
-import { clock, FORMATS, TEXT_SIZE } from "@/lib/editor/model";
+import { clock, FORMATS, SAFE_ZONE, TEXT_SIZE } from "@/lib/editor/model";
 import { momentAt, patchClip, patchText, totalDuration } from "@/lib/editor/timeline";
 import { useEditor, usePlaying } from "./context";
 import styles from "./editor.module.css";
@@ -35,6 +35,10 @@ export function Preview({ opening }: { opening: number }) {
   const size = FORMATS[edit.format];
   const total = totalDuration(edit);
   const empty = edit.clips.length === 0;
+  /** The edges the apps cover, shaded over the preview (never in the export). They only mean something on a vertical video. */
+  const [guides, setGuides] = useState(false);
+  const vertical = edit.format === "9:16";
+  const share = (v: number) => `${v * 100}%`;
 
   useEffect(() => {
     const el = canvas.current;
@@ -172,6 +176,14 @@ export function Preview({ opening }: { opening: number }) {
               <span key={corner} className={styles.grip} data-corner={corner} data-testid={`text-corner-${corner}`} onPointerDown={resizeText} />
             ))}
           </div>
+          {guides && vertical && !empty ? (
+            <div className={styles.safe} data-testid="safe-zones" aria-hidden>
+              <span style={{ top: 0, left: 0, right: 0, height: share(SAFE_ZONE.top) }} />
+              <span style={{ bottom: 0, left: 0, right: 0, height: share(SAFE_ZONE.bottom) }} />
+              <span style={{ top: share(SAFE_ZONE.top), bottom: share(SAFE_ZONE.bottom), left: 0, width: share(SAFE_ZONE.left) }} />
+              <span style={{ top: share(SAFE_ZONE.top), bottom: share(SAFE_ZONE.bottom), right: 0, width: share(SAFE_ZONE.right) }} />
+            </div>
+          ) : null}
           {empty ? (
             <div className={styles.emptyFrame}>
               <FilmSlate size={36} aria-hidden />
@@ -198,9 +210,22 @@ export function Preview({ opening }: { opening: number }) {
         <p className={styles.clock}>
           <span ref={time}>0:00.0</span> / {clock(total)}
         </p>
-        <button className={`btn btn-ghost btn-sm ${styles.snapshot}`} type="button" aria-label="Snapshot" disabled={empty} onClick={snapshot} title="Save this frame as a picture">
-          <Camera size={16} aria-hidden /> <span className={styles.word}>Snapshot</span>
-        </button>
+        <div className={styles.transportEnd}>
+          <button
+            className="btn btn-ghost btn-sm"
+            type="button"
+            aria-label="Safe zones"
+            aria-pressed={guides && vertical}
+            disabled={empty || !vertical}
+            onClick={() => setGuides((on) => !on)}
+            title={vertical ? "Shade the edges where TikTok, Reels and Shorts put their own buttons and captions (roughly: each app differs). Never in the export." : "For vertical (9:16) videos"}
+          >
+            <FrameCorners size={16} aria-hidden /> <span className={styles.word}>Safe zones</span>
+          </button>
+          <button className="btn btn-ghost btn-sm" type="button" aria-label="Snapshot" disabled={empty} onClick={snapshot} title="Save this frame as a picture">
+            <Camera size={16} aria-hidden /> <span className={styles.word}>Snapshot</span>
+          </button>
+        </div>
       </div>
     </section>
   );

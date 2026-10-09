@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useToast } from "@/components/toast";
 import { exportUrl } from "@/lib/clips/api";
+import type { EditorLevel } from "@/lib/editor/features";
 import { clock, newEdit, type Edit } from "@/lib/editor/model";
 import { deleteEdit, listEdits, loadEdit, saveEdit, type SavedEdit } from "@/lib/editor/store";
 import { ACCEPT_ALL } from "./context";
@@ -19,9 +20,10 @@ const when = (time: number) => new Date(time).toLocaleString(undefined, { day: "
 /**
  * The editor's page: the edits kept in this browser and a way to start one, or the editor
  * itself with one open (?edit=<id>, so a reload comes back to it). Edits live on the device,
- * not in the account: another browser has its own.
+ * not in the account: another browser has its own. `level`: the account's plan, for the
+ * features that need one.
  */
-export function EditorApp() {
+export function EditorApp({ level }: { level: EditorLevel }) {
   const router = useRouter();
   const params = useSearchParams();
   const toast = useToast();
@@ -117,7 +119,7 @@ export function EditorApp() {
     }
     return (
       <main id="main">
-        <Editor key={open.edit.id} initial={open.edit} files={open.files} firstFiles={open.firstFiles} onClose={() => router.push("/editor")} />
+        <Editor key={open.edit.id} level={level} initial={open.edit} files={open.files} firstFiles={open.firstFiles} onClose={() => router.push("/editor")} />
       </main>
     );
   }
@@ -143,7 +145,7 @@ export function EditorApp() {
     >
       <header className={styles.homeHead}>
         <h1 className="t-heading-xl">Editor</h1>
-        <p>Cut, combine and finish videos right here in your browser: trim, text, music, speed, looks, and one-click silence removal. Free for every account.</p>
+        <p>Cut, combine and finish videos right here in your browser: trim, text, music, a voiceover, speed and looks. The basics are free for every account; a plan adds 1080p, silence removal and more.</p>
       </header>
 
       <div className={styles.drop} data-dropping={dropping ? "" : undefined}>

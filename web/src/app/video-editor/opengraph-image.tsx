@@ -5,5 +5,5 @@ export const size = OG_SIZE;
 export const contentType = OG_TYPE;
 
 export default function Image() {
-  return renderOg({ headline: ["edit in your browser,", "keep it on your device."], facts: ["Nothing uploaded", "No watermark", "Free for every account"], caption: "cut the silences out" });
+  return renderOg({ headline: ["edit in your browser,", "keep it on your device."], facts: ["Nothing uploaded", "No watermark", "Free to edit and export"], caption: "cut the silences out" });
 }

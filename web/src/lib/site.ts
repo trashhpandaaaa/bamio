@@ -38,7 +38,7 @@ export const USE_CASES = [
     href: "/video-editor",
     label: "Video editor",
     title: "Free online video editor: no upload, no watermark",
-    description: "A free video editor in your browser: cut, combine, add text and music, remove silences in one click and export MP4s with no watermark. Nothing is uploaded.",
+    description: "A free video editor in your browser: cut, combine, add text, music and a voiceover, and export MP4s with no watermark. Nothing is uploaded.",
   },
   {
     href: "/youtube-to-shorts",

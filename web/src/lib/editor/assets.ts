@@ -30,6 +30,8 @@ export type Asset = {
   thumbs: Thumb[];
   /** Filled in once the whole sound has been measured. */
   envelope?: Envelope;
+  /** The sound has been listened to the end, or couldn't be: there's no envelope still to wait for. */
+  measured?: boolean;
   dispose(): void;
 };
 
@@ -170,10 +172,11 @@ async function measureEnvelope(asset: Asset, gone: () => boolean, onChange: () =
       }
     }
     asset.envelope = { rate: ENVELOPE_RATE, values };
-    onChange();
   } catch {
     // No envelope: no waveform, and silences can't be found in this file.
   }
+  asset.measured = true;
+  onChange();
 }
 
 /** The thumbnail nearest to a moment of a video. */

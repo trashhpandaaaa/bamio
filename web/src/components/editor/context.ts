@@ -3,6 +3,7 @@
 import { createContext, useContext, useSyncExternalStore } from "react";
 import type { Asset } from "@/lib/editor/assets";
 import type { Engine } from "@/lib/editor/engine";
+import type { EditorLevel } from "@/lib/editor/features";
 import type { Edit, Selection } from "@/lib/editor/model";
 import type { EditActions } from "./use-edit";
 
@@ -28,6 +29,8 @@ export type EditorContextValue = {
   pickFiles: (options?: { accept?: string; replace?: string }) => void;
   /** Counts up as thumbnails and waveforms arrive, so the timeline redraws them. */
   drawn: number;
+  /** The account's plan, for the features that need one (lib/editor/features.ts: ask with `can`). */
+  level: EditorLevel;
 };
 
 export const EditorContext = createContext<EditorContextValue | null>(null);

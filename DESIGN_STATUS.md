@@ -1,6 +1,6 @@
 # Bamio design status
 
-Last updated: 2026-10-09 (the editor's edges stretch text again, selected or not, and text is resized by a corner in the preview; AI clips are off until the Gemini key is replaced: Google has refused its project, and Bamio now says so truthfully and alerts the superadmins; Google AdSense on every page; a video editor in the browser, free for every account; a contact address, alexza@bamio.app, shown and used for replies; accuracy across languages and sites measured and fixed: long speech cut, a second listen for the language, Greek moved, Vimeo and direct files import; 5 new search pages and 15 language pages)
+Last updated: 2026-10-09 (the editor's basics are free and its better features need a plan: 1080p from Starter; silence removal, 60 fps and ducking music from Pro; safe zones for everyone; the editor's edges stretch text again, selected or not, and text is resized by a corner in the preview; AI clips are off until the Gemini key is replaced: Google has refused its project, and Bamio now says so truthfully and alerts the superadmins; Google AdSense on every page; a video editor in the browser, free for every account; a contact address, alexza@bamio.app, shown and used for replies; accuracy across languages and sites measured and fixed: long speech cut, a second listen for the language, Greek moved, Vimeo and direct files import; 5 new search pages and 15 language pages)
 
 ## Current phase
 
@@ -106,6 +106,25 @@ The user pasted a production-readiness checklist (keys, Postgres, S3/R2, Redis a
 - **Workers** (`worker.ts`): pools for imports (2 at once), exports (2) and streams (4), set with `BAMIO_*_SLOTS`. Each kind has a time limit (import 8 h, find clips and transcribe again 6 h, export 2 h, follow its maximum plus 2 h). On SIGTERM a worker stops claiming, aborts its jobs and hands them back without counting an attempt. The web server runs a worker itself (`instrumentation.ts`) unless `BAMIO_WORKER=off`; then `node dist/worker.mjs` (esbuild bundle, `npm run build:worker`) runs on any machine with the same environment. Job handlers were made safe to run again: an import that finds its video already prepared goes straight to transcription, and a followed stream resumed by another worker finishes what was captured.
 - **Health and deploy:** `GET /api/health` (public, nothing about users) reports the database, storage, media tools and the queue (waiting, running, oldest wait) with 200 or 503. A database that can't be reached gives a 503 "can't reach its database" everywhere. `web/Dockerfile` (one image for both roles: Node 24 slim, tini, a non-root user, migrations on start, a health check) and `web/compose.yaml` (Postgres 18, MinIO and its bucket, a web server that only queues, a worker; `--scale worker=N`).
 - **Decision: a Postgres queue instead of Redis and BullMQ.** Same guarantees for this load (durable, leased, retried, prioritised, cancellable), one less service to run and back up, and a job is queued in the same transaction as the project change that asks for it, so neither can exist without the other. `queue.ts` is small, so it can be swapped if volume ever needs it. Redis and Docker weren't available on this machine either.
+
+### The editor: basics free, the better features with a plan (2026-10-09, evening)
+
+The user, after a list of things the editor could do next: "Give basic features to free ones. And good and highend features to paid premium users." This reverses the earlier rule that the editor has no plan gate.
+
+- **The split** is one table, `EDITOR_FEATURES` in `src/lib/editor/features.ts`, read by the editor and checked against the price list:
+  - **Free, every account:** cutting, combining, text, stickers, music, voiceover, speed, looks, every shape, the progress bar, a 720p export at 30 frames a second with no watermark, and (new) safe-zone guides.
+  - **Starter and up:** 1080p export. It was free; the price list already had "1080p export" as a Starter line.
+  - **Pro and up:** silence removal (it was free; the price list had it under Pro as "coming soon"), and two new features: export at 60 frames a second, and music that ducks under speech.
+- **Who has what:** `editorLevel` (`src/lib/server/editor-access.ts`), read by the `/editor` page: the plan that works now, paid or given; the free trial isn't one; admins have everything; with plans off everything is open. A locked control stays visible with what it is and the plan it comes with (`PlanNote`, a link to the plans in a new tab). Silences are still found and counted without the plan; only the cutting is locked.
+- **New, free: safe zones.** A button under the preview shades the edges of a 9:16 video where TikTok, Reels and Shorts put their own buttons and captions (`SAFE_ZONE`: top 13%, bottom 20%, left 5.5%, right 17%). Published guides disagree, so these are the larger figures and the editor says "roughly". Never in the export.
+- **New, Pro: 60 frames a second.** The export's frame rate is a choice (`ExportFps`); 60 takes 1.4 times the bits. Checked with ffprobe.
+- **New, Pro: music that ducks under speech** (`duck.ts`). A sound marked "Lower it while someone talks" plays at a quarter of its volume while the video's own sound, or another sound that doesn't duck (a voiceover), is loud, going down 0.15 s before and coming back over 0.4 s. "Talking" is loudness, not speech recognition: the editor's wording says so. One line of levels serves the preview and the export. In the test the exported mix is 6 dB quieter with it on.
+- **The pages say the same:** the price list (Starter's 1080p line names the editor; Pro lists silence removal, 60 fps export and ducking as built, with "Filler-word removal" and "4K export" still coming soon), the pricing FAQ, `/video-editor` (lede, export step, FAQ, two new details) and the editor's own first page.
+
+Decisions and things for the user:
+- **Two features that were free yesterday now need a plan** (1080p export, silence removal). Moving either back, or to another plan, is one word in the table and one line in `plans.ts`.
+- **The locks are in the browser.** The editor does its work on the device, so there is no server step to refuse: someone determined could switch a lock off in their own browser. Features that go through the server (editable captions from a Bamio clip, if built) can be enforced properly.
+- **Not built yet from the list:** editable captions from a Bamio clip, captions for device files, edit by text, facecam layouts, logo or image overlay, punch-in zoom, transitions, blur a region, longer exports.
 
 ### The editor: a text's edge moved it instead of stretching it (2026-10-09, later)
 

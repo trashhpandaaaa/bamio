@@ -1,6 +1,8 @@
 import type { Asset } from "./assets";
 import { canFilter, drawScene, type Picture, type TextBox } from "./compose";
+import { duckAt, duckLine, ducks, type DuckPoint } from "./duck";
 import { newEdit, type Edit } from "./model";
+import type { Envelope } from "./silence";
 import { audioLength, clipLength, fade, momentAt, totalDuration, type Moment } from "./timeline";
 
 /*
@@ -38,6 +40,8 @@ export class Engine {
   private watched = new WeakSet<HTMLVideoElement>();
   private listeners = new Set<() => void>();
   private painted = new Set<() => void>();
+  /** The level of the sounds that duck under speech, and what it was worked out from. */
+  private ducking: { edit: Edit; heard: number; line: DuckPoint[] } | null = null;
 
   /** Called on every change of time or of playing. */
   subscribe(listener: () => void): () => void {
@@ -230,9 +234,19 @@ export class Engine {
     }
   }
 
+  /** How far down the ducking sounds are now: worked out again when the edit changes, or another file's loudness arrives. */
+  private duckLevel(): number {
+    if (!ducks(this.edit)) return 1;
+    const envelopes = new Map<string, Envelope>();
+    for (const [id, asset] of this.assets) if (asset.envelope) envelopes.set(id, asset.envelope);
+    if (this.ducking?.edit !== this.edit || this.ducking.heard !== envelopes.size) this.ducking = { edit: this.edit, heard: envelopes.size, line: duckLine(this.edit, envelopes) };
+    return duckAt(this.ducking.line, this.time);
+  }
+
   /** Music and voiceovers follow the playhead. */
   private driveSounds() {
     const total = this.total;
+    const ducked = this.duckLevel();
     for (const sound of this.edit.audio) {
       const asset = this.assets.get(sound.mediaId);
       if (!asset) continue;
@@ -250,7 +264,7 @@ export class Engine {
         this.sounds.set(sound.id, el);
       }
       el.muted = this.silent;
-      el.volume = Math.min(1, Math.max(0, sound.volume * fade(local, length, sound.fadeIn, sound.fadeOut)));
+      el.volume = Math.min(1, Math.max(0, sound.volume * fade(local, length, sound.fadeIn, sound.fadeOut) * (sound.duck ? ducked : 1)));
       const want = sound.start + local;
       if (el.paused || Math.abs(el.currentTime - want) > DRIFT) {
         if (Math.abs(el.currentTime - want) > 0.04) el.currentTime = want;

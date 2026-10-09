@@ -37,11 +37,13 @@ import {
   type Motion,
   type TextLayer,
 } from "@/lib/editor/model";
+import { can } from "@/lib/editor/features";
 import { SILENCE_PRESETS, silenceCuts, type SilencePreset } from "@/lib/editor/silence";
 import { addMedia, addText, audioLength, clipLength, duplicateItem, patchAudio, patchClip, patchText, removeItem, rippleDelete, setSpeed, splitAt, totalDuration } from "@/lib/editor/timeline";
 import { wavFrom } from "@/lib/editor/wav";
 import { ACCEPT_SOUND, useEditor } from "./context";
 import styles from "./editor.module.css";
+import { PlanNote } from "./plan-note";
 
 const TABS = ["selected", "media", "text", "sound", "tools", "frame"] as const;
 type Tab = (typeof TABS)[number];
@@ -342,7 +344,8 @@ function TextSettings({ layer }: { layer: TextLayer }) {
 }
 
 function SoundSettings({ sound }: { sound: AudioClip }) {
-  const { edit, change } = useEditor();
+  const { edit, change, level } = useEditor();
+  const mayDuck = can(level, "duck");
   const media = edit.media.find((m) => m.id === sound.mediaId);
   const set = (patch: Partial<AudioClip>, key: string) => change(patchAudio(edit, sound.id, patch), { key: `${key}:${sound.id}` });
   return (
@@ -354,6 +357,14 @@ function SoundSettings({ sound }: { sound: AudioClip }) {
         <Slider label="Volume" value={sound.volume} min={0} max={1} step={0.01} format={percent} onChange={(v) => set({ volume: v }, "volume")} />
         <Slider label="Fade in" value={sound.fadeIn} min={0} max={5} step={0.1} format={secs} onChange={(v) => set({ fadeIn: v }, "fadeIn")} />
         <Slider label="Fade out" value={sound.fadeOut} min={0} max={5} step={0.1} format={secs} onChange={(v) => set({ fadeOut: v }, "fadeOut")} />
+      </Group>
+      <Group title="Under speech">
+        <label className={styles.switchRow}>
+          <span>Lower it while someone talks</span>
+          <input className="switch" type="checkbox" role="switch" checked={mayDuck && Boolean(sound.duck)} disabled={!mayDuck} onChange={(e) => set({ duck: e.target.checked }, "duck")} />
+        </label>
+        {mayDuck ? null : <PlanNote feature="duck" />}
+        <p className="field-help">For music: it drops to a quarter of its volume while the video’s own sound or a voiceover is loud, and comes back in the pauses.</p>
       </Group>
       <ItemActions />
     </>
@@ -541,7 +552,9 @@ function SoundPanel() {
 /* ------------------------------ Tools ------------------------------ */
 
 function Silences() {
-  const { edit, change, assets, engine } = useEditor();
+  const { edit, change, assets, engine, level } = useEditor();
+  // Without the plan the pauses are still found and counted: what can't be done is the cutting.
+  const allowed = can(level, "silence");
   const toast = useToast();
   const [preset, setPreset] = useState<SilencePreset>("normal");
   const envelopes = new Map([...assets].flatMap(([id, a]) => (a.envelope ? [[id, a.envelope] as const] : [])));
@@ -562,7 +575,7 @@ function Silences() {
       <button
         className="btn btn-secondary"
         type="button"
-        disabled={waiting || found.ranges.length === 0}
+        disabled={!allowed || waiting || found.ranges.length === 0}
         onClick={() => {
           engine.pause();
           change(rippleDelete(edit, found.ranges), { selection: null });
@@ -572,6 +585,7 @@ function Silences() {
       >
         <Waveform size={18} aria-hidden /> Cut them out
       </button>
+      {allowed ? null : <PlanNote feature="silence" />}
       <p className="field-help">{SILENCE_PRESETS[preset].hint}. Text moves with the picture; music and voiceovers stay where they are.</p>
     </Group>
   );

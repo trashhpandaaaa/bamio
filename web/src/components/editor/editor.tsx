@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 import { useToast } from "@/components/toast";
 import { MediaError, openAsset, type Asset } from "@/lib/editor/assets";
 import { Engine } from "@/lib/editor/engine";
+import type { EditorLevel } from "@/lib/editor/features";
 import { EDITOR_LIMITS, type Edit } from "@/lib/editor/model";
 import { pruneFiles, saveEdit, saveFile } from "@/lib/editor/store";
 import { addMedia, duplicateItem, patchAudio, removeItem, splitAt } from "@/lib/editor/timeline";
@@ -20,9 +21,9 @@ import styles from "./editor.module.css";
  * The editor: a preview, a timeline and a panel of tools around one edit. Everything happens in
  * this browser tab (see lib/editor/): the files are read from the device, the edit is saved in
  * the browser's own storage, and the export is rendered here. `firstFiles`: files to put in a
- * new edit straight away.
+ * new edit straight away. `level`: the account's plan, which some features need.
  */
-export function Editor({ initial, files, firstFiles, onClose }: { initial: Edit; files: ReadonlyMap<string, Blob>; firstFiles?: File[]; onClose: () => void }) {
+export function Editor({ initial, files, firstFiles, level, onClose }: { initial: Edit; files: ReadonlyMap<string, Blob>; firstFiles?: File[]; level: EditorLevel; onClose: () => void }) {
   const toast = useToast();
   const { edit, selection, canUndo, canRedo, change, select, undo, redo } = useEdit(initial);
   const [engine] = useState(() => new Engine());
@@ -222,8 +223,8 @@ export function Editor({ initial, files, firstFiles, onClose }: { initial: Edit;
   }, [change, engine, redo, select, selection, undo]);
 
   const value = useMemo<EditorContextValue>(
-    () => ({ edit, selection, change, select, engine, assets, missing, addFiles, pickFiles, drawn }),
-    [edit, selection, change, select, engine, assets, missing, addFiles, pickFiles, drawn],
+    () => ({ edit, selection, change, select, engine, assets, missing, addFiles, pickFiles, drawn, level }),
+    [edit, selection, change, select, engine, assets, missing, addFiles, pickFiles, drawn, level],
   );
 
   const saving = edit !== savedEdit;

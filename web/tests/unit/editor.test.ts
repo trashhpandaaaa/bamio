@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { clipOf, clock, editSchema, lookFilter, newEdit, TEXT_SIZE, type Edit, type Media } from "@/lib/editor/model";
-import { envelopeOf, loudLevel, SILENCE_PRESETS, silenceCuts, silences } from "@/lib/editor/silence";
+import { PLAN_IDS, PLANS } from "@/lib/billing/plans";
+import { DUCK, duckAt, duckLine, duckPoints, ducks, voiceRanges } from "@/lib/editor/duck";
+import { can, EDITOR_FEATURES, EDITOR_LEVELS, planFor, TOP_LEVEL, type EditorFeature } from "@/lib/editor/features";
+import { clipOf, clock, editSchema, lookFilter, newEdit, SAFE_ZONE, TEXT_SIZE, type Edit, type Media } from "@/lib/editor/model";
+import { envelopeOf, loudLevel, SILENCE_PRESETS, silenceCuts, silences, type Envelope } from "@/lib/editor/silence";
 import {
   addMedia,
   addText,
@@ -15,6 +18,7 @@ import {
   motionScale,
   moveClip,
   moveOverlay,
+  patchAudio,
   patchClip,
   patchText,
   removeItem,
@@ -235,5 +239,100 @@ describe("removing silences", () => {
     const env = envelopeOf(samples, 48000, 50);
     expect(env).toHaveLength(5);
     expect([env[0], env[1], env[2], env[4]]).toEqual([0.25, 0.25, 0.75, 0.75]);
+  });
+});
+
+describe("music that ducks under speech", () => {
+  /** Ten seconds of a file, loud from 1 to 3 s and from 5 to 6 s, quiet between. */
+  const talk: Envelope = { rate: 50, values: Float32Array.from({ length: 500 }, (_, i) => ((i >= 50 && i < 150) || (i >= 250 && i < 300) ? 0.6 : 0.001)) };
+  const near = (ranges: { start: number; end: number }[]) => ranges.map((r) => [Number(r.start.toFixed(2)), Number(r.end.toFixed(2))]);
+
+  it("hears when someone talks: the video's sound, and sounds that don't duck themselves", () => {
+    const edit = sample();
+    const envelopes = new Map([["a", talk]]);
+    expect(near(voiceRanges(edit, envelopes))).toEqual([[1, 3], [5, 6]]);
+    // A muted clip, or one turned right down, says nothing worth ducking for.
+    expect(voiceRanges(patchClip(edit, edit.clips[0]!.id, { muted: true }), envelopes)).toEqual([]);
+    expect(voiceRanges(patchClip(edit, edit.clips[0]!.id, { volume: 0.02 }), envelopes)).toEqual([]);
+    // Twice the speed: the talking comes twice as soon.
+    expect(near(voiceRanges(setSpeed(edit, edit.clips[0]!.id, 2), envelopes))).toEqual([[0.5, 1.5], [2.5, 3]]);
+    // A voiceover (the song, from 2 s) talks too, unless it's the one ducking. A file with no sound in it never does.
+    const both = new Map([["a", talk], ["s", talk]]);
+    expect(near(voiceRanges(edit, both))).toEqual([[1, 6], [7, 8]]);
+    expect(near(voiceRanges(patchAudio(edit, edit.audio[0]!.id, { duck: true }), both))).toEqual([[1, 3], [5, 6]]);
+    expect(voiceRanges(edit, new Map([["a", { rate: 50, values: new Float32Array(500) }]]))).toEqual([]);
+  });
+
+  it("goes down as the talking starts and comes back after it", () => {
+    const points = duckPoints([{ start: 1, end: 3 }, { start: 5, end: 6 }]);
+    expect(points).toEqual([
+      { t: 1 - DUCK.attack, level: 1 },
+      { t: 1, level: DUCK.level },
+      { t: 3, level: DUCK.level },
+      { t: 3 + DUCK.release, level: 1 },
+      { t: 5 - DUCK.attack, level: 1 },
+      { t: 5, level: DUCK.level },
+      { t: 6, level: DUCK.level },
+      { t: 6 + DUCK.release, level: 1 },
+    ]);
+    expect(duckAt(points, 0)).toBe(1);
+    expect(duckAt(points, 2)).toBe(DUCK.level);
+    expect(duckAt(points, 4)).toBe(1);
+    expect(duckAt(points, 99)).toBe(1);
+    // Half way down, half way back.
+    expect(duckAt(points, 1 - DUCK.attack / 2)).toBeCloseTo((1 + DUCK.level) / 2);
+    expect(duckAt(points, 3 + DUCK.release / 2)).toBeCloseTo((1 + DUCK.level) / 2);
+    // Talking again before the music is back: it stays down, and the line never runs backwards.
+    const close = duckPoints([{ start: 1, end: 3 }, { start: 3.2, end: 4 }]);
+    expect(close).toEqual([{ t: 1 - DUCK.attack, level: 1 }, { t: 1, level: DUCK.level }, { t: 4, level: DUCK.level }, { t: 4 + DUCK.release, level: 1 }]);
+    expect(duckAt(close, 3.1)).toBe(DUCK.level);
+    for (const line of [points, close]) expect(line.every((p, i) => i === 0 || p.t >= line[i - 1]!.t)).toBe(true);
+    // Talking from the very start, and nothing to duck under.
+    expect(duckAt(duckPoints([{ start: 0, end: 2 }]), 1)).toBe(DUCK.level);
+    expect(duckAt([], 5)).toBe(1);
+  });
+
+  it("is off until a sound is marked, and is kept with the edit", () => {
+    const edit = sample();
+    const envelopes = new Map([["a", talk]]);
+    expect(ducks(edit)).toBe(false);
+    expect(duckLine(edit, envelopes)).toEqual([]);
+    const ducking = patchAudio(edit, edit.audio[0]!.id, { duck: true });
+    expect(ducks(ducking)).toBe(true);
+    expect(duckAt(duckLine(ducking, envelopes), 2)).toBe(DUCK.level);
+    expect(editSchema.parse(ducking).audio[0]!.duck).toBe(true);
+    // An edit saved before sounds could duck opens as it was.
+    expect(editSchema.safeParse(edit).success).toBe(true);
+  });
+});
+
+describe("what the editor gives to whom", () => {
+  it("keeps the basics free, and opens each feature from its plan up", () => {
+    expect(EDITOR_LEVELS).toEqual(["free", ...PLAN_IDS]);
+    for (const feature of Object.keys(EDITOR_FEATURES) as EditorFeature[]) {
+      expect(can("free", feature), feature).toBe(false);
+      expect(can(TOP_LEVEL, feature), feature).toBe(true);
+    }
+    expect(can("starter", "hd")).toBe(true);
+    expect(can("starter", "silence")).toBe(false);
+    expect(can("pro", "silence")).toBe(true);
+    expect(can("pro", "smooth")).toBe(true);
+    expect(can("pro", "duck")).toBe(true);
+    expect(planFor("hd")).toBe("Starter");
+    expect(planFor("silence")).toBe("Pro");
+  });
+
+  it("is on the pricing page under the same plan, by the same name, as something built", () => {
+    for (const feature of Object.values(EDITOR_FEATURES)) {
+      const line = PLANS[feature.needs].features.find((f) => f.text === feature.name);
+      expect(line, feature.name).toBeDefined();
+      expect(line?.soon, feature.name).toBeUndefined();
+    }
+  });
+
+  it("keeps the safe zone inside the frame", () => {
+    expect(SAFE_ZONE.top + SAFE_ZONE.bottom).toBeLessThan(0.5);
+    expect(SAFE_ZONE.left + SAFE_ZONE.right).toBeLessThan(0.5);
+    for (const share of Object.values(SAFE_ZONE)) expect(share).toBeGreaterThan(0);
   });
 });

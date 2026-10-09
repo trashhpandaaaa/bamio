@@ -13,24 +13,28 @@ import {
 } from "mediabunny";
 import type { Asset } from "./assets";
 import { canFilter, drawScene, type Picture } from "./compose";
+import { duckAt, duckLine, ducks, type DuckPoint } from "./duck";
 import { EDITOR_LIMITS, FORMATS, type Edit } from "./model";
+import type { Envelope } from "./silence";
 import { audioLength, exportProblem, fade, layout, momentAt, totalDuration } from "./timeline";
 
 /*
  * Exporting an edit, in the browser: every frame is decoded from the user's files (WebCodecs,
  * through Mediabunny), drawn with the preview's own drawing code, and encoded into an MP4
  * (H.264 and AAC; a WebM where the browser can't encode those). The sound is mixed in pieces
- * with the Web Audio API. Nothing is uploaded and no server does any work, which is why this is
- * free for everyone. The file is built in memory, hence the editor's 10-minute limit.
+ * with the Web Audio API. Nothing is uploaded and no server does any work. The file is built in
+ * memory, hence the editor's 10-minute limit. What needs a plan (1080p, 60 frames a second) is
+ * decided by whoever calls this: see features.ts.
  */
 
-const FPS = EDITOR_LIMITS.fps;
 const SAMPLE_RATE = 48_000;
 /** Sound is mixed and handed to the encoder this many seconds at a time. */
 const CHUNK = 8;
 
 export type ExportHeight = 1080 | 720;
-export type ExportResult = { blob: Blob; extension: "mp4" | "webm"; width: number; height: number; seconds: number; hasSound: boolean };
+/** Frames a second: 30, or 60 for footage that moves fast (gameplay, sport). */
+export type ExportFps = 30 | 60;
+export type ExportResult = { blob: Blob; extension: "mp4" | "webm"; width: number; height: number; fps: ExportFps; seconds: number; hasSound: boolean };
 export class ExportError extends Error {}
 
 /** The export's frame for a format and a resolution ("1080" and "720" name the shorter side), in even pixels. */
@@ -41,8 +45,8 @@ export function exportSize(format: Edit["format"], height: ExportHeight): { widt
   return { width: even(full.width), height: even(full.height) };
 }
 
-/** Bits a second for a frame size: about 8 Mbps at 1080 x 1920, 4 at 720 x 1280. */
-const videoBitrate = (width: number, height: number) => Math.round(Math.max(1_500_000, width * height * 3.9));
+/** Bits a second for a frame size: about 8 Mbps at 1080 x 1920, 4 at 720 x 1280. Twice the frames take less than half as much again: they differ less. */
+const videoBitrate = (width: number, height: number, fps: ExportFps) => Math.round(Math.max(1_500_000, width * height * 3.9) * (fps === 60 ? 1.4 : 1));
 
 /** Whether this browser can export at all. */
 export function exportSupport(): string | null {
@@ -84,10 +88,17 @@ function scheduleGain(gain: GainNode, zero: number, a: number, b: number, from: 
   for (const t of [...turns, b]) gain.gain.linearRampToValueAtTime(level(t), Math.max(0, t - zero));
 }
 
-/** The edit's sound from `c0` to `c1` of the timeline, mixed. */
-async function mixSound(edit: Edit, sinks: Map<string, AudioBufferSink>, total: number, c0: number, c1: number): Promise<AudioBuffer> {
+/** A gain that follows the duck line (duck.ts) between two timeline moments. */
+function scheduleDuck(gain: GainNode, zero: number, a: number, b: number, line: readonly DuckPoint[]) {
+  gain.gain.setValueAtTime(duckAt(line, a), Math.max(0, a - zero));
+  for (const point of line) if (point.t > a && point.t < b) gain.gain.linearRampToValueAtTime(point.level, point.t - zero);
+  gain.gain.linearRampToValueAtTime(duckAt(line, b), Math.max(0, b - zero));
+}
+
+/** The edit's sound from `c0` to `c1` of the timeline, mixed. `duck`: the level of the sounds that duck under speech. */
+async function mixSound(edit: Edit, sinks: Map<string, AudioBufferSink>, total: number, c0: number, c1: number, duck: readonly DuckPoint[]): Promise<AudioBuffer> {
   const ctx = new OfflineAudioContext(2, Math.max(1, Math.round((c1 - c0) * SAMPLE_RATE)), SAMPLE_RATE);
-  const play = async (mediaId: string, a: number, b: number, sourceAt: (t: number) => number, speed: number, gainOf: (gain: GainNode) => void) => {
+  const play = async (mediaId: string, a: number, b: number, sourceAt: (t: number) => number, speed: number, gainOf: (gain: GainNode) => void, ducked = false) => {
     const sink = sinks.get(mediaId);
     if (!sink || b - a <= 0) return;
     const buffer = await readSound(sink, sourceAt(a), sourceAt(b));
@@ -97,7 +108,11 @@ async function mixSound(edit: Edit, sinks: Map<string, AudioBufferSink>, total: 
     node.playbackRate.value = speed;
     const gain = ctx.createGain();
     gainOf(gain);
-    node.connect(gain).connect(ctx.destination);
+    if (ducked) {
+      const under = ctx.createGain();
+      scheduleDuck(under, c0, a, b, duck);
+      node.connect(gain).connect(under).connect(ctx.destination);
+    } else node.connect(gain).connect(ctx.destination);
     // No longer than its stretch of the timeline: the buffer has a sample or two to spare.
     node.start(a - c0, 0, (b - a) * speed);
   };
@@ -115,7 +130,7 @@ async function mixSound(edit: Edit, sinks: Map<string, AudioBufferSink>, total: 
     const a = Math.max(from, c0);
     const b = Math.min(to, c1);
     // The fade out belongs to the sound's own end, even when the video ends first.
-    await play(sound.mediaId, a, b, (t) => sound.start + (t - sound.at), 1, (g) => scheduleGain(g, c0, a, b, from, sound.at + audioLength(sound), sound.volume, sound.fadeIn, sound.fadeOut));
+    await play(sound.mediaId, a, b, (t) => sound.start + (t - sound.at), 1, (g) => scheduleGain(g, c0, a, b, from, sound.at + audioLength(sound), sound.volume, sound.fadeIn, sound.fadeOut), Boolean(sound.duck) && duck.length > 0);
   }
   return ctx.startRendering();
 }
@@ -134,7 +149,7 @@ function hasSound(edit: Edit, assets: ReadonlyMap<string, Asset>): boolean {
 export async function exportEdit(
   edit: Edit,
   assets: ReadonlyMap<string, Asset>,
-  options: { height: ExportHeight; font: string; signal: AbortSignal; onProgress: (done: number) => void },
+  options: { height: ExportHeight; fps?: ExportFps; font: string; signal: AbortSignal; onProgress: (done: number) => void },
 ): Promise<ExportResult> {
   const problem = exportProblem(edit) ?? exportSupport();
   if (problem) throw new ExportError(problem);
@@ -142,8 +157,9 @@ export async function exportEdit(
     if (!assets.has(clip.mediaId)) throw new ExportError("A file of this edit is missing. Add it again, or remove its clips.");
   }
   const total = totalDuration(edit);
+  const FPS: ExportFps = options.fps ?? EDITOR_LIMITS.fps;
   const { width, height } = exportSize(edit.format, options.height);
-  const bitrate = videoBitrate(width, height);
+  const bitrate = videoBitrate(width, height, FPS);
 
   // MP4 with H.264 where the browser can encode it; otherwise a WebM.
   let format: Mp4OutputFormat | WebMOutputFormat = new Mp4OutputFormat({ fastStart: "in-memory" });
@@ -187,6 +203,19 @@ export async function exportEdit(
     if (asset.audioTrack) sounds.set(asset.media.id, new AudioBufferSink(asset.audioTrack));
   }
 
+  // Music that ducks under speech needs every file's loudness, which is measured in the background after a file is opened: wait for the rest.
+  let duck: DuckPoint[] = [];
+  if (audioSource && ducks(edit)) {
+    const heard = () => [...assets.values()].every((a) => !a.audioTrack || a.measured);
+    for (let waited = 0; !heard() && waited < 120_000; waited += 250) {
+      if (options.signal.aborted) throw aborted();
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    const envelopes = new Map<string, Envelope>();
+    for (const [id, asset] of assets) if (asset.envelope) envelopes.set(id, asset.envelope);
+    duck = duckLine(edit, envelopes);
+  }
+
   const filters = canFilter();
   const count = Math.max(1, Math.ceil(total * FPS - 1e-6));
   let reader: AsyncGenerator<WrappedCanvas | null, void, unknown> | null = null;
@@ -228,7 +257,7 @@ export async function exportEdit(
       const done = (i + 1) / FPS;
       if (audioSource && (done - mixedTo >= CHUNK || i === count - 1)) {
         const to = i === count - 1 ? count / FPS : done;
-        await audioSource.add(await mixSound(edit, sounds, total, mixedTo, to));
+        await audioSource.add(await mixSound(edit, sounds, total, mixedTo, to, duck));
         mixedTo = to;
       }
       if (i % 5 === 0) options.onProgress(Math.min(0.99, (i + 1) / count));
@@ -247,5 +276,5 @@ export async function exportEdit(
   const buffer = output.target.buffer;
   if (!buffer) throw new ExportError("The export came out empty. Try again.");
   options.onProgress(1);
-  return { blob: new Blob([buffer], { type: extension === "mp4" ? "video/mp4" : "video/webm" }), extension, width, height, seconds: count / FPS, hasSound: audioSource !== null };
+  return { blob: new Blob([buffer], { type: extension === "mp4" ? "video/mp4" : "video/webm" }), extension, width, height, fps: FPS, seconds: count / FPS, hasSound: audioSource !== null };
 }
