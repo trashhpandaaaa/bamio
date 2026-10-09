@@ -72,6 +72,9 @@ export const TEXT_ANIMATIONS = {
 export const TEXT_ANIMATION_IDS = Object.keys(TEXT_ANIMATIONS) as TextAnimation[];
 export type TextAnimation = keyof typeof TEXT_ANIMATIONS;
 
+/** How small and how large text can be made by hand (the Size slider, a corner of its frame in the preview), as a share of the frame's width. */
+export const TEXT_SIZE = { min: 0.03, max: 0.3 } as const;
+
 /** Bamio's two brand colours, for the canvas (which can't read CSS variables). */
 export const VOLT = TOKENS.brand["--volt"];
 export const INK = TOKENS.brand["--ink"];

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clipOf, clock, editSchema, lookFilter, newEdit, type Edit, type Media } from "@/lib/editor/model";
+import { clipOf, clock, editSchema, lookFilter, newEdit, TEXT_SIZE, type Edit, type Media } from "@/lib/editor/model";
 import { envelopeOf, loudLevel, SILENCE_PRESETS, silenceCuts, silences } from "@/lib/editor/silence";
 import {
   addMedia,
@@ -16,6 +16,7 @@ import {
   moveClip,
   moveOverlay,
   patchClip,
+  patchText,
   removeItem,
   rippleDelete,
   rowsOf,
@@ -117,6 +118,11 @@ describe("the editor's timeline", () => {
     expect(moveOverlay(edit, text, -4).texts[0]!.at).toBe(0);
     expect(trimOverlay(edit, text, "end", 10).texts[0]).toMatchObject({ at: 3, duration: 7 });
     expect(trimOverlay(edit, text, "start", 5).texts[0]).toMatchObject({ at: 5, duration: 1 });
+    // A text can outlast the video (what's past the end isn't exported), and its start stays put while its end is pulled.
+    expect(trimOverlay(edit, text, "end", 500).texts[0]).toMatchObject({ at: 3, duration: 497 });
+    // By hand, text is made as small and as large as the edit allows, no further.
+    expect(patchText(edit, id!, { size: TEXT_SIZE.min }).texts[0]!.size).toBe(TEXT_SIZE.min);
+    expect(editSchema.safeParse(patchText(patchText(edit, id!, { size: TEXT_SIZE.max }), id!, { duration: 497 })).success).toBe(true);
     // The sound's left edge moves in time and in the file together.
     expect(trimOverlay(edit, sound, "start", 6).audio[0]).toMatchObject({ at: 6, start: 4, end: 30 });
     expect(trimOverlay(edit, sound, "start", -9).audio[0]).toMatchObject({ at: 2, start: 0 });

@@ -18,10 +18,12 @@ export class Engine {
   assets: ReadonlyMap<string, Asset> = new Map();
   time = 0;
   playing = false;
-  /** The text layer to outline in the preview (see selectText). */
+  /** The text layer being worked on in the preview (see selectText). */
   selectedText: string | null = null;
   /** Where the text layers were last drawn (canvas pixels). */
   boxes: TextBox[] = [];
+  /** The size of the canvas `boxes` were measured on. */
+  surface = { width: 0, height: 0 };
   /** No sound from the edit while a voiceover is being recorded (see setSilent). */
   silent = false;
   readonly filters = canFilter();
@@ -35,6 +37,7 @@ export class Engine {
   private sounds = new Map<string, HTMLAudioElement>();
   private watched = new WeakSet<HTMLVideoElement>();
   private listeners = new Set<() => void>();
+  private painted = new Set<() => void>();
 
   /** Called on every change of time or of playing. */
   subscribe(listener: () => void): () => void {
@@ -45,7 +48,13 @@ export class Engine {
     for (const listener of this.listeners) listener();
   }
 
-  /** Outline a text layer in the preview (null: none). */
+  /** Called after every frame is drawn, when `boxes` says where the text now is (the preview's frame around the selected text follows it). */
+  onDraw(listener: () => void): () => void {
+    this.painted.add(listener);
+    return () => this.painted.delete(listener);
+  }
+
+  /** The text layer being worked on (null: none): shown whole while paused, and framed by the preview. */
   selectText(id: string | null) {
     this.selectedText = id;
     this.refresh();
@@ -151,6 +160,7 @@ export class Engine {
     for (const el of this.sounds.values()) el.removeAttribute("src");
     this.sounds.clear();
     this.listeners.clear();
+    this.painted.clear();
     this.canvas = null;
   }
 
@@ -279,6 +289,7 @@ export class Engine {
     const canvas = this.canvas;
     const ctx = canvas?.getContext("2d");
     if (!canvas || !ctx) return;
+    this.surface = { width: canvas.width, height: canvas.height };
     this.boxes = drawScene(ctx, canvas.width, canvas.height, {
       edit: this.edit,
       time: this.time,
@@ -290,5 +301,6 @@ export class Engine {
       selectedText: this.selectedText,
       paused: !this.playing,
     });
+    for (const listener of this.painted) listener();
   }
 }

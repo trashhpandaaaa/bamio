@@ -24,7 +24,7 @@ export type Scene = {
   font: string;
   /** Whether the canvas can filter (see canFilter): looks need it. */
   filters: boolean;
-  /** A text layer to outline (the preview's selection; never set for an export). */
+  /** The text layer being worked on (the preview's selection; never set for an export). The frame around it is the page's, not the picture's: see preview.tsx. */
   selectedText?: string | null;
   /** The preview, paused: the selected text is shown whole, wherever its animation is, so it can be seen while it's worked on. */
   paused?: boolean;
@@ -183,15 +183,6 @@ function drawText(ctx: Ctx, W: number, H: number, layer: TextLayer, scene: Scene
   });
   ctx.restore();
 
-  if (scene.selectedText === layer.id) {
-    const pad = px * 0.14;
-    ctx.save();
-    ctx.strokeStyle = "#FFFFFF";
-    ctx.lineWidth = Math.max(1.5, W / 400);
-    ctx.setLineDash([W / 60, W / 90]);
-    ctx.strokeRect(box.x - pad, box.y - pad, box.width + 2 * pad, box.height + 2 * pad);
-    ctx.restore();
-  }
   return box;
 }
 

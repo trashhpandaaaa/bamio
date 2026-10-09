@@ -28,6 +28,7 @@ import {
   TEXT_ANIMATION_IDS,
   TEXT_ANIMATIONS,
   TEXT_COLORS,
+  TEXT_SIZE,
   TEXT_STYLE_IDS,
   TEXT_STYLES,
   VOLT,
@@ -306,7 +307,7 @@ function TextSettings({ layer }: { layer: TextLayer }) {
             />
           ))}
         </div>
-        <Slider label="Size" value={layer.size} min={0.03} max={0.3} step={0.005} format={(v) => `${Math.round(v * 1000)}`} onChange={(v) => set({ size: v }, "size")} />
+        <Slider label="Size" value={layer.size} min={TEXT_SIZE.min} max={TEXT_SIZE.max} step={0.005} format={(v) => `${Math.round(v * 1000)}`} onChange={(v) => set({ size: v }, "size")} />
       </Group>
       <Group title="Movement">
         <div className={styles.chips} role="group" aria-label="Movement">
@@ -331,8 +332,9 @@ function TextSettings({ layer }: { layer: TextLayer }) {
             </button>
           ))}
         </div>
-        <p className="field-help">Or drag the text in the preview.</p>
-        <Slider label="Shows for" value={Math.min(20, layer.duration)} min={0.3} max={20} step={0.1} format={secs} onChange={(v) => set({ duration: v }, "duration")} />
+        <p className="field-help">Or drag the text in the preview, and a corner of its frame to resize it.</p>
+        {/* As far as the video goes, or as long as the text already is (it can be stretched past the end on the timeline). */}
+        <Slider label="Shows for" value={layer.duration} min={0.3} max={Math.max(20, Math.ceil(totalDuration(edit)), Math.ceil(layer.duration))} step={0.1} format={secs} onChange={(v) => set({ duration: v }, "duration")} />
       </Group>
       <ItemActions />
     </>

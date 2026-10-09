@@ -95,7 +95,11 @@ function Strip({ asset, start, perSecond, width, height, view, offset, wave, dra
   return <canvas ref={ref} className={styles.strip} style={{ left: from, width: shown, height }} aria-hidden />;
 }
 
-/** The two edges of what's selected, grabbed to trim it. */
+/**
+ * The two edges of a clip, a text or a sound, grabbed to make it longer or shorter. They are
+ * there whether or not it is selected (a drag that starts on an edge stretches, one that starts
+ * anywhere else moves): shown on what is selected and under the pointer, not on everything.
+ */
 function TrimHandles({ onTrim }: { onTrim: (e: React.PointerEvent, edge: "start" | "end") => void }) {
   return (
     <>
@@ -346,7 +350,7 @@ export function Timeline() {
                     {missing.has(p.clip.mediaId) ? "Missing: " : ""}
                     {media?.name}
                   </span>
-                  {selected ? <TrimHandles onTrim={(e, edge) => trimClipBy(e, p, edge)} /> : null}
+                  <TrimHandles onTrim={(e, edge) => trimClipBy(e, p, edge)} />
                 </div>
               );
             })}
@@ -370,8 +374,8 @@ export function Timeline() {
                   onPointerDown={(e) => moveOverlayBy(e, item, t.at, t.duration)}
                   onKeyDown={onOptionKey(item)}
                 >
-                  <span>{t.text || "Text"}</span>
-                  {selected ? <TrimHandles onTrim={(e, edge) => trimOverlayBy(e, item, edge)} /> : null}
+                  <span className={styles.textLabel}>{t.text || "Text"}</span>
+                  <TrimHandles onTrim={(e, edge) => trimOverlayBy(e, item, edge)} />
                 </div>
               );
             })}
@@ -400,7 +404,7 @@ export function Timeline() {
                 >
                   <Strip asset={assets.get(a.mediaId)} start={a.start} perSecond={1 / pps} width={w} height={SOUND_ROW - 6} view={view} offset={a.at * pps} wave="only" drawn={drawn} />
                   <span className={styles.clipLabel}>{media?.name}</span>
-                  {selected ? <TrimHandles onTrim={(e, edge) => trimOverlayBy(e, item, edge)} /> : null}
+                  <TrimHandles onTrim={(e, edge) => trimOverlayBy(e, item, edge)} />
                 </div>
               );
             })}

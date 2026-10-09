@@ -1,6 +1,6 @@
 # Bamio design status
 
-Last updated: 2026-10-09 (AI clips are off until the Gemini key is replaced: Google has refused its project, and Bamio now says so truthfully and alerts the superadmins; Google AdSense on every page; a video editor in the browser, free for every account; a contact address, alexza@bamio.app, shown and used for replies; accuracy across languages and sites measured and fixed: long speech cut, a second listen for the language, Greek moved, Vimeo and direct files import; 5 new search pages and 15 language pages)
+Last updated: 2026-10-09 (the editor's edges stretch text again, selected or not, and text is resized by a corner in the preview; AI clips are off until the Gemini key is replaced: Google has refused its project, and Bamio now says so truthfully and alerts the superadmins; Google AdSense on every page; a video editor in the browser, free for every account; a contact address, alexza@bamio.app, shown and used for replies; accuracy across languages and sites measured and fixed: long speech cut, a second listen for the language, Greek moved, Vimeo and direct files import; 5 new search pages and 15 language pages)
 
 ## Current phase
 
@@ -106,6 +106,16 @@ The user pasted a production-readiness checklist (keys, Postgres, S3/R2, Redis a
 - **Workers** (`worker.ts`): pools for imports (2 at once), exports (2) and streams (4), set with `BAMIO_*_SLOTS`. Each kind has a time limit (import 8 h, find clips and transcribe again 6 h, export 2 h, follow its maximum plus 2 h). On SIGTERM a worker stops claiming, aborts its jobs and hands them back without counting an attempt. The web server runs a worker itself (`instrumentation.ts`) unless `BAMIO_WORKER=off`; then `node dist/worker.mjs` (esbuild bundle, `npm run build:worker`) runs on any machine with the same environment. Job handlers were made safe to run again: an import that finds its video already prepared goes straight to transcription, and a followed stream resumed by another worker finishes what was captured.
 - **Health and deploy:** `GET /api/health` (public, nothing about users) reports the database, storage, media tools and the queue (waiting, running, oldest wait) with 200 or 503. A database that can't be reached gives a 503 "can't reach its database" everywhere. `web/Dockerfile` (one image for both roles: Node 24 slim, tini, a non-root user, migrations on start, a health check) and `web/compose.yaml` (Postgres 18, MinIO and its bucket, a web server that only queues, a worker; `--scale worker=N`).
 - **Decision: a Postgres queue instead of Redis and BullMQ.** Same guarantees for this load (durable, leased, retried, prioritised, cancellable), one less service to run and back up, and a job is queued in the same transaction as the project change that asks for it, so neither can exist without the other. `queue.ts` is small, so it can be swapped if volume ever needs it. Redis and Docker weren't available on this machine either.
+
+### The editor: a text's edge moved it instead of stretching it (2026-10-09, later)
+
+The user: "when I try to extend the text or something, it moves rather than extending".
+
+- **Cause:** a style for the text's label on the timeline (`.text span { pointer-events: none }`) also matched the two edge handles, which are spans too. On text the edges were drawn but never took the pointer, so every drag fell through to the item and moved it. Clips and sounds were fine. The arithmetic (`trimOverlay`) was right and unit-tested all along; nothing dragged a text's edge in a browser test. The rule now names the label (`.textLabel`).
+- **Edges work without selecting first.** They used to exist only on the selected item, so the first grab at an edge of anything else moved (or reordered) it. They are now on every clip, text and sound, shown on what's selected and, fainter, under the pointer, and never wider than a third of a short item so its middle can still be picked up.
+- **"Shows for" went to 20 seconds** and showed 20 for anything longer, cutting it back when touched. It now goes as far as the video, or as long as the text already is.
+- **Resizing text in the preview.** The selected text's dashed outline looked like a frame to pull on, and pulling it only moved the text. The outline is now the page's (`.textFrame`, placed after every draw through `engine.onDraw`), with a dot on each corner: dragged away from the text's middle it gets bigger, towards it smaller (the Size slider's limits, `TEXT_SIZE`). Dragging the text itself still moves it.
+- Tested in a browser (`tests/e2e/editor-drag.spec.ts`: both edges and the middle of an unselected text, a clip's edge, the corner, the text itself) and once by touch on a phone-sized screen. Only Chromium, as before.
 
 ### "Your API key can't use this Gemini model" (2026-10-09)
 
