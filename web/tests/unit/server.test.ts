@@ -2,9 +2,9 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { ApiError } from "@google/genai";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { clipTarget, clipTimes, findHighlights, highlightPrompt, hypeScore, MAX_CLIPS_PER_SEARCH, mockTranscribe, promptLines, tidySegments } from "@/lib/ai/server/clips-ai";
-import { shouldFallBack, toAiError } from "@/lib/ai/server/gemini";
+import { AI_SETUP_MESSAGE, AiSetupError, aiTrouble, generateJson, shouldFallBack, toAiError } from "@/lib/ai/server/gemini";
 import { projectSchema } from "@/lib/clips/schema";
 import { db } from "@/lib/server/db";
 import { enqueue } from "@/lib/server/queue";
@@ -73,6 +73,53 @@ describe("AI helpers", () => {
     expect(toAiError(new ApiError({ message: "x", status: 429 }))).toMatchObject({ status: 429, code: "rate_limited" });
     expect(toAiError(new ApiError({ message: "API key not valid", status: 400 }))).toMatchObject({ status: 401, code: "no_key" });
     expect(toAiError(new Error("?"))).toMatchObject({ status: 502 });
+  });
+
+  it("tells a customer a broken Gemini setup is Bamio’s fault, and whoever runs Bamio why", async () => {
+    // What Google answers when it has shut a key's project out: the SDK's message is the JSON body.
+    const denied = { error: { code: 403, message: "Your project has been denied access. Please contact support.", status: "PERMISSION_DENIED" } };
+    const err = toAiError(new ApiError({ message: JSON.stringify(denied), status: 403 }));
+    expect(err).toBeInstanceOf(AiSetupError);
+    expect(err).toMatchObject({ status: 403, code: "not_available" });
+    // In development the reader runs the server: Google's own words, and where to look.
+    expect(err.message).toContain("“Your project has been denied access. Please contact support.”");
+    expect(err.message).toContain("GEMINI_API_KEY");
+    expect(err.message.length).toBeLessThanOrEqual(500); // an alert email's line
+    expect(toAiError(new ApiError({ message: "API key not valid", status: 400 }))).toBeInstanceOf(AiSetupError);
+    expect(toAiError(new ApiError({ message: "no such model", status: 404 }))).toBeInstanceOf(AiSetupError);
+    // Busy, rate limited, down: not the setup.
+    for (const status of [429, 500, 503]) expect(toAiError(new ApiError({ message: "x", status }))).not.toBeInstanceOf(AiSetupError);
+
+    // In production the reader is a customer, who has no key and no .env.
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("GEMINI_API_KEY", "key-for-this-test");
+    const answers: Response[] = [];
+    vi.stubGlobal("fetch", async () => answers.shift() ?? Response.json(denied, { status: 403 }));
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const shown = toAiError(new ApiError({ message: JSON.stringify(denied), status: 403 }));
+      expect(shown.message).toBe(AI_SETUP_MESSAGE);
+      expect(shown.message).not.toMatch(/key|\.env|Google|Gemini/i);
+      expect((shown as AiSetupError).detail).toContain("denied access");
+
+      const ask = () => generateJson({ task: "test", system: "s", prompt: "p", schema: { type: "object" }, parse: (v) => v as { ok: boolean } });
+      expect(aiTrouble()).toBeNull();
+      const before = Date.now();
+      await expect(ask()).rejects.toMatchObject({ status: 403, message: AI_SETUP_MESSAGE });
+      // Remembered for the alert, and reported once, however many videos hit it.
+      expect(aiTrouble()).toMatchObject({ detail: expect.stringContaining("denied access") });
+      expect(aiTrouble()!.at).toBeGreaterThanOrEqual(before);
+      await expect(ask()).rejects.toBeInstanceOf(AiSetupError);
+      expect(logged.mock.calls.filter((c) => String(c[0]).includes("the Gemini setup is broken"))).toHaveLength(1);
+      // A call that works ends it.
+      answers.push(Response.json({ candidates: [{ content: { role: "model", parts: [{ text: '{"ok":true}' }] }, finishReason: "STOP" }] }));
+      expect(await ask()).toEqual({ ok: true });
+      expect(aiTrouble()).toBeNull();
+    } finally {
+      logged.mockRestore();
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
   });
 
   it("tidies model timestamps", () => {

@@ -27,10 +27,22 @@ if (!key) {
 }
 
 const ai = new GoogleGenAI({ apiKey: key });
+/** Google's own sentence: the SDK's error message is the JSON body of the answer. */
+const googleSays = (err) => {
+  const raw = String(err?.message ?? "");
+  try {
+    const said = JSON.parse(raw)?.error?.message;
+    if (typeof said === "string") return said;
+  } catch {
+    // Not JSON: the message is the sentence.
+  }
+  return raw;
+};
 const explain = (err) => {
   const status = err?.status;
   if (status === 404) return "model not found. Set a valid model ID in web/.env.";
-  if (status === 401 || status === 403) return "this key can't use the model.";
+  // Not one cause (a key that may not use the model, a restricted key, a project Google has suspended): Google says which.
+  if (status === 401 || status === 403) return `Google refused this key: "${googleSays(err).split(key).join("(the key)").slice(0, 240)}"`;
   if (status === 429) return "rate limited. Wait a minute and retry.";
   if (status === 503) return "model busy (high demand). Try again in a few minutes.";
   if (err?.name === "AbortError" || /timed? ?out/i.test(err?.message ?? "")) return "no answer within the time limit (network or Gemini slow).";

@@ -1,5 +1,6 @@
 import "server-only";
 import { clerkClient } from "@clerk/nextjs/server";
+import { aiTrouble, type AiTrouble } from "@/lib/ai/server/gemini";
 import { superadminEmails } from "@/lib/server/admin-roles";
 import { db } from "@/lib/server/db";
 import { queueEmail } from "@/lib/server/email";
@@ -9,6 +10,8 @@ import { reportMessage } from "@/lib/server/monitor";
  * Alerts for the people who run Bamio. Every few minutes a worker looks at the queue; when
  * something needs a person, the superadmins (BAMIO_SUPERADMINS) get an email (through the email
  * outbox, once per problem per hour) and Sentry a warning:
+ *   - the AI not working because of Bamio's own Gemini setup (a rejected key, a project Google
+ *     has shut out, a model that's gone), with Google's words;
  *   - jobs failing: BAMIO_ALERT_FAILED_JOBS (3) or more failed for good in the last hour;
  *   - the queue backing up: a job has waited longer than BAMIO_ALERT_WAIT_MIN (15) minutes;
  *   - an account deletion that keeps failing (3 tries), so a deleted user's plan may still charge;
@@ -23,10 +26,20 @@ const setting = (name: string, fallback: number) => Math.max(1, Number(process.e
 const minutes = (ms: number) => `${Math.round(ms / 60_000)} min`;
 
 /** What needs a person now. Keys name the problem and the hour, so each goes out once an hour. */
-export async function findAlerts(now = Date.now()): Promise<Alert[]> {
+export async function findAlerts(now = Date.now(), ai: AiTrouble | null = aiTrouble()): Promise<Alert[]> {
   const sql = db();
   const hour = Math.floor(now / HOUR);
   const alerts: Alert[] = [];
+
+  // A video in the last hour got no AI clips because of the Gemini setup. The import itself doesn't fail, so no job says so.
+  if (ai && ai.at <= now && now - ai.at < HOUR) {
+    alerts.push({
+      key: `ops:ai-setup:${hour}`,
+      title: "Bamio’s AI isn’t working: videos get no AI clips",
+      lines: [ai.detail.slice(0, 500), "Videos still import and get their captions. People are told the problem is on Bamio’s side, and can press Find clips once it’s fixed."],
+      path: "/admin/jobs",
+    });
+  }
 
   const failedLimit = setting("BAMIO_ALERT_FAILED_JOBS", 3);
   const failed = await sql<{ id: number; kind: string; last_error: string | null }[]>`

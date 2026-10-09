@@ -19,6 +19,8 @@ Upgrading from the version that kept projects as JSON files: `node scripts/db-im
 
 `web/.env` needs the Clerk keys (written by `clerk init`) and `GEMINI_API_KEY` (get one at https://aistudio.google.com/apikey). See `.env.example` for every option.
 
+**Clips stopped being found?** Run `npm run ai:check`: it asks Gemini with your key and prints what Google answers. "Your project has been denied access" means Google has shut the key's Google Cloud project out (not the key, and not a model): look at the project in [Google AI Studio](https://aistudio.google.com/apikey), or make a key in another project and put it in `GEMINI_API_KEY`. In production customers are told the problem is on Bamio's side, and the superadmins get an alert email with Google's words.
+
 **No Gemini key?** Uploading, transcription and captions, clipping by hand, editing and exporting all work without it; only AI clip finding is switched off, and the app says so. For demos and tests, `BAMIO_AI_MOCK=1` gives deterministic fake AI answers:
 
 ```sh

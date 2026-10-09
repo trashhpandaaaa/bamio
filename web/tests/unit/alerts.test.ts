@@ -57,6 +57,16 @@ describe("alerts", () => {
     expect(alerts[2]!.lines[0]).toContain("Stripe is down");
   });
 
+  it("find the AI not working because of Bamio’s Gemini setup, for an hour after a video hit it", async () => {
+    const detail = "Google refused Bamio’s Gemini key: “Your project has been denied access. Please contact support.”";
+    const alerts = await findAlerts(NOW, { at: NOW - 5 * MIN, detail });
+    expect(alerts).toEqual([{ key: `ops:ai-setup:${Math.floor(NOW / 3600_000)}`, title: "Bamio’s AI isn’t working: videos get no AI clips", lines: [detail, expect.stringContaining("Find clips")], path: "/admin/jobs" }]);
+    expect(alerts[0]!.title.length).toBeLessThanOrEqual(120);
+    // Nobody imported in the last hour, or nothing is wrong: nothing to say.
+    expect(await findAlerts(NOW, { at: NOW - 61 * MIN, detail })).toEqual([]);
+    expect(await findAlerts(NOW, null)).toEqual([]);
+  });
+
   it("find campaign clips waiting for a look, once a day", async () => {
     const sql = db();
     await sql`insert into campaigns (id, slug, title, brand, summary, brief, platforms, rate_cents, budget_cents, created_by, created_at, updated_at)
