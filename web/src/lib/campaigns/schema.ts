@@ -17,7 +17,7 @@ export const CAMPAIGN_LIMITS = {
   summary: 160,
   brief: 2000,
   rules: 1500,
-  /** How the owner pays, on the campaign's page. */
+  /** How and when Bamio pays clippers, on the campaign's page. */
   payoutTerms: 300,
   /** Why a clip was rejected; a note on a payment. */
   note: 200,
@@ -63,7 +63,7 @@ const lines = (max: number, min = 0, what = "This") =>
 
 /* ------------------------------ Clippers ------------------------------ */
 
-/** Who a clipper is in campaigns: a public name, the channel they post on, and (for admins only) how to pay them. */
+/** Who a clipper is in campaigns: a public name, the channel they post on, and (for admins only, who pay them) how to pay them. */
 export const clipperInputSchema = z.object({
   name: z
     .string()
@@ -123,6 +123,7 @@ export const MAX_WAITING_REQUESTS = 3;
 /**
  * What a podcaster, streamer or business fills in to ask for a campaign. An admin makes the
  * campaign from it (and writes its title and summary), so this is shorter than campaignInputSchema.
+ * It doesn't ask how they'll pay clippers: they pay Bamio, and Bamio pays the clippers.
  */
 export const campaignRequestSchema = z.object({
   kind: z.enum(REQUEST_KIND_IDS as [RequestKind, ...RequestKind[]]),
@@ -140,7 +141,6 @@ export const campaignRequestSchema = z.object({
     .transform((list) => CLIP_PLATFORM_IDS.filter((p) => list.includes(p))),
   rateCents: cents(CAMPAIGN_LIMITS.rateCents, "The rate"),
   budgetCents: cents(CAMPAIGN_LIMITS.budgetCents, "The budget"),
-  payout: lines(CAMPAIGN_LIMITS.payoutTerms, 5, "How you’ll pay"),
   contact: line(CAMPAIGN_LIMITS.note),
 });
 export type CampaignRequestInput = z.infer<typeof campaignRequestSchema>;

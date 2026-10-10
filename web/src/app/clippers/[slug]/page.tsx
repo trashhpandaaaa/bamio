@@ -91,7 +91,7 @@ export default async function CampaignPageView({ params }: Props) {
               <div className={styles.panel}>
                 <h2 className="t-heading-md">Your campaign</h2>
                 <p className={styles.panelText}>Clippers with a Bamio plan join here and send the clips they post. We look at each clip and count its views.</p>
-                <p className={styles.panelText}>We’ll write to you with who has earned what, so you can pay them directly.</p>
+                <p className={styles.panelText}>You pay Bamio for the campaign, and Bamio pays the clippers what their clips earn. We’ll write to you with what has been earned.</p>
               </div>
             ) : (
               <CampaignPanel slug={c.slug} brand={c.brand} status={c.status} platforms={c.platforms} />
@@ -180,7 +180,7 @@ export default async function CampaignPageView({ params }: Props) {
                 <p key={i}>{line}</p>
               ))}
               <p>
-                {c.brand} pays clippers directly. No money passes through Bamio: it counts the views, works out what each clip has earned and shows what has been paid.
+                Bamio pays clippers. {c.brand} pays Bamio for the campaign; Bamio counts the views, works out what each clip has earned, pays it and shows what has been paid.
               </p>
               <p>
                 A clip counts once Bamio’s team has looked at it. Clips earn in the order they were approved, until the budget is used.{" "}

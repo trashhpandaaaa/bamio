@@ -22,7 +22,7 @@ export const metadata: Metadata = pageMetadata({ title: CLIPPERS_TITLE, descript
 const STEPS = [
   { title: "Pick a campaign", text: "Each one says what to clip, what it pays per 1,000 views and how much of its budget is left." },
   { title: "Clip it and post it", text: "Make your clips with Bamio and post them on your own channel: TikTok, Shorts, Reels or X." },
-  { title: "Send the link", text: "Bamio counts the views on each clip. The campaign’s owner pays you directly, and you see what you’ve earned and been paid." },
+  { title: "Send the link", text: "Bamio counts the views on each clip and pays you what it earned. You see what you’ve earned and been paid." },
 ];
 
 /**
@@ -127,7 +127,7 @@ export default async function ClippersPage({ searchParams }: { searchParams: Pro
               </li>
             ))}
           </ol>
-          <p className={styles.small}>No money passes through Bamio. Each campaign’s page says who pays and how; Bamio keeps the count, so both sides see the same numbers.</p>
+          <p className={styles.small}>Campaigns pay Bamio, and Bamio pays you. Each campaign’s page says how and when; Bamio keeps the count, so everyone sees the same numbers.</p>
         </section>
 
         <RunCampaign startOpen={startRun} />

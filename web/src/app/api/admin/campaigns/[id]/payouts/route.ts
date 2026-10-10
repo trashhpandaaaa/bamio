@@ -13,7 +13,7 @@ const body = z.object({
     .transform((s) => s.replace(/\s+/g, " ").trim()),
 });
 
-/** Write down a payment made to a clipper outside Bamio (admins). */
+/** Write down a payment Bamio made to a clipper (admins). */
 export const POST = adminRoute<{ id: string }>(async (req, { admin, params }) => {
   const { userId, amountCents, note } = await readJson(req, body);
   await recordPayout(admin, params.id, userId, amountCents, note);

@@ -397,7 +397,7 @@ describe("a campaign", () => {
     ]);
   });
 
-  it("records what was paid outside Bamio, never more than is owed, and tells the clipper", async () => {
+  it("records what Bamio paid a clipper, never more than is owed, and tells the clipper", async () => {
     const { id, slug } = await createCampaign(boss, input());
     await setCampaignStatus(boss, id, "live");
     await joinCampaign(MIRA, slug, mira, null);
@@ -481,15 +481,16 @@ describe("asking to run a campaign", () => {
       platforms: ["youtube", "tiktok"],
       rateCents: 150,
       budgetCents: 50_000,
-      payout: "PayPal, every Friday.",
       contact: "",
       ...over,
     });
 
   it("takes what a podcaster, streamer or business says about it, tidied", () => {
     expect(ask()).toMatchObject({ kind: "podcaster", sourceUrl: "https://youtube.com/@thetestshow", platforms: ["tiktok", "youtube"], rateCents: 150 });
+    // They pay Bamio, and Bamio pays the clippers: how they'd pay clippers isn't asked, and isn't kept if sent.
+    expect(campaignRequestSchema.parse({ ...ask(), payout: "PayPal, every Friday." })).not.toHaveProperty("payout");
     const base = { ...ask(), sourceUrl: "https://youtube.com/@thetestshow" };
-    for (const bad of [{ kind: "agency" }, { name: "T" }, { sourceUrl: "" }, { sourceUrl: "javascript:alert(1)" }, { brief: "Clips." }, { platforms: [] }, { rateCents: 0 }, { budgetCents: 1.5 }, { payout: "" }]) {
+    for (const bad of [{ kind: "agency" }, { name: "T" }, { sourceUrl: "" }, { sourceUrl: "javascript:alert(1)" }, { brief: "Clips." }, { platforms: [] }, { rateCents: 0 }, { budgetCents: 1.5 }]) {
       expect(campaignRequestSchema.safeParse({ ...base, ...bad }).success, JSON.stringify(bad)).toBe(false);
     }
   });
@@ -500,7 +501,8 @@ describe("asking to run a campaign", () => {
     expect(await myCampaignRequests(OTTO)).toEqual([]);
     expect(await waitingRequests()).toBeGreaterThanOrEqual(1);
     const listed = (await adminCampaignRequests()).find((r) => r.id === id)!;
-    expect(listed).toMatchObject({ userId: MIRA, email: "mira@example.com", kind: "podcaster", sourceUrl: "https://youtube.com/@thetestshow", payout: "PayPal, every Friday.", status: "pending", campaign: null });
+    expect(listed).toMatchObject({ userId: MIRA, email: "mira@example.com", kind: "podcaster", sourceUrl: "https://youtube.com/@thetestshow", status: "pending", campaign: null });
+    expect(listed).not.toHaveProperty("payout");
 
     // The admin writes the campaign (starting from the request): a draft, tied to it.
     const made = await createCampaignFromRequest(boss, id, input({ brand: "The Test Show", rateCents: 150, budgetCents: 50_000 }), 2000);
@@ -610,7 +612,7 @@ describe("who may see campaigns", () => {
     expect(await campaignAccess(ADA)).toBe("open");
 
     // Mira asked for a campaign and has no plan: she may open hers, not the others, and can't clip in any.
-    const asked = await requestCampaign(MIRA, campaignRequestSchema.parse({ kind: "podcaster", name: "The Test Show", sourceUrl: "youtube.com/@thetestshow", brief: "The funniest minute of each episode.", platforms: ["tiktok"], rateCents: 100, budgetCents: 10_000, payout: "PayPal, monthly", contact: "" }), null);
+    const asked = await requestCampaign(MIRA, campaignRequestSchema.parse({ kind: "podcaster", name: "The Test Show", sourceUrl: "youtube.com/@thetestshow", brief: "The funniest minute of each episode.", platforms: ["tiktok"], rateCents: 100, budgetCents: 10_000, contact: "" }), null);
     const hers = await createCampaignFromRequest(boss, asked, input());
     const other = await createCampaign(boss, input());
     expect(await campaignAccess(MIRA, hers.id)).toBe("owner");

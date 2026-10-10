@@ -76,7 +76,6 @@ export default async function AdminCampaignsPage() {
                     <td className={styles.roomy}>
                       {formatPrice(r.rateCents)} per 1,000 views
                       <span className={styles.sub}>{formatPrice(r.budgetCents)} budget</span>
-                      <span className={styles.sub}>Pays by: {r.payout}</span>
                       {r.contact ? <span className={styles.sub}>Reach them: {r.contact}</span> : null}
                     </td>
                     <td className={styles.roomy}>

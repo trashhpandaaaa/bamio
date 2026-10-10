@@ -20,9 +20,9 @@ const AUDIENCES = [
 ];
 
 const STEPS = [
-  { title: "Tell us about it", text: "Your content, what makes a good clip, what you pay per 1,000 views, your budget and how you’ll pay." },
+  { title: "Tell us about it", text: "Your content, what makes a good clip, what you pay per 1,000 views and your budget." },
   { title: "We check it and open it", text: "Bamio’s team looks at every campaign before clippers see it, and writes to you when it’s live." },
-  { title: "Clips come in, you pay for views", text: "We look at each clip and count its views. You pay clippers directly for what they earned, up to your budget." },
+  { title: "Clips come in, you pay for views", text: "We look at each clip and count its views. You pay Bamio for what the clips earned, up to your budget, and Bamio pays the clippers." },
 ];
 
 /**
@@ -126,7 +126,7 @@ export function RunCampaign({ startOpen }: { startOpen: boolean }) {
             </Link>
           )}
           <p className={styles.small}>
-            Bamio’s team looks at every campaign before it opens. You pay clippers directly: no money passes through Bamio. Questions first? Write to{" "}
+            Bamio’s team looks at every campaign before it opens. You pay Bamio, and Bamio pays the clippers. Questions first? Write to{" "}
             <a className={styles.mail} href={CONTACT_MAILTO}>
               {CONTACT_EMAIL}
             </a>
@@ -171,8 +171,8 @@ function RequestRow({ request: r, busy, onTakeBack }: { request: MyCampaignReque
   );
 }
 
-type Values = { kind: RequestKind; name: string; sourceUrl: string; brief: string; platforms: ClipPlatform[]; rate: string; budget: string; payout: string; contact: string };
-const BLANK: Values = { kind: "podcaster", name: "", sourceUrl: "", brief: "", platforms: ["tiktok", "youtube", "instagram"], rate: "", budget: "", payout: "", contact: "" };
+type Values = { kind: RequestKind; name: string; sourceUrl: string; brief: string; platforms: ClipPlatform[]; rate: string; budget: string; contact: string };
+const BLANK: Values = { kind: "podcaster", name: "", sourceUrl: "", brief: "", platforms: ["tiktok", "youtube", "instagram"], rate: "", budget: "", contact: "" };
 
 function RequestForm({ onSent, onCancel }: { onSent: (requests: MyCampaignRequest[]) => void; onCancel: () => void }) {
   const toast = useToast();
@@ -352,26 +352,7 @@ function RequestForm({ onSent, onCancel }: { onSent: (requests: MyCampaignReques
           {help("budget", "budgetCents", "The most you’ll pay in all. The campaign ends when it’s used.")}
         </div>
       </div>
-
-      <div className="field">
-        <label className="field-label" htmlFor={`${id}-payout`}>
-          How you’ll pay clippers
-        </label>
-        <input
-          id={`${id}-payout`}
-          className="input"
-          type="text"
-          autoComplete="off"
-          maxLength={CAMPAIGN_LIMITS.payoutTerms}
-          placeholder="PayPal, every Friday"
-          value={values.payout}
-          disabled={busy}
-          aria-invalid={errors.payout ? true : undefined}
-          aria-describedby={`${id}-payout-help`}
-          onChange={(e) => set("payout", e.target.value)}
-        />
-        {help("payout", "payout", "Shown on the campaign’s page. You pay them directly, not through Bamio.")}
-      </div>
+      <p className={styles.panelSmall}>You pay Bamio, and Bamio pays the clippers what their clips earn. We’ll write to you about payment before your campaign opens.</p>
 
       <div className="field">
         <label className="field-label" htmlFor={`${id}-contact`}>
@@ -401,7 +382,7 @@ function RequestForm({ onSent, onCancel }: { onSent: (requests: MyCampaignReques
         </button>
       </div>
       <p className={styles.panelSmall}>
-        By sending this you agree to pay clippers what their clips earn under these terms, up to your budget. Something to ask first? Write to{" "}
+        By sending this you agree to pay Bamio what clippers’ clips earn under these terms, up to your budget. Something to ask first? Write to{" "}
         <a className={styles.mail} href={CONTACT_MAILTO}>
           {CONTACT_EMAIL}
         </a>

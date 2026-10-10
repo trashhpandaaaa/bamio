@@ -58,8 +58,8 @@ async function seed(userId: string) {
   await sql`insert into campaign_clips (campaign_id, user_id, url, url_key, platform, created_at) values (${CAMPAIGN}, ${userId}, 'https://www.tiktok.com/@a/video/1234567', ${`tiktok:${userId}`}, 'tiktok', ${now})`;
   await sql`insert into campaign_payouts (campaign_id, user_id, amount_cents, note, paid_by, paid_at) values (${CAMPAIGN}, ${userId}, 1200, 'PayPal me@example.com', 'boss@example.com', ${now})`;
   // A request to run a campaign.
-  await sql`insert into campaign_requests (user_id, email, kind, name, source_url, brief, platforms, rate_cents, budget_cents, payout, created_at)
-    values (${userId}, 'me@example.com', 'podcaster', 'My show', 'https://example.com/show', 'Clip the best minute.', '["tiktok"]', 100, 10000, 'PayPal', ${now})`;
+  await sql`insert into campaign_requests (user_id, email, kind, name, source_url, brief, platforms, rate_cents, budget_cents, created_at)
+    values (${userId}, 'me@example.com', 'podcaster', 'My show', 'https://example.com/show', 'Clip the best minute.', '["tiktok"]', 100, 10000, ${now})`;
   // The card their free trial was started with.
   await sql`insert into trial_cards (fingerprint, user_id, brand, last4, created_at) values (${`fp_${userId}`}, ${userId}, 'visa', '4242', ${now})`;
   return p;

@@ -37,7 +37,7 @@ export const emailSchema = z.discriminatedUnion("template", [
   z.object({ template: z.literal("video-failed"), projectId: z.string(), title: z.string(), error: z.string() }),
   /** A friend the user referred made their first payment. `onBalance`: the credit is on their Stripe balance (else it waits for their first plan). */
   z.object({ template: z.literal("referral-earned"), amountCents: z.number().int().positive(), onBalance: z.boolean() }),
-  /** A campaign's owner paid the user for their clips, outside Bamio, and an admin wrote it down (src/lib/server/campaigns.ts). */
+  /** Bamio paid the user for their clips in a campaign, and an admin wrote it down (src/lib/server/campaigns.ts). `brand`: whose campaign it is. */
   z.object({ template: z.literal("campaign-paid"), campaign: z.string().max(120), brand: z.string().max(80), slug: z.string().max(80), amountCents: z.number().int().positive(), note: z.string().max(300) }),
   /** The campaign someone asked to run (src/lib/server/campaign-requests.ts) is open to clippers. */
   z.object({ template: z.literal("campaign-live"), campaign: z.string().max(120), slug: z.string().max(80) }),
@@ -265,12 +265,12 @@ function draft(email: Email): Draft {
     case "campaign-paid": {
       const amount = formatPrice(email.amountCents);
       return {
-        subject: `${email.brand} paid you ${amount} for your clips`,
+        subject: `Bamio paid you ${amount} for your clips`,
         preview: `For “${short(email.campaign)}”. Check that it arrived.`,
         heading: `${amount} paid for your clips`,
         blocks: [
-          { p: `${email.brand} marked ${amount} as paid to you for the campaign “${email.campaign}”.${email.note ? ` Their note: ${email.note}` : ""}` },
-          { p: "The payment is made by the campaign’s owner, not through Bamio. If it doesn’t arrive, the campaign’s page says how its payments work." },
+          { p: `Bamio sent you ${amount} for your clips in “${email.campaign}”, ${email.brand}’s campaign.${email.note ? ` A note with it: ${email.note}` : ""}` },
+          { p: "It was sent the way you asked under Profile, Clipper details. If it doesn’t arrive, reply to this email and we’ll look into it." },
         ],
         button: { label: "See your clips and earnings", path: `/clippers/${email.slug}` },
       };
@@ -282,7 +282,7 @@ function draft(email: Email): Draft {
         heading: "Your campaign is live",
         blocks: [
           { p: `“${email.campaign}” is open on Bamio: clippers with a Bamio plan can join it, clip your content and post it on their own channels.` },
-          { p: "We look at every clip before it counts and keep the count of views. We’ll write to you with who has earned what, so you can pay them directly. No money passes through Bamio." },
+          { p: "We look at every clip before it counts and keep the count of views. You pay Bamio for what the clips earn, up to your budget, and Bamio pays the clippers. We’ll write to you with what has been earned." },
           { p: "Share the campaign’s page with your audience: your own fans often make the best clippers. They’ll need a Bamio plan to open it and join." },
         ],
         button: { label: "See your campaign", path: `/clippers/${email.slug}` },

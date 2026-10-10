@@ -231,8 +231,8 @@ test("campaigns are for subscribers: everyone else sees the lock, never a campai
 
       // The person who asked for a campaign opens that one without a plan, and doesn't clip in it.
       await clearPlan(id);
-      await sql`insert into campaign_requests (user_id, kind, name, source_url, brief, platforms, rate_cents, budget_cents, payout, status, campaign_id, created_at)
-        values (${id}, 'streamer', 'E2E Owner', 'https://example.com/show', 'Clip the best minute of each stream.', '["tiktok"]', 200, 100000, 'PayPal', 'accepted', ${DEMO.id}, ${Date.now()})`;
+      await sql`insert into campaign_requests (user_id, kind, name, source_url, brief, platforms, rate_cents, budget_cents, status, campaign_id, created_at)
+        values (${id}, 'streamer', 'E2E Owner', 'https://example.com/show', 'Clip the best minute of each stream.', '["tiktok"]', 200, 100000, 'accepted', ${DEMO.id}, ${Date.now()})`;
       await page.reload();
       await expect(page.getByRole("heading", { level: 1, name: DEMO.title })).toBeVisible();
       await expect(page.getByRole("heading", { name: "Your campaign", exact: true })).toBeVisible();

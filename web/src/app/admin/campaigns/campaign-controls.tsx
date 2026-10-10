@@ -39,7 +39,7 @@ type TextKey = Exclude<keyof FormValues, "platforms">;
 const BLANK: FormValues = { title: "", brand: "", summary: "", brief: "", rules: "", sourceUrl: "", platforms: ["tiktok", "youtube"], rate: "", budget: "", minViews: "0", maxClip: "", payout: "", ends: "" };
 
 /** What the form takes from a request to run a campaign (the "Run a campaign" form on /clippers). */
-export type RequestStart = { id: number; name: string; sourceUrl: string; brief: string; platforms: ClipPlatform[]; rateCents: number; budgetCents: number; payout: string };
+export type RequestStart = { id: number; name: string; sourceUrl: string; brief: string; platforms: ClipPlatform[]; rateCents: number; budgetCents: number };
 
 /** Make a campaign (it starts as a draft) or change one. `request`: start from what someone asked for; making it answers their request. */
 export function CampaignForm({ campaign, request }: { campaign?: Campaign; request?: RequestStart }) {
@@ -64,7 +64,7 @@ export function CampaignForm({ campaign, request }: { campaign?: Campaign; reque
           ends: dayValue(campaign.endsAt),
         }
       : request
-        ? { ...BLANK, title: `Clip ${request.name}`.slice(0, CAMPAIGN_LIMITS.title), brand: request.name, brief: request.brief, sourceUrl: request.sourceUrl, platforms: request.platforms, rate: dollars(request.rateCents), budget: dollars(request.budgetCents), payout: request.payout }
+        ? { ...BLANK, title: `Clip ${request.name}`.slice(0, CAMPAIGN_LIMITS.title), brand: request.name, brief: request.brief, sourceUrl: request.sourceUrl, platforms: request.platforms, rate: dollars(request.rateCents), budget: dollars(request.budgetCents) }
         : BLANK,
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -176,7 +176,7 @@ export function CampaignForm({ campaign, request }: { campaign?: Campaign; reque
           What it is
         </h2>
         {field("title", "title", "Title", campaign ? "Its address stays the same when the title changes." : "Its address is made from this, and never changes.", { maxLength: CAMPAIGN_LIMITS.title, placeholder: "Clip the summer tournament" })}
-        {field("brand", "brand", "Whose campaign", "The creator or brand whose content it is, and who pays.", { maxLength: CAMPAIGN_LIMITS.brand })}
+        {field("brand", "brand", "Whose campaign", "The creator or brand whose content it is. They pay Bamio for the campaign.", { maxLength: CAMPAIGN_LIMITS.brand })}
         {field("summary", "summary", "One line", "Shown on the campaign’s card.", { maxLength: CAMPAIGN_LIMITS.summary })}
         {area("brief", "What to clip", "Which content, what makes a good clip, what to leave out.", CAMPAIGN_LIMITS.brief, 5)}
         {area("rules", "Rules", "One per line.", CAMPAIGN_LIMITS.rules, 4)}
@@ -215,7 +215,7 @@ export function CampaignForm({ campaign, request }: { campaign?: Campaign; reque
           {field("minViews", "minViews", "A clip earns from (views)", "Clips under this earn nothing. 0 for no minimum.", { inputMode: "numeric" })}
           {field("maxClip", "maxClipCents", "Most one clip can earn ($)", "Empty for no cap.", { inputMode: "decimal" })}
         </div>
-        {area("payout", "How clippers are paid", "Shown on the page: who pays, how and when. Payments happen outside Bamio.", CAMPAIGN_LIMITS.payoutTerms, 3)}
+        {area("payout", "How clippers are paid", "Shown on the page: how and when Bamio pays clippers.", CAMPAIGN_LIMITS.payoutTerms, 3)}
         {field("ends", "endsAt", "Last day", "Optional. The campaign ends at the end of this day (UTC).", { type: "date" })}
       </section>
 
@@ -439,7 +439,7 @@ export function ClipActions({ clipId, who, status, platform, views, byHand }: { 
   );
 }
 
-/** Write down a payment the campaign's owner made to a clipper, outside Bamio. */
+/** Write down a payment Bamio made to a clipper. */
 export function PayoutButton({ campaignId, userId, name, owedCents, payout }: { campaignId: string; userId: string; name: string; owedCents: number; payout: string }) {
   const { busy, run } = useAction();
   const id = useId();
@@ -475,7 +475,7 @@ export function PayoutButton({ campaignId, userId, name, owedCents, payout }: { 
       </button>
       <FormDialog open={open} title={`Record a payment to ${name}`} submitLabel="Record payment" busy={busy} onClose={() => setOpen(false)} onSubmit={save}>
         <p className="dialog-body">
-          Pay them first, outside Bamio{payout ? ` (${payout})` : ""}. This writes it down and emails them that it was sent.
+          Pay them first{payout ? ` (${payout})` : ""}: Bamio pays clippers, from what the campaign’s owner has paid Bamio. This writes it down and emails them that it was sent.
         </p>
         <div className="field">
           <label className="field-label" htmlFor={`${id}-amount`}>

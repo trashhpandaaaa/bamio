@@ -35,7 +35,7 @@ test("campaigns are public: what each pays, its budget and who has earned the mo
   await expect(page).toHaveURL(new RegExp(`/clippers/${DEMO.slug}$`));
   await expect(page.getByRole("heading", { level: 1, name: DEMO.title })).toBeVisible();
   await expect(page.getByText("Tag @testcreator in the caption")).toBeVisible();
-  await expect(page.getByText("Test Creator pays clippers directly.")).toBeVisible();
+  await expect(page.getByText("Bamio pays clippers. Test Creator pays Bamio for the campaign;")).toBeVisible();
   const leaders = page.getByRole("list").filter({ has: page.getByText("Nova Clips") }).getByRole("listitem");
   await expect(leaders).toHaveCount(2);
   await expect(leaders.first()).toContainText("Nova Clips");
@@ -100,7 +100,10 @@ test.describe("someone with content to clip", () => {
     await section.getByRole("button", { name: "X", exact: true }).click();
     await section.getByLabel("You pay per 1,000 views ($)").fill("1.50");
     await section.getByLabel("Your budget ($)").fill("400");
-    await section.getByLabel("How you’ll pay clippers").fill("PayPal, every Friday");
+    // They pay Bamio, and Bamio pays the clippers: the form says so, and doesn't ask how they'd pay clippers.
+    await expect(section.getByText("You pay Bamio, and Bamio pays the clippers what their clips earn.")).toBeVisible();
+    await expect(section.getByLabel("How you’ll pay clippers")).toHaveCount(0);
+    await expect(section.getByText("directly")).toHaveCount(0);
     await section.getByRole("button", { name: "Send it to Bamio’s team" }).click();
     await expect(page.getByText("Sent to Bamio’s team")).toBeVisible();
 
@@ -109,7 +112,7 @@ test.describe("someone with content to clip", () => {
     await expect(row).toContainText("Streamer · $1.50 per 1,000 views · $400 budget");
     await expect(row).toContainText("Waiting for a look");
     expect(await sql`select kind, name, source_url, platforms, rate_cents, budget_cents, payout, status, email from campaign_requests where user_id = ${id}`).toMatchObject([
-      { kind: "streamer", name: "E2E Stream House", source_url: "https://twitch.tv/e2e_stream_house", platforms: ["tiktok", "youtube", "instagram", "x"], rate_cents: 150, budget_cents: 40000, payout: "PayPal, every Friday", status: "pending", email: expect.stringContaining("@") },
+      { kind: "streamer", name: "E2E Stream House", source_url: "https://twitch.tv/e2e_stream_house", platforms: ["tiktok", "youtube", "instagram", "x"], rate_cents: 150, budget_cents: 40000, payout: "", status: "pending", email: expect.stringContaining("@") },
     ]);
     await page.screenshot({ path: "qa/campaigns/run-waiting.png", fullPage: true });
 
@@ -123,7 +126,7 @@ test.describe("someone with content to clip", () => {
     test.skip(!process.env.E2E_ADMIN, "Set E2E_ADMIN=1, with the server's BAMIO_SUPERADMINS naming the e2e user.");
     const ask = (name: string) =>
       page.request.post("/api/campaign-requests", {
-        data: { kind: "podcaster", name, sourceUrl: "youtube.com/@e2e_show", brief: "The funniest minute of each episode, with captions on.", platforms: ["tiktok", "youtube"], rateCents: 200, budgetCents: 30000, payout: "PayPal, monthly", contact: "discord: e2e" },
+        data: { kind: "podcaster", name, sourceUrl: "youtube.com/@e2e_show", brief: "The funniest minute of each episode, with captions on.", platforms: ["tiktok", "youtube"], rateCents: 200, budgetCents: 30000, contact: "discord: e2e" },
       });
     expect((await ask("E2E Show One")).status()).toBe(201);
     expect((await ask("E2E Show Two")).status()).toBe(201);
@@ -134,7 +137,8 @@ test.describe("someone with content to clip", () => {
     const one = page.getByRole("row").filter({ hasText: "E2E Show One" });
     const two = page.getByRole("row").filter({ hasText: "E2E Show Two" });
     await expect(one).toContainText("$2");
-    await expect(one).toContainText("PayPal, monthly");
+    // They pay Bamio: how they'd pay clippers isn't asked or shown any more.
+    await expect(one).not.toContainText("Pays by");
     await expect(one).toContainText("discord: e2e");
     await page.screenshot({ path: "qa/campaigns/admin-requests.png", fullPage: true });
 
@@ -153,12 +157,17 @@ test.describe("someone with content to clip", () => {
     await expect(page.getByLabel("Per 1,000 views ($)")).toHaveValue("2");
     await expect(page.getByLabel("Budget ($)")).toHaveValue("300");
     await expect(page.getByLabel("The content")).toHaveValue("https://youtube.com/@e2e_show");
+    // How clippers are paid is Bamio's to say (it pays them), not something the request brought.
+    await expect(page.getByLabel("How clippers are paid")).toHaveValue("");
+    await expect(page.getByText("Shown on the page: how and when Bamio pays clippers.")).toBeVisible();
     await page.getByLabel("Title").fill("E2E requested campaign");
     await page.getByLabel("One line").fill("Clip the funniest minute of the E2E show.");
     await page.getByRole("button", { name: "Make the draft" }).click();
     await page.waitForURL(/admin.campaigns.[0-9a-f-]{36}$/);
     await expect(page.getByRole("heading", { name: "Asked for by" })).toBeVisible();
     await expect(page.getByText("E2E Show One (Podcaster)")).toBeVisible();
+    await expect(page.getByText("They pay Bamio for the campaign, and Bamio pays the clippers.")).toBeVisible();
+    await expect(page.getByText("They pay by")).toHaveCount(0);
 
     // Still a draft: "Being set up". Live: they see it, and are emailed once.
     await page.goto("/clippers");
@@ -334,7 +343,17 @@ test.describe("a clipper", () => {
     await expect(clip).toContainText("20,000");
     await expect(clip).toContainText("$50");
 
-    // They're owed $50: record $30 of it, never more than is owed.
+    // What goes to the campaign's owner (who pays Bamio) says what was earned, never how a clipper is paid: that's for the team, who pay them.
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+    await page.getByRole("button", { name: "Copy what’s been earned" }).click();
+    await expect(page.getByText("Copied: paste it into a message to the campaign’s owner")).toBeVisible();
+    const forOwner = await page.evaluate(() => navigator.clipboard.readText());
+    expect(forOwner).toContain("what clippers have earned and not yet been paid");
+    expect(forOwner).toContain("$50");
+    expect(forOwner).not.toContain("PayPal");
+    expect(forOwner).not.toContain("e2e@example.com");
+
+    // They're owed $50: Bamio pays them; record $30 of it, never more than is owed.
     const clipper = page.getByRole("row").filter({ hasText: "PayPal: e2e@example.com" });
     await clipper.getByRole("button", { name: "Mark paid" }).click();
     const dialog = page.getByRole("dialog");

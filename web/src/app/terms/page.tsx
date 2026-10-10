@@ -115,13 +115,14 @@ export default function TermsPage() {
         <h2>9. Clipping campaigns</h2>
         <ul>
           <li>
-            A <Link href="/clippers">campaign</Link> is an offer from its owner (a creator or a brand) to pay clippers for views on clips of their content, at the rate
-            and up to the budget on its page. Bamio lists campaigns, counts views and shows what was earned and paid. Campaigns are open to accounts with a plan: if
+            A <Link href="/clippers">campaign</Link> is an offer from its owner (a creator or a brand) to pay for views on clips of their content, at the rate and
+            up to the budget on its page. The owner pays Bamio, and Bamio pays clippers what their approved clips earn. Bamio lists campaigns, counts views and shows
+            what was earned and paid. Campaigns are open to accounts with a plan: if
             your plan ends, you can’t open campaigns or send clips until you have one again, and what you already earned is still owed to you.
           </li>
           <li>
-            The campaign’s owner pays clippers directly. No money passes through Bamio, and Bamio isn’t a party to that payment: we don’t guarantee it and aren’t
-            responsible if an owner pays late or not at all.
+            Bamio pays clippers out of what the campaign’s owner has paid Bamio for it, in the way and at the times its page says, using the payment details you
+            give under Profile. If an owner pays Bamio late or not at all, payments for that campaign can be late or reduced, and we may pause or end it.
           </li>
           <li>
             Send only clips you posted yourself, on your own channel, that follow the campaign’s rules. Bought, botted or otherwise faked views don’t count. We may
@@ -132,8 +133,8 @@ export default function TermsPage() {
             can change or end early; what was already paid stays paid.
           </li>
           <li>
-            If you ask to run a campaign, you confirm the content is yours to offer for clipping, and you agree to pay clippers what their approved clips earn under
-            its terms, up to its budget, in the way its page says. We look at every campaign before it opens and may decline or end one.
+            If you ask to run a campaign, you confirm the content is yours to offer for clipping, and you agree to pay Bamio what clippers’ approved clips earn under
+            its terms, up to its budget. We look at every campaign before it opens and may decline or end one.
           </li>
           <li>You’re responsible for any tax on what you earn or pay.</li>
         </ul>

@@ -2,7 +2,7 @@
  * What campaign clips earn. A clip earns its views at the campaign's rate per 1,000 once it has
  * the campaign's minimum, never more than the most one clip can earn, in whole cents (rounded
  * down). The budget is shared in the order clips were approved: first approved, first paid,
- * until it runs out. Payments are made outside Bamio and written down by an admin; what a
+ * until it runs out. Bamio pays clippers (from what the campaign's owner pays Bamio) and an admin writes each payment down; what a
  * clipper is owed is what they earned less what they've been paid.
  */
 

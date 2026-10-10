@@ -28,12 +28,12 @@ function viewsNote(c: AdminClip): string {
   return `read ${ago(c.checkedAt)}`;
 }
 
-/** Who is owed what, as plain text to send to the campaign's owner (they pay clippers directly, outside Bamio). */
+/** What clippers have earned and not yet been paid, as plain text to send to the campaign's owner, who pays Bamio for it. Never how a clipper is paid: that's for the team alone. */
 function payoutList(title: string, owed: AdminClipper[], now = Date.now()): string {
   return [
-    `${title}: what clippers are owed, as of ${when(now)}`,
+    `${title}: what clippers have earned and not yet been paid, as of ${when(now)}`,
     "",
-    ...owed.map((k) => `${k.name}: ${formatPrice(k.owedCents)} (${count(k.views)} views, ${k.clips} ${k.clips === 1 ? "clip" : "clips"}). Pay by: ${k.payout || "not given yet"}`),
+    ...owed.map((k) => `${k.name}: ${formatPrice(k.owedCents)} (${count(k.views)} views, ${k.clips} ${k.clips === 1 ? "clip" : "clips"})`),
     "",
     `Total: ${formatPrice(owed.reduce((n, k) => n + k.owedCents, 0))}`,
   ].join("\n");
@@ -41,15 +41,15 @@ function payoutList(title: string, owed: AdminClipper[], now = Date.now()): stri
 
 /**
  * One campaign, for the people running it: open or end it, look at the clips sent in (those
- * waiting first), see what each clipper has earned and is owed, and write down payments made
- * to them outside Bamio.
+ * waiting first), see what each clipper has earned and is owed, and write down the payments
+ * Bamio makes to them.
  */
 export default async function AdminCampaignPage({ params }: { params: Promise<{ id: string }> }) {
   const admin = await requireAdmin();
   const found = await adminCampaign((await params).id);
   if (!found) notFound();
   const { campaign: c, clips, clippers, payouts } = found;
-  // Made from someone's request to run a campaign: they're the owner, who pays the clippers.
+  // Made from someone's request to run a campaign: they're the owner, who pays Bamio for it.
   const asked = await requestOfCampaign(c.id);
   const users = await usersById([...clippers.map((k) => k.userId), ...clips.map((k) => k.userId), ...(asked ? [asked.userId] : [])]);
   const waiting = clips.filter((k) => k.status === "pending").length;
@@ -134,10 +134,11 @@ export default async function AdminCampaignPage({ params }: { params: Promise<{ 
                   <dd>{asked.contact}</dd>
                 </>
               ) : null}
-              <dt>They pay by</dt>
-              <dd>{asked.payout}</dd>
             </dl>
-            <p className="t-body-sm t-secondary">They pay clippers directly. Send them the list of what’s owed (below), then mark each payment once they’ve made it.</p>
+            <p className="t-body-sm t-secondary">
+              They pay Bamio for the campaign, and Bamio pays the clippers. Send them what has been earned (the list below), see that their payment has come in, then pay each
+              clipper and mark it paid.
+            </p>
           </div>
         </section>
       ) : null}
@@ -212,7 +213,7 @@ export default async function AdminCampaignPage({ params }: { params: Promise<{ 
       <section className={styles.section} aria-labelledby="clippers-title">
         <div className={styles.sectionHead}>
           <h2 id="clippers-title">Clippers and what they’re owed</h2>
-          {owedList.length > 0 ? <CopyTextButton text={payoutText} label="Copy who’s owed what" done="Copied: paste it into a message to the campaign’s owner" /> : null}
+          {owedList.length > 0 ? <CopyTextButton text={payoutText} label="Copy what’s been earned" done="Copied: paste it into a message to the campaign’s owner" /> : null}
         </div>
         {clippers.length === 0 ? (
           <p className={styles.note}>Nobody has joined yet.</p>
@@ -288,7 +289,7 @@ export default async function AdminCampaignPage({ params }: { params: Promise<{ 
       <section className={styles.section} aria-labelledby="payouts-title">
         <h2 id="payouts-title">Payments recorded</h2>
         {payouts.length === 0 ? (
-          <p className={styles.note}>None yet. Pay a clipper outside Bamio, then use Mark paid beside their name: they’re emailed, and what they’re owed goes down.</p>
+          <p className={styles.note}>None yet. Pay a clipper, then use Mark paid beside their name: they’re emailed, and what they’re owed goes down.</p>
         ) : (
           <div className={styles.tableWrap}>
             <table className={styles.table}>

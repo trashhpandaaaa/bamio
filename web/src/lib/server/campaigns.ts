@@ -33,9 +33,11 @@ import { isUserId } from "@/lib/server/store";
  * budget. Clippers join it, clip with Bamio, post on their own channels and send the links.
  * Each clip waits for an admin; approved ones count. Bamio reads the views itself where the
  * site allows (campaign-views.ts) and an admin types them in where it doesn't; money.ts says
- * what the views are worth. Nothing is paid through Bamio: the campaign's owner pays each
- * clipper directly and an admin records it here (campaign_payouts), so everyone sees what was
- * earned, paid and is still owed. Deleting an account removes its clipper, memberships and
+ * what the views are worth. The campaign's owner pays Bamio, and Bamio pays the clippers (the
+ * user's decision, 2026-10-10; before, owners paid clippers themselves). Neither payment is made
+ * by this code: the team takes the owner's money and pays each clipper outside the app, and an
+ * admin records each payment to a clipper here (campaign_payouts), so everyone sees what was
+ * earned, paid and is still owed. How a clipper wants to be paid is for the team alone. Deleting an account removes its clipper, memberships and
  * clips, and keeps only the amounts already paid (accounts.ts). Podcasters, streamers and
  * businesses ask for a campaign with a form (campaign-requests.ts); an admin makes it from that.
  */
@@ -651,8 +653,8 @@ export async function recountClip(clipId: number): Promise<void> {
 }
 
 /**
- * Write down a payment the campaign's owner made to a clipper (outside Bamio), never more than
- * they're owed. The clipper is emailed, so they can say if it didn't arrive. Logged.
+ * Write down a payment Bamio made to a clipper (the team pays them; nothing here moves money),
+ * never more than they're owed. The clipper is emailed, so they can say if it didn't arrive. Logged.
  */
 export async function recordPayout(admin: Admin, campaignId: string, userId: string, amountCents: number, note: string, now = Date.now()): Promise<void> {
   if (!isUuid(campaignId) || !isUserId(userId)) throw notFound();

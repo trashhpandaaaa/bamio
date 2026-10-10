@@ -19,12 +19,14 @@ import { isUserId } from "@/lib/server/store";
 
 /*
  * Requests to run a clipping campaign. A podcaster, streamer or business fills in the "Run a
- * campaign" form on /clippers: their content, what to clip, a rate, a budget, how they'll pay.
+ * campaign" form on /clippers: their content, what to clip, a rate and a budget.
  * It waits for an admin (Admin, Campaigns), who looks at who is promising the money and either
  * makes the campaign from it (a draft, filled in from the request, opened like any other) or
  * declines it with a word why. The person who asked is emailed when their campaign goes live
  * (campaigns.ts) or is declined, and sees where it stands on /clippers. The team still approves
- * the clips and tells the owner whom to pay; no money passes through Bamio.
+ * the clips. The owner pays Bamio for the campaign and Bamio pays the clippers (campaigns.ts):
+ * the owner is never told how a clipper is paid. (The `payout` column held how an owner would
+ * pay clippers, from when they did; it's no longer asked for or read.)
  */
 
 type Row = {
@@ -38,7 +40,6 @@ type Row = {
   platforms: ClipPlatform[];
   rate_cents: number;
   budget_cents: number;
-  payout: string;
   contact: string;
   status: RequestStatus;
   note: string | null;
@@ -51,7 +52,7 @@ type Row = {
 };
 
 const select = (sql: ReturnType<typeof db>) => sql`
-  r.id::int as id, r.user_id, r.email, r.kind, r.name, r.source_url, r.brief, r.platforms, r.rate_cents, r.budget_cents, r.payout, r.contact, r.status, r.note,
+  r.id::int as id, r.user_id, r.email, r.kind, r.name, r.source_url, r.brief, r.platforms, r.rate_cents, r.budget_cents, r.contact, r.status, r.note,
   r.campaign_id, c.slug as campaign_slug, c.title as campaign_title, c.status as campaign_status, r.reviewed_by, r.created_at::float8 as created_at
   from campaign_requests r left join campaigns c on c.id = r.campaign_id`;
 
@@ -64,9 +65,9 @@ export async function requestCampaign(userId: string, input: CampaignRequestInpu
     throw new HttpError(409, "too_many", `You have ${MAX_WAITING_REQUESTS} campaigns waiting for a look already. We’ll get to them first.`);
   }
   const [row] = await sql<{ id: number }[]>`
-    insert into campaign_requests (user_id, email, kind, name, source_url, brief, platforms, rate_cents, budget_cents, payout, contact, created_at)
+    insert into campaign_requests (user_id, email, kind, name, source_url, brief, platforms, rate_cents, budget_cents, contact, created_at)
     values (${userId}, ${email}, ${input.kind}, ${input.name}, ${sourceLink(input.sourceUrl) ?? input.sourceUrl}, ${input.brief}, ${sql.json(input.platforms)},
-      ${input.rateCents}, ${input.budgetCents}, ${input.payout}, ${input.contact}, ${now})
+      ${input.rateCents}, ${input.budgetCents}, ${input.contact}, ${now})
     returning id::int as id`;
   return row!.id;
 }
@@ -111,7 +112,6 @@ export type AdminCampaignRequest = {
   platforms: ClipPlatform[];
   rateCents: number;
   budgetCents: number;
-  payout: string;
   contact: string;
   status: RequestStatus;
   note: string | null;
@@ -131,7 +131,6 @@ const forAdmin = (r: Row): AdminCampaignRequest => ({
   platforms: r.platforms,
   rateCents: r.rate_cents,
   budgetCents: r.budget_cents,
-  payout: r.payout,
   contact: r.contact,
   status: r.status,
   note: r.note,

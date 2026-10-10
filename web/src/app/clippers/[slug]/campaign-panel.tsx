@@ -213,13 +213,13 @@ function JoinForm({ slug, brand, platforms, start, onJoined }: Props & { start: 
           onChange={(e) => set("payout", e.target.value)}
         />
         <p id={`${id}-payout-help`} className={errors.payout ? "field-error" : "field-help"} role={errors.payout ? "alert" : undefined}>
-          {errors.payout ?? "Only Bamio’s team and the campaign’s owner see this. Never a card number or a password."}
+          {errors.payout ?? "Bamio pays you with this. Only Bamio’s team sees it. Never a card number or a password."}
         </p>
       </div>
       <button className="btn btn-primary" type="submit" disabled={busy} aria-busy={busy}>
         {busy ? "Joining…" : "Join the campaign"}
       </button>
-      <p className={styles.panelSmall}>By joining you agree to the campaign’s rules. {brand} pays clippers directly; Bamio counts the views and doesn’t handle the money.</p>
+      <p className={styles.panelSmall}>By joining you agree to the campaign’s rules. Bamio counts the views and pays you what your approved clips earn, from what {brand} pays for the campaign.</p>
     </form>
   );
 }

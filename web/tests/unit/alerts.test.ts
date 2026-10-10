@@ -90,8 +90,8 @@ describe("alerts", () => {
   it("find requests to run a campaign waiting for an answer, once a day", async () => {
     const sql = db();
     const ask = (name: string, status: string) =>
-      sql`insert into campaign_requests (user_id, kind, name, source_url, brief, platforms, rate_cents, budget_cents, payout, status, created_at)
-        values (${USER}, 'streamer', ${name}, 'https://example.com/a', 'Clip the best minute.', '["tiktok"]', 100, 10000, 'PayPal', ${status}, 1)`;
+      sql`insert into campaign_requests (user_id, kind, name, source_url, brief, platforms, rate_cents, budget_cents, status, created_at)
+        values (${USER}, 'streamer', ${name}, 'https://example.com/a', 'Clip the best minute.', '["tiktok"]', 100, 10000, ${status}, 1)`;
     await ask("Declined show", "declined");
     expect(await findAlerts(NOW)).toEqual([]);
     await ask("Stream One", "pending");

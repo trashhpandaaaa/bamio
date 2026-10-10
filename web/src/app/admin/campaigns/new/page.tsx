@@ -41,7 +41,7 @@ export default async function NewCampaignPage({ searchParams }: { searchParams: 
       <CampaignForm
         request={
           open
-            ? { id: open.id, name: open.name, sourceUrl: open.sourceUrl, brief: open.brief, platforms: open.platforms, rateCents: open.rateCents, budgetCents: open.budgetCents, payout: open.payout }
+            ? { id: open.id, name: open.name, sourceUrl: open.sourceUrl, brief: open.brief, platforms: open.platforms, rateCents: open.rateCents, budgetCents: open.budgetCents }
             : undefined
         }
       />

@@ -130,7 +130,7 @@ export const api = {
     /** Approve or reject a clip, type in its views (null: back to Bamio's count), or have them read again. */
     campaignClip: (clipId: number, change: { action: "approve" } | { action: "reject"; note: string } | { action: "views"; views: number | null } | { action: "recount" }) =>
       request<{ ok: true }>("POST", `/api/admin/campaign-clips/${clipId}`, change),
-    /** Write down a payment made to a clipper outside Bamio. */
+    /** Write down a payment Bamio made to a clipper. */
     payout: (campaignId: string, userId: string, amountCents: number, note: string) =>
       request<{ ok: true }>("POST", `/api/admin/campaigns/${encodeURIComponent(campaignId)}/payouts`, { userId, amountCents, note }),
     clipper: (userId: string, action: "block" | "unblock") => request<{ ok: true }>("POST", `/api/admin/clippers/${encodeURIComponent(userId)}`, { action }),

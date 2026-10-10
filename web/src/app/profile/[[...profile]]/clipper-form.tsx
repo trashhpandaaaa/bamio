@@ -13,7 +13,7 @@ type Values = { name: string; link: string; payout: string };
 
 /**
  * Profile, Clipper details: who the user is in clipping campaigns (/clippers). The name and
- * channel show on leaderboards; how to pay them is for Bamio's team and campaign owners only.
+ * channel show on leaderboards; how to pay them is for Bamio's team only, who pay them.
  */
 export function ClipperPage() {
   const { user, isLoaded } = useUser();
@@ -162,7 +162,7 @@ function ClipperForm({ entry, fallbackName, onSaved }: { entry: MyClipper | null
           onChange={(e) => set("payout", e.target.value)}
         />
         <p id={`${id}-payout-help`} className={errors.payout ? "field-error" : "field-help"} role={errors.payout ? "alert" : undefined}>
-          {errors.payout ?? "Campaign owners pay you directly, not through Bamio. Only Bamio’s team and they see this. Never a card number or a password."}
+          {errors.payout ?? "Bamio pays you what your clips earn in campaigns, this way. Only Bamio’s team sees it. Never a card number or a password."}
         </p>
       </div>
 

@@ -53,10 +53,10 @@ export async function seedCampaign(sql: Sql, opts: { joined?: string } = {}): Pr
     await clip(opts.joined, "E2Emine00003", "rejected", null, "Not from this campaign’s content.");
     await sql`insert into campaign_payouts (campaign_id, user_id, amount_cents, note, paid_by, paid_at) values (${DEMO.id}, ${opts.joined}, 3000, '', 'e2e@example.com', ${now})`;
     const ask = (name: string, kind: string, status: string, note: string | null, campaignId: string | null) =>
-      sql<{ id: number }[]>`insert into campaign_requests (user_id, email, kind, name, source_url, brief, platforms, rate_cents, budget_cents, payout, contact, status, note, campaign_id, reviewed_by, reviewed_at, created_at)
+      sql<{ id: number }[]>`insert into campaign_requests (user_id, email, kind, name, source_url, brief, platforms, rate_cents, budget_cents, contact, status, note, campaign_id, reviewed_by, reviewed_at, created_at)
         values (${opts.joined!}, 'e2e@example.com', ${kind}, ${name}, 'https://www.youtube.com/@e2e_test_show',
           'The funniest or most surprising minute of each episode. Keep the intro and the ads out, and put captions on.',
-          '["tiktok", "youtube"]', 200, 100000, 'PayPal, every Friday', 'discord: e2e_owner', ${status}, ${note}, ${campaignId},
+          '["tiktok", "youtube"]', 200, 100000, 'discord: e2e_owner', ${status}, ${note}, ${campaignId},
           ${status === "pending" ? null : "e2e@example.com"}, ${status === "pending" ? null : now}, ${now})
         returning id::int as id`;
     await ask("E2E Test Creator", "streamer", "accepted", null, DEMO.id);
