@@ -5,7 +5,7 @@ import sitemap from "@/app/sitemap";
 import { PLANS } from "@/lib/billing/plans";
 import { CAPTION_LANGUAGES, captionLanguageMeta, punctuated } from "@/lib/caption-languages";
 import { ADSENSE_CLIENT, ADSENSE_SCRIPT } from "@/lib/ads";
-import { CONTACT_EMAIL, CONTACT_MAILTO } from "@/lib/contact";
+import { CONTACT_EMAIL, CONTACT_MAILTO, SUPPORT_EMAIL, SUPPORT_MAILTO } from "@/lib/contact";
 import { COMPANY, LEGAL_PAGES } from "@/lib/legal";
 import { fontRuns } from "@/lib/server/caption-fonts";
 import { breadcrumbData, CLIPPERS_DESCRIPTION, CLIPPERS_TITLE, faqData, HOME_DESCRIPTION, HOME_TITLE, ORGANIZATION, pageMetadata, PRICING_DESCRIPTION, SITE_URL, softwareData, USE_CASES } from "@/lib/site";
@@ -96,9 +96,12 @@ describe("search engines", () => {
     expect(app.offers).toHaveLength(6);
     expect(app.offers[0]).toMatchObject({ price: (PLANS.starter.price.month / 100).toFixed(2), priceCurrency: "USD" });
     expect(app).not.toHaveProperty("aggregateRating");
-    // One address to write to, the same everywhere it's given.
+    // The contact address, the same everywhere it's given.
     expect(CONTACT_EMAIL).toMatch(/^[a-z0-9.]+@bamio[.]app$/);
     expect(CONTACT_MAILTO).toBe(`mailto:${CONTACT_EMAIL}`);
+    // The footer's address, for help.
+    expect(SUPPORT_EMAIL).toBe("support@bamio.app");
+    expect(SUPPORT_MAILTO).toBe(`mailto:${SUPPORT_EMAIL}`);
     expect(ORGANIZATION).toMatchObject({ email: CONTACT_EMAIL, contactPoint: { "@type": "ContactPoint", email: CONTACT_EMAIL } });
     expect(COMPANY.email).toBe(CONTACT_EMAIL);
     const faq = faqData([{ q: "Q?", text: "A." }]);

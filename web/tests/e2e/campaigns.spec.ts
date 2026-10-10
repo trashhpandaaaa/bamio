@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { CONTACT_EMAIL } from "../../src/lib/contact";
+import { CONTACT_EMAIL, SUPPORT_EMAIL } from "../../src/lib/contact";
 import { signIn } from "./auth";
 import { clearCampaigns, connect, DEMO, seedCampaign } from "./campaign-seed";
 
@@ -65,7 +65,9 @@ test("the campaigns page invites podcasters, streamers and businesses to run a c
   await expect(section.getByText("We check it and open it")).toBeVisible();
   // Where to write with a question first, here and in the footer.
   await expect(section.getByRole("link", { name: CONTACT_EMAIL })).toHaveAttribute("href", `mailto:${CONTACT_EMAIL}`);
-  await expect(page.getByRole("contentinfo").getByRole("link", { name: CONTACT_EMAIL })).toHaveAttribute("href", `mailto:${CONTACT_EMAIL}`);
+  // The footer gives the address for help, not the campaign contact.
+  await expect(page.getByRole("contentinfo").getByRole("link", { name: SUPPORT_EMAIL })).toHaveAttribute("href", `mailto:${SUPPORT_EMAIL}`);
+  await expect(page.getByRole("contentinfo").getByRole("link", { name: CONTACT_EMAIL })).toHaveCount(0);
   // Signed out: the form is behind signing in, which comes back to it.
   await expect(section.getByRole("link", { name: "Sign in to set up a campaign" })).toHaveAttribute("href", `/sign-in?redirect_url=${encodeURIComponent("/clippers?run=1")}`);
   await expect(section.getByLabel("Your content")).toHaveCount(0);

@@ -107,6 +107,10 @@ The user pasted a production-readiness checklist (keys, Postgres, S3/R2, Redis a
 - **Health and deploy:** `GET /api/health` (public, nothing about users) reports the database, storage, media tools and the queue (waiting, running, oldest wait) with 200 or 503. A database that can't be reached gives a 503 "can't reach its database" everywhere. `web/Dockerfile` (one image for both roles: Node 24 slim, tini, a non-root user, migrations on start, a health check) and `web/compose.yaml` (Postgres 18, MinIO and its bucket, a web server that only queues, a worker; `--scale worker=N`).
 - **Decision: a Postgres queue instead of Redis and BullMQ.** Same guarantees for this load (durable, leased, retried, prioritised, cancellable), one less service to run and back up, and a job is queued in the same transaction as the project change that asks for it, so neither can exist without the other. `queue.ts` is small, so it can be swapped if volume ever needs it. Redis and Docker weren't available on this machine either.
 
+### The footer's address is support@bamio.app (2026-10-10, later)
+
+The user, with a screenshot of the footer: "Change the gmail on the footer to support@bamio.app". The footer now shows `SUPPORT_EMAIL` (`src/lib/contact.ts`). Only the footer was asked for, so `CONTACT_EMAIL` (alexza@bamio.app) stays everywhere else: the campaign section, the legal pages, the organization's details for search engines, "write to us" messages, and where replies to Bamio's emails go. Open: whether any of those should move to the support address too, and that the support mailbox exists and is read.
+
 ### Campaigns pay Bamio, and Bamio pays the clippers (2026-10-10)
 
 The user, with a screenshot of the "How you'll pay clippers" field ("You pay them directly, not through Bamio"): "Remove that pay directly to user, not through bamio thing. We want campaigns to pay us then we'll pay the clippers." This reverses the earlier rule that no money passes through Bamio (entries below describe campaigns as they were).
