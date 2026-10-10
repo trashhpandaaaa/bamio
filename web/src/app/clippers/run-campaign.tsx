@@ -8,6 +8,7 @@ import { StatusBadge } from "@/components/campaigns/parts";
 import { useToast } from "@/components/toast";
 import { formatPrice } from "@/lib/billing/plans";
 import { CONTACT_EMAIL, CONTACT_MAILTO } from "@/lib/contact";
+import { COMPANY } from "@/lib/legal";
 import { api } from "@/lib/clips/api";
 import { CLIP_PLATFORM_IDS, CLIP_PLATFORMS, type ClipPlatform } from "@/lib/campaigns/links";
 import { CAMPAIGN_LIMITS, campaignRequestSchema, parseDollars, REQUEST_KIND_IDS, REQUEST_KINDS, type MyCampaignRequest, type RequestKind } from "@/lib/campaigns/schema";
@@ -22,7 +23,7 @@ const AUDIENCES = [
 const STEPS = [
   { title: "Tell us about it", text: "Your content, what makes a good clip, what you pay per 1,000 views and your budget." },
   { title: "We check it and open it", text: "Bamio’s team looks at every campaign before clippers see it, and writes to you when it’s live." },
-  { title: "Clips come in, you pay for views", text: "We look at each clip and count its views. You pay Bamio for what the clips earned, up to your budget, and Bamio pays the clippers." },
+  { title: "Clips come in, you pay for views", text: "We look at each clip and count its views. You pay for what the clips earned, up to your budget." },
 ];
 
 /**
@@ -30,6 +31,9 @@ const STEPS = [
  * clips of their content. Signed in, they fill in a short form; it goes to Bamio's team, who
  * make the campaign from it (the admin panel's Campaigns), and their requests show here with
  * where each stands. `startOpen`: arrived to fill it in (back from signing in: ?run=1).
+ *
+ * Who is paid, and how, isn't explained here: that's on the terms and the privacy page (the
+ * user's choice, 2026-10-10). The form asks for the rate and the budget, nothing about payment.
  */
 export function RunCampaign({ startOpen }: { startOpen: boolean }) {
   const { isLoaded, isSignedIn } = useAuth();
@@ -126,7 +130,7 @@ export function RunCampaign({ startOpen }: { startOpen: boolean }) {
             </Link>
           )}
           <p className={styles.small}>
-            Bamio’s team looks at every campaign before it opens. You pay Bamio, and Bamio pays the clippers. Questions first? Write to{" "}
+            Bamio’s team looks at every campaign before it opens. Questions first? Write to{" "}
             <a className={styles.mail} href={CONTACT_MAILTO}>
               {CONTACT_EMAIL}
             </a>
@@ -352,7 +356,6 @@ function RequestForm({ onSent, onCancel }: { onSent: (requests: MyCampaignReques
           {help("budget", "budgetCents", "The most you’ll pay in all. The campaign ends when it’s used.")}
         </div>
       </div>
-      <p className={styles.panelSmall}>You pay Bamio, and Bamio pays the clippers what their clips earn. We’ll write to you about payment before your campaign opens.</p>
 
       <div className="field">
         <label className="field-label" htmlFor={`${id}-contact`}>
@@ -382,7 +385,17 @@ function RequestForm({ onSent, onCancel }: { onSent: (requests: MyCampaignReques
         </button>
       </div>
       <p className={styles.panelSmall}>
-        By sending this you agree to pay Bamio what clippers’ clips earn under these terms, up to your budget. Something to ask first? Write to{" "}
+        By sending this you agree to pay what clippers’ clips earn under these terms, up to your budget
+        {/* The terms of service say who is paid and how; they're linked once the company's details are in (legal.ts). */}
+        {COMPANY.ready ? (
+          <>
+            , and to Bamio’s{" "}
+            <Link className={styles.inlineLink} href="/terms">
+              terms of service
+            </Link>
+          </>
+        ) : null}
+        . Something to ask first? Write to{" "}
         <a className={styles.mail} href={CONTACT_MAILTO}>
           {CONTACT_EMAIL}
         </a>

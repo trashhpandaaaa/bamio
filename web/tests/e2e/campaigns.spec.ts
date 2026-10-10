@@ -102,8 +102,9 @@ test.describe("someone with content to clip", () => {
     await section.getByRole("button", { name: "X", exact: true }).click();
     await section.getByLabel("You pay per 1,000 views ($)").fill("1.50");
     await section.getByLabel("Your budget ($)").fill("400");
-    // They pay Bamio, and Bamio pays the clippers: the form says so, and doesn't ask how they'd pay clippers.
-    await expect(section.getByText("You pay Bamio, and Bamio pays the clippers what their clips earn.")).toBeVisible();
+    // Who is paid, and how, is for the terms and the privacy page: the section doesn't ask or say.
+    await expect(section.getByText("Bamio pays")).toHaveCount(0);
+    await expect(section.getByText("pay Bamio")).toHaveCount(0);
     await expect(section.getByLabel("How you’ll pay clippers")).toHaveCount(0);
     await expect(section.getByText("directly")).toHaveCount(0);
     await section.getByRole("button", { name: "Send it to Bamio’s team" }).click();

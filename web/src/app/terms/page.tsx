@@ -134,7 +134,7 @@ export default function TermsPage() {
           </li>
           <li>
             If you ask to run a campaign, you confirm the content is yours to offer for clipping, and you agree to pay Bamio what clippers’ approved clips earn under
-            its terms, up to its budget. We look at every campaign before it opens and may decline or end one.
+            its terms, up to its budget. We write to you about how and when to pay before your campaign opens. We look at every campaign before it opens and may decline or end one.
           </li>
           <li>You’re responsible for any tax on what you earn or pay.</li>
         </ul>
