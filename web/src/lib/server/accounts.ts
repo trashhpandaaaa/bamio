@@ -86,6 +86,8 @@ export async function deleteAccountData(userId: string, deps: AccountDeps = defa
     await tx`delete from campaign_members where user_id = ${userId}`;
     await tx`update campaign_payouts set user_id = null, note = '' where user_id = ${userId}`;
     await tx`delete from clippers where user_id = ${userId}`;
+    // Their files went with the rest of the account's media, above.
+    await tx`delete from downloads where user_id = ${userId}`;
     await releaseTrialCard(userId, tx);
   });
   await deps.deleteClerkUser(userId);

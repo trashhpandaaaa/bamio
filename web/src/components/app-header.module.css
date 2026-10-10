@@ -8,7 +8,7 @@
   display: flex; align-items: center; gap: 24px; height: var(--topbar);
   max-width: var(--container-wide); margin: 0 auto; padding: 0 var(--gutter);
 }
-.nav { display: flex; gap: 2px; }
+.nav { display: flex; gap: 2px; min-width: 0; }
 .nav a {
   font: var(--t-label-sm); color: var(--text-secondary); text-decoration: none;
   padding: 8px 12px; border-radius: var(--r-pill); white-space: nowrap;
@@ -16,7 +16,7 @@
 }
 .nav a:hover { color: var(--text); background: var(--surface-sunken); }
 .nav a[aria-current="page"] { color: var(--text); background: var(--surface-sunken); }
-.right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.right { margin-left: auto; flex: none; display: flex; align-items: center; gap: 10px; }
 /* The three-way theme switch, or (small screens) one button that steps through the themes. */
 .right .themeFull { display: contents; }
 .right .themeCompact { display: none; }
@@ -29,6 +29,12 @@
 @media (max-width: 480px) {
   .right .themeFull { display: none; }
   .right .themeCompact { display: inline-flex; }
+  /* More links than a phone is wide: the menu scrolls sideways inside the bar (its end fading out says so), and the rest stays put. */
+  .nav {
+    flex: 0 1 auto; overflow-x: auto; scrollbar-width: none; padding-inline-end: 20px;
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
+  }
+  .nav::-webkit-scrollbar { display: none; }
 }
 @media (max-width: 420px) {
   /* Import is on the Projects page too; the editor is only here. */

@@ -152,7 +152,7 @@ test.describe("clipping", () => {
 
     // Export with the real ffmpeg pipeline and check the file.
     await page.getByRole("button", { name: "Export", exact: true }).click();
-    const download = page.getByRole("link", { name: /^Download/ });
+    const download = page.getByRole("main").getByRole("link", { name: /^Download/ });
     await expect(download).toBeVisible({ timeout: 150_000 });
     await shot(page, "13-editor-exported");
     const href = await download.getAttribute("href");

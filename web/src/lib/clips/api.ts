@@ -9,6 +9,7 @@ import type {
   SystemStatus,
   Transcript,
 } from "@/lib/clips/schema";
+import type { Download, DownloadList } from "@/lib/downloads/schema";
 
 /* Browser client for the /api routes. Errors carry the server's user-facing message. */
 
@@ -113,6 +114,13 @@ export const api = {
     send: (input: CampaignRequestInput) => request<MyCampaignRequest[]>("POST", "/api/campaign-requests", input),
     withdraw: (id: number) => request<MyCampaignRequest[]>("DELETE", `/api/campaign-requests/${id}`),
   },
+  /** The downloader (/download): videos fetched from links, kept a day. */
+  downloads: {
+    list: (signal?: AbortSignal) => request<DownloadList>("GET", "/api/downloads", undefined, signal),
+    start: (url: string) => request<Download>("POST", "/api/downloads", { url }),
+    /** Take one off the list and delete its file. Answers with the list as it is now. */
+    remove: (id: string) => request<DownloadList>("DELETE", `/api/downloads/${encodeURIComponent(id)}`),
+  },
   /** Delete the signed-in account and everything in it. */
   deleteAccount: () => request<void>("DELETE", "/api/account", { confirm: "delete" }),
   /** The admin panel’s changes (the server checks the role). */
@@ -139,6 +147,9 @@ export const api = {
 
 /** Errors a plan can fix (no plan yet, minutes used up, as many projects as the plan keeps): worth a link to Pricing. */
 export const isPlanError = (err: unknown) => err instanceof ApiError && ((err.status === 402 && err.code !== "card_required") || err.code === "too_many");
+
+/** A finished download's file, to save; `view`: to read in the browser (the editor). */
+export const downloadFileUrl = (id: string, view = false) => `/api/downloads/${encodeURIComponent(id)}/file${view ? "?view=1" : ""}`;
 
 export const sourceUrl = (id: string) => `${base(id)}/source`;
 /** A followed stream's video while it grows (HLS). */

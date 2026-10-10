@@ -73,10 +73,14 @@ function cookiesArgs(): string[] {
 /** Arguments every yt-dlp call uses. */
 export const ytdlpArgs = () => ["--no-playlist", "--no-warnings", "--ignore-config", "--js-runtimes", `node:${process.execPath}`, ...cookiesArgs()];
 
+/** What a link is wanted for: an import can fall back to uploading the file, so its messages say so; a download (downloads.ts) can't. */
+export type LinkPurpose = "import" | "download";
+
 /** Turn yt-dlp's stderr into a message the user can act on. */
-export function explainYtdlpError(stderr: string): string {
+export function explainYtdlpError(stderr: string, purpose: LinkPurpose = "import"): string {
   const s = stderr.toLowerCase();
-  if (s.includes("unsupported url")) return "Bamio can’t read videos from that page. Try the video’s own page, or upload the file.";
+  const importing = purpose === "import";
+  if (s.includes("unsupported url")) return importing ? "Bamio can’t read videos from that page. Try the video’s own page, or upload the file." : "Bamio can’t read videos from that page. Try the video’s own page.";
   if (s.includes("not a bot")) {
     // For whoever runs the server: the users see the message below.
     console.warn(
@@ -84,7 +88,7 @@ export function explainYtdlpError(stderr: string): string {
         ? "[bamio/media] YouTube asked for a sign-in despite YTDLP_COOKIES: the cookies have probably expired, export them again (web/DEPLOY.md)"
         : "[bamio/media] YouTube asked for a sign-in: set YTDLP_COOKIES (web/DEPLOY.md)",
     );
-    return "The site asked for a sign-in to prove this isn’t a bot. Try again later, or download the video and upload it.";
+    return importing ? "The site asked for a sign-in to prove this isn’t a bot. Try again later, or download the video and upload it." : "The site asked for a sign-in to prove this isn’t a bot. Try again later.";
   }
   if (/\bdrm\b/.test(s)) return "That video is copy-protected, so it can’t be downloaded.";
   if (
@@ -108,10 +112,12 @@ export function explainYtdlpError(stderr: string): string {
     return "That video isn’t available. Check the link opens in your browser.";
   }
   if (s.includes("error 403") || s.includes("forbidden") || s.includes("cloudflare")) {
-    return "That site turns away downloads from servers like Bamio’s. Download the video yourself and upload the file instead.";
+    return importing
+      ? "That site turns away downloads from servers like Bamio’s. Download the video yourself and upload the file instead."
+      : "That site turns away downloads from servers like Bamio’s, so Bamio can’t fetch this video.";
   }
   if (s.includes("timed out") || s.includes("connection") || s.includes("network")) return "The site didn’t answer. Check your connection and try again.";
-  return "Bamio couldn’t read that link. Check it opens in your browser, or upload the file instead.";
+  return importing ? "Bamio couldn’t read that link. Check it opens in your browser, or upload the file instead." : "Bamio couldn’t read that link. Check it opens in your browser.";
 }
 
 type YtdlpInfo = {
@@ -148,8 +154,8 @@ async function remoteDuration(mediaUrl: string, signal?: AbortSignal): Promise<n
   }
 }
 
-/** Read a link's title, length and thumbnail without downloading it. */
-export async function inspectUrl(input: string, signal?: AbortSignal): Promise<InspectResult> {
+/** Read a link's title, length and thumbnail without downloading it. `purpose`: what it's wanted for, for the wording of an error. */
+export async function inspectUrl(input: string, signal?: AbortSignal, purpose: LinkPurpose = "import"): Promise<InspectResult> {
   const url = await checkPublicUrl(input);
   requireYtdlp();
   const ask = (address: URL) => run("yt-dlp", [...ytdlpArgs(), "-J", "--skip-download", "--", address.href], { signal, timeoutMs: 60_000, collectStdout: 30 * 1024 * 1024 });
@@ -170,7 +176,7 @@ export async function inspectUrl(input: string, signal?: AbortSignal): Promise<I
       if (i < addresses.length - 1) await new Promise((resolve) => setTimeout(resolve, 800));
     }
   }
-  if (stdout === undefined) throw new HttpError(422, "unreadable", explainYtdlpError(failure instanceof ProcessError ? failure.stderrTail : ""));
+  if (stdout === undefined) throw new HttpError(422, "unreadable", explainYtdlpError(failure instanceof ProcessError ? failure.stderrTail : "", purpose));
   let info: YtdlpInfo;
   try {
     info = JSON.parse(stdout) as YtdlpInfo;
@@ -195,7 +201,7 @@ export async function inspectUrl(input: string, signal?: AbortSignal): Promise<I
     const media = info.url ?? info.formats?.at(-1)?.url;
     durationSec = media && /^https?:\/\//.test(media) ? await remoteDuration(media, signal) : NaN;
     if (!Number.isFinite(durationSec) || durationSec <= 0) {
-      throw new HttpError(422, "no_duration", "Bamio couldn’t tell how long that video is, so it can’t be imported.");
+      throw new HttpError(422, "no_duration", `Bamio couldn’t tell how long that video is, so it can’t be ${purpose === "import" ? "imported" : "downloaded"}.`);
     }
   }
   const title = (info.title ?? info.fulltitle ?? "").trim() || "Untitled video";
@@ -244,12 +250,12 @@ const inspectCache: Map<string, CachedInspect> = ((globalThis as { __bamioInspec
  * inspectUrl, remembered for 10 minutes (live streams: 1 minute, they change) so the
  * import step doesn't ask the site twice.
  */
-export function inspectCached(input: string): Promise<InspectResult> {
+export function inspectCached(input: string, purpose: LinkPurpose = "import"): Promise<InspectResult> {
   const key = input.trim();
   const now = Date.now();
   const hit = inspectCache.get(key);
   if (hit && now - hit.at < hit.ttl) return hit.result;
-  const result = inspectUrl(key);
+  const result = inspectUrl(key, undefined, purpose);
   const entry: CachedInspect = { at: now, ttl: 10 * 60 * 1000, result };
   inspectCache.set(key, entry);
   result.then((r) => {
@@ -272,6 +278,8 @@ export async function downloadUrl(
     range?: { start: number; end: number };
     signal?: AbortSignal;
     onProgress?: (p: number | null) => void;
+    /** What the file is wanted for, for the wording of an error. */
+    purpose?: LinkPurpose;
   },
 ): Promise<string> {
   await checkPublicUrl(url);
@@ -348,7 +356,7 @@ export async function downloadUrl(
     if (isAbortError(err)) throw err;
     const tail = err instanceof ProcessError ? err.stderrTail : "";
     console.error("[bamio/media] yt-dlp failed:", tail.slice(-1500));
-    throw new HttpError(422, "download_failed", explainYtdlpError(tail));
+    throw new HttpError(422, "download_failed", explainYtdlpError(tail, opts.purpose));
   }
   const files = (await readdir(dir)).filter((f) => f.startsWith("download.") && !/\.(part|ytdl|temp)$/i.test(f) && !f.includes(".part-"));
   const file = files.find((f) => f.endsWith(".mp4")) ?? files[0];

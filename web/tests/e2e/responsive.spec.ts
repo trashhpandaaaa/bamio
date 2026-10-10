@@ -114,6 +114,7 @@ async function pages(page: Page) {
     { name: "captions-arabic", path: "/auto-captions/arabic", ready: (p) => expect(p.locator("#hero-link")).toBeVisible() },
     { name: "captions-japanese", path: "/auto-captions/japanese", ready: (p) => expect(p.locator("#hero-link")).toBeVisible() },
     { name: "import", path: "/new", ready: (p) => expect(p.getByLabel("Video link")).toBeVisible() },
+    { name: "download", path: "/download", ready: (p) => expect(p.getByRole("heading", { name: "Your downloads" })).toBeVisible() },
     { name: "import-upload", path: "/new?mode=upload", ready: (p) => expect(p.getByText(/Drop a video here|Choose a file/i).first()).toBeVisible() },
     { name: "projects", path: "/projects", ready: (p) => expect(p.getByRole("heading", { level: 1 })).toBeVisible() },
     { name: "billing", path: "/billing", ready: (p) => expect(p.getByRole("heading", { level: 2 }).first()).toBeVisible() },

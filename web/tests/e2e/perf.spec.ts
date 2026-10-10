@@ -63,7 +63,7 @@ test("time an import, the pages and an export", async ({ page }) => {
 
   t = Date.now();
   await page.getByRole("button", { name: "Export", exact: true }).click();
-  await expect(page.getByRole("link", { name: /^Download/ })).toBeVisible({ timeout: 600_000 });
+  await expect(page.getByRole("main").getByRole("link", { name: /^Download/ })).toBeVisible({ timeout: 600_000 });
   mark("export one clip", t);
 
   expect((await page.request.delete(api)).status()).toBe(204);

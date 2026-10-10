@@ -49,6 +49,10 @@ export default function TermsPage() {
           them. If a rights holder tells us you used Bamio for their work without permission, we may remove it and close your account (see{" "}
           <Link href="/takedown">copyright and takedowns</Link>).
         </p>
+        <p>
+          The same goes for the downloader, which saves a video from a link as a file: use it only for videos you own or have permission to save, and follow the
+          rules of the site the video comes from. It doesn’t take YouTube links. Bamio keeps a downloaded file for 24 hours so you can save it, then deletes it.
+        </p>
       </section>
 
       <section>

@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { deleteNextAccount, requestAccountDeletion, type AccountDeps } from "@/lib/server/accounts";
 import { db } from "@/lib/server/db";
+import { downloadKey } from "@/lib/server/downloads";
 import { storage } from "@/lib/server/storage";
 import { addUsage, blankProject, createProject, mediaKeys, writeTranscript } from "@/lib/server/store";
 
@@ -13,6 +14,8 @@ const GONE = "user_del_gone";
 const KEPT = "user_del_kept";
 const CAMPAIGN = "0c0ffee0-0000-4000-8000-00000000acc0";
 const USERS = [GONE, KEPT];
+/** Each user's download in these tests. */
+const downloadId = (userId: string) => (userId === GONE ? "0d0d0d0d-0000-4000-8000-00000000d001" : "0d0d0d0d-0000-4000-8000-00000000d002");
 
 function fakes(fail?: Error) {
   const calls: string[] = [];
@@ -60,6 +63,13 @@ async function seed(userId: string) {
   // A request to run a campaign.
   await sql`insert into campaign_requests (user_id, email, kind, name, source_url, brief, platforms, rate_cents, budget_cents, created_at)
     values (${userId}, 'me@example.com', 'podcaster', 'My show', 'https://example.com/show', 'Clip the best minute.', '["tiktok"]', 100, 10000, ${now})`;
+  // A video from the downloader, ready to save.
+  const download = downloadId(userId);
+  const video = path.join(dir, `${userId}.mp4`);
+  await writeFile(video, "mp4");
+  await storage().publish(downloadKey(userId, download), video, "video/mp4");
+  await sql`insert into downloads (id, user_id, url, title, platform, duration_sec, status, created_at, expires_at)
+    values (${download}, ${userId}, 'https://example.com/v/1', 'A video', 'other', 12, 'ready', ${now}, ${now + 86_400_000})`;
   // The card their free trial was started with.
   await sql`insert into trial_cards (fingerprint, user_id, brand, last4, created_at) values (${`fp_${userId}`}, ${userId}, 'visa', '4242', ${now})`;
   return p;
@@ -82,14 +92,15 @@ const counts = async (userId: string) => {
     (select count(*)::int from campaign_clips where user_id = ${userId}) as clips,
     (select count(*)::int from campaign_payouts where user_id = ${userId}) as payouts,
     (select count(*)::int from trial_cards where user_id = ${userId}) as cards,
-    (select count(*)::int from campaign_requests where user_id = ${userId}) as requests`;
+    (select count(*)::int from campaign_requests where user_id = ${userId}) as requests,
+    (select count(*)::int from downloads where user_id = ${userId}) as downloads`;
   return r!;
 };
 
 async function clean() {
   const sql = db();
   for (const u of USERS) {
-    for (const t of ["projects", "jobs", "billing_accounts", "usage_entries", "plan_grants", "referral_codes", "emails", "admins", "clippers", "campaign_requests", "account_deletions"]) {
+    for (const t of ["projects", "jobs", "billing_accounts", "usage_entries", "plan_grants", "referral_codes", "emails", "admins", "clippers", "campaign_requests", "downloads", "account_deletions"]) {
       await sql`delete from ${sql(t)} where user_id = ${u}`;
     }
   }
@@ -125,10 +136,11 @@ describe("deleting an account", () => {
     expect(calls).toEqual([`stripe:${GONE}`, `stop:${mine.id}`, `clerk:${GONE}`]);
     expect(Object.values(await counts(GONE)).every((n) => n === 0)).toBe(true);
     expect(await storage().stat(mediaKeys(GONE, mine.id).thumb)).toBeNull();
+    expect(await storage().stat(downloadKey(GONE, downloadId(GONE)))).toBeNull();
     const [row] = await db()<{ status: string; reason: string }[]>`select status, reason from account_deletions where user_id = ${GONE}`;
     expect(row).toEqual({ status: "done", reason: "self" });
 
-    expect(await counts(KEPT)).toEqual({ projects: 1, transcripts: 1, jobs: 1, billing: 1, usage: 1, grants: 1, codes: 1, emails: 1, admins: 1, clippers: 1, memberships: 1, clips: 1, payouts: 1, cards: 1, requests: 1 });
+    expect(await counts(KEPT)).toEqual({ projects: 1, transcripts: 1, jobs: 1, billing: 1, usage: 1, grants: 1, codes: 1, emails: 1, admins: 1, clippers: 1, memberships: 1, clips: 1, payouts: 1, cards: 1, requests: 1, downloads: 1 });
     // The fingerprint of the card their free trial was started with stays, tied to nobody: that card can't start another trial.
     expect(await db()`select user_id, brand, last4 from trial_cards where fingerprint = ${`fp_${GONE}`}`).toMatchObject([{ user_id: null, brand: null, last4: null }]);
     // What a campaign paid them stays as an amount, tied to nobody and without its note.
@@ -137,6 +149,7 @@ describe("deleting an account", () => {
       { user_id: KEPT, amount_cents: 1200, note: "PayPal me@example.com" },
     ]);
     expect(await storage().stat(mediaKeys(KEPT, theirs.id).thumb)).not.toBeNull();
+    expect(await storage().stat(downloadKey(KEPT, downloadId(KEPT)))).not.toBeNull();
   });
 
   it("tries again later when a step fails, and leaves the data until it works", async () => {

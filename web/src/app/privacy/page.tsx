@@ -31,6 +31,10 @@ export default function PrivacyPage() {
             their exports, your edits and your clip settings.
           </li>
           <li>
+            <strong>Downloads:</strong> the link you paste into the downloader, and the video Bamio’s server fetches from that site for you. The file is kept for 24
+            hours so you can save it, then deleted; taking it off your list deletes it at once. The site the video comes from sees Bamio’s server, not your device.
+          </li>
+          <li>
             <strong>The editor</strong> is the exception: videos, photos and sounds you open in it stay on your device. They are read, edited and exported in your
             browser, the edit is saved in your browser’s own storage, and none of it is sent to Bamio. Clearing the browser’s data for this site deletes them.
           </li>
@@ -121,6 +125,7 @@ export default function PrivacyPage() {
         <h2>How long it stays</h2>
         <ul>
           <li>Projects, videos and clips: until you delete them, or your account.</li>
+          <li>Videos from the downloader: 24 hours, or until you take them off your list. The record that a download was made: three days.</li>
           <li>Your account, plan and usage: while you have the account.</li>
           <li>The record of emails sent: 180 days.</li>
           <li>Database backups: 14 days, after which deleted data is gone from them too.</li>

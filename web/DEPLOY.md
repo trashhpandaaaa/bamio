@@ -133,6 +133,8 @@ YouTube asks servers in data centres to sign in ("confirm you're not a bot"), so
 
 The file stays on the server's volume across updates. The cookies last weeks to months; when YouTube links start failing with the sign-in message again (the app log says so: `docker compose logs app | grep YTDLP_COOKIES`), export new ones and repeat step 5.
 
+**The downloader and other sites.** The downloader (`/download`) never takes YouTube links, so these YouTube cookies are only used for clipping. It reads the same file for other sites, though: Instagram and Reddit show videos only to signed-in people, and the downloader can't fetch from them without a session. To let it, export that site's cookies from a spare account the same way and add them to the same file (the format holds several sites' cookies, one per line), then repeat step 5. The same warning applies: a site may block an account used this way. `docker compose exec app node scripts/platform-probe.mjs` says which sites answer from the server.
+
 ## Search engines
 
 Bamio serves `/sitemap.xml` and `/robots.txt` and marks up its public pages for search engines. Once, after the site is live:

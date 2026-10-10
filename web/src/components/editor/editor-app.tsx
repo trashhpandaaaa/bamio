@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useToast } from "@/components/toast";
-import { exportUrl } from "@/lib/clips/api";
+import { downloadFileUrl, exportUrl } from "@/lib/clips/api";
 import type { EditorLevel } from "@/lib/editor/features";
 import { clock, newEdit, type Edit } from "@/lib/editor/model";
 import { deleteEdit, listEdits, loadEdit, saveEdit, type SavedEdit } from "@/lib/editor/store";
@@ -73,12 +73,14 @@ export function EditorApp({ level }: { level: EditorLevel }) {
     else router.push(`/editor?edit=${edit.id}`);
   }
 
-  // A clip exported in Bamio, sent here from its card ("Open in editor"): fetched from this
-  // account's own exports (the address is built from the two ids, never taken from the link)
-  // and put in a new edit. Going back from the editor doesn't fetch it a second time.
+  // A clip exported in Bamio, sent here from its card ("Open in editor"), or a video from the
+  // downloader (/download): fetched from this account's own files (the address is built from
+  // the ids, never taken from the link) and put in a new edit. Going back from the editor
+  // doesn't fetch it a second time.
   const fromProject = params.get("project");
   const fromClip = params.get("clip");
-  const bringing = !wanted && fromProject !== null && fromClip !== null;
+  const fromDownload = params.get("download");
+  const bringing = !wanted && ((fromProject !== null && fromClip !== null) || fromDownload !== null);
   const brought = useRef(false);
   useEffect(() => {
     if (!bringing || brought.current) return;
@@ -86,15 +88,27 @@ export function EditorApp({ level }: { level: EditorLevel }) {
     const isId = (v: string | null): v is string => v !== null && /^[0-9a-f-]{36}$/i.test(v);
     void (async () => {
       try {
-        if (!isId(fromProject) || !isId(fromClip)) throw new Error("not a clip");
-        const res = await fetch(exportUrl(fromProject, fromClip, Number(params.get("v")) || 0), { cache: "no-store" });
+        let address: string;
+        if (fromDownload !== null) {
+          if (!isId(fromDownload)) throw new Error("not a download");
+          address = downloadFileUrl(fromDownload, true);
+        } else {
+          if (!isId(fromProject) || !isId(fromClip)) throw new Error("not a clip");
+          address = exportUrl(fromProject, fromClip, Number(params.get("v")) || 0);
+        }
+        const res = await fetch(address, { cache: "no-store" });
         if (!res.ok) throw new Error(String(res.status));
-        // The edit takes the clip's title; the file a name a disk would take.
-        const title = (params.get("name") || "").trim().slice(0, 60) || "Bamio clip";
-        const fileName = title.replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim() || "Bamio clip";
+        // The edit takes the video's title; the file a name a disk would take.
+        const fallback = fromDownload !== null ? "Downloaded video" : "Bamio clip";
+        const title = (params.get("name") || "").trim().slice(0, 60) || fallback;
+        const fileName = title.replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim() || fallback;
         await start([new File([await res.blob()], `${fileName}.mp4`, { type: "video/mp4" })], true, title);
       } catch {
-        toast({ tone: "error", title: "That clip couldn’t be opened here", body: "Export it again on its project page, then try once more." });
+        toast(
+          fromDownload !== null
+            ? { tone: "error", title: "That video couldn’t be opened here", body: "Downloads are kept for a day, so it may be gone. Download it again, then try once more." }
+            : { tone: "error", title: "That clip couldn’t be opened here", body: "Export it again on its project page, then try once more." },
+        );
         router.replace("/editor");
       }
     })();
@@ -105,7 +119,7 @@ export function EditorApp({ level }: { level: EditorLevel }) {
   if (bringing) {
     return (
       <main id="main" className={`container ${styles.home}`}>
-        <p className={styles.waiting}>Bringing your clip over…</p>
+        <p className={styles.waiting}>{fromDownload !== null ? "Bringing your video over…" : "Bringing your clip over…"}</p>
       </main>
     );
   }

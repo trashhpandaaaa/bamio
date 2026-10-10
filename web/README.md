@@ -55,6 +55,7 @@ BAMIO_AI_MOCK=1 npm run dev
 | `RESEND_API_KEY`, `EMAIL_FROM` | not set (no emails) | Emails to users through [Resend](https://resend.com): the API key, and the sender on a domain verified in Resend, e.g. `Bamio <hello@your-domain.com>`. Replies go to the contact address (`CONTACT_EMAIL` in `src/lib/contact.ts`) unless `EMAIL_REPLY_TO` names another. See Emails. |
 | `YTDLP_COOKIES` | not set | A cookies.txt from a spare YouTube account, passed to every yt-dlp call. Servers in data centres get YouTube's "confirm you're not a bot" without it. See DEPLOY.md. |
 | `BAMIO_EMAIL` | on with a key | `off`: no emails. `preview`: emails are written and logged, never sent (no key needed; the end-to-end test server, which Playwright sets). |
+| `BAMIO_DOWNLOAD_SLOTS`, `BAMIO_DOWNLOADS` | 2, on | The downloader (`/download`): how many videos are fetched at once, and `off` to stop this process fetching them. |
 | `BAMIO_ADS` | on | `off`: the Google AdSense script (`src/lib/ads.ts`, in every page's head) is left out. Test servers and CI set it, for `npm run build` as well as the start, since static pages keep what the build saw. |
 
 ## Plans and payments (Stripe)
@@ -118,6 +119,17 @@ Bamio emails users when something happens that they'd want to know, through Rese
 - **The export** decodes with WebCodecs through [Mediabunny](https://mediabunny.dev) (MPL-2.0), draws each frame on a canvas with the preview's own drawing code, encodes H.264 and AAC into an MP4 (VP9 and Opus in a WebM where a browser can't), and mixes the sound with the Web Audio API. It's built in memory, so an export is at most 10 minutes.
 - **Limits to know:** tested on Chromium browsers only; speed changes pitch; no automatic captions (those are the server's transcriber, and what plans pay for); edits belong to the browser, not the account.
 - **Tests:** `tests/unit/editor.test.ts`, `tests/e2e/editor.spec.ts` and `editor-voiceover.spec.ts`. The editing tests need H.264 in WebCodecs: they run on Edge and skip on the open-source Chromium CI uses. `E2E_EDITOR_SHOT=1 npx playwright test editor -g picture` remakes `public/landing/editor.webp`, the picture on `/video-editor`.
+
+## The downloader
+
+`/download` saves a video from a link as an MP4, for every signed-in account, plan or no plan. It reuses what imports use: `inspectUrl` reads the link, `downloadUrl` (yt-dlp) fetches it, H.264 and AAC up to 1080p.
+
+- **Not YouTube.** Google doesn't allow its ads on a site that lets people download YouTube videos, and Bamio shows Google's ads (`src/lib/ads.ts`). `blockedSite` in `src/lib/downloads/schema.ts` turns YouTube's hosts away on the page, and the server checks the link as pasted and again the page the site says it is, so a short link or a redirect doesn't get around it. YouTube links are still imported for clipping.
+- **How it runs:** a route only writes a row in `downloads` (migration 0013). The workers' downloader (`startDownloader` in `src/lib/server/downloads.ts`, started with the job worker) claims rows by lease, fetches into the scratch folder, publishes the file with the account's media (`users/<id>/downloads/<download>.mp4`), and a sweep deletes it after 24 hours. A download survives a restart; one whose worker died is taken over; one that keeps killing its worker is given up on after three tries.
+- **Limits** (`DOWNLOAD_LIMITS`): videos of up to 60 minutes, 3 going at once and 20 a day per account, 2 at a time for the whole server (`BAMIO_DOWNLOAD_SLOTS`), and nothing is taken when the disk hasn't room for it and 3 GB to spare. Taking a download off the list deletes its file at once and doesn't give the day's count back.
+- **What it can't fetch:** sites that show videos only to signed-in people (Instagram, Reddit) or turn servers away (Rumble). `npm run sites:check` says which sites answer from a machine. A site's cookies in the `YTDLP_COOKIES` file let it through (DEPLOY.md), at that account's risk. Live streams and sound-only links are refused.
+- **From there:** "Save the video" hands over the file; "Open in editor" starts an edit with it (`/editor?download=<id>`).
+- **Tests:** `tests/unit/downloads.test.ts` (which links, the limits, the worker with a stand-in for yt-dlp, the sweep) and `tests/e2e/download.spec.ts`; a real download is opt-in, since it needs the internet: `E2E_DOWNLOAD_URL=https://download.samplelib.com/mp4/sample-5s.mp4 npx playwright test download`.
 
 ## Clipping campaigns
 

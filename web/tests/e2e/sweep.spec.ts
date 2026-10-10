@@ -170,6 +170,7 @@ test("signed-in pages, a project and the editor", async ({ page }) => {
       [
         { name: "projects", path: "/projects", ready: heading },
         { name: "import", path: "/new", ready: (p) => expect(p.getByLabel("Video link")).toBeVisible() },
+        { name: "download", path: "/download", ready: (p) => expect(p.getByRole("heading", { name: "Your downloads" })).toBeVisible() },
         { name: "import-upload", path: "/new?mode=upload", ready: (p) => expect(p.getByText(/Drop a video here|Choose a file/i).first()).toBeVisible() },
         { name: "project", path: projectPath, ready: (p) => expect(p.getByTestId("clip-card").first()).toBeVisible() },
         { name: "editor", path: editPath!, ready: (p) => expect(p.getByRole("button", { name: "Export", exact: true })).toBeVisible() },

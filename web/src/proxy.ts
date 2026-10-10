@@ -7,7 +7,7 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
  * is checked by its signature.
  */
 
-const isAppPage = createRouteMatcher(["/projects(.*)", "/new(.*)", "/editor(.*)", "/profile(.*)", "/billing(.*)"]);
+const isAppPage = createRouteMatcher(["/projects(.*)", "/new(.*)", "/editor(.*)", "/download(.*)", "/profile(.*)", "/billing(.*)"]);
 
 export default clerkMiddleware(
   async (auth, req) => {

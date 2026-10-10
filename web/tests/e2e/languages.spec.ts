@@ -92,7 +92,7 @@ for (const c of CASES) {
 
     // Export, and keep a frame for a look next to the preview.
     await page.getByRole("button", { name: "Export", exact: true }).click();
-    const download = page.getByRole("link", { name: /^Download/ });
+    const download = page.getByRole("main").getByRole("link", { name: /^Download/ });
     await expect(download).toBeVisible({ timeout: 300_000 });
     const res = await page.request.get((await download.getAttribute("href"))!);
     expect(res.status()).toBe(200);
