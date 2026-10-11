@@ -10,7 +10,7 @@ import { isAbortError } from "@/lib/server/bin";
 import { db } from "@/lib/server/db";
 import { attachmentName, HttpError } from "@/lib/server/http";
 import { assertDiskSpace } from "@/lib/server/jobs";
-import { downloadUrl, inspectCached } from "@/lib/server/media";
+import { downloadUrl, inspectCached, prepareSource, probe } from "@/lib/server/media";
 import { reportError } from "@/lib/server/monitor";
 import { storage } from "@/lib/server/storage";
 import { isProjectId, isUserId, userMediaPrefix, workRoot } from "@/lib/server/store";
@@ -18,8 +18,9 @@ import { isProjectId, isUserId, userMediaPrefix, workRoot } from "@/lib/server/s
 /*
  * The downloader (/download): a signed-in person pastes a link to a video on another site and
  * saves the file. Free for every account. The server fetches the video the way an import does
- * (yt-dlp, media.ts), puts the file with the account's own media (storage.ts) and keeps it for
- * a day; then the sweep deletes it. Not YouTube: see lib/downloads/schema.ts.
+ * (yt-dlp, media.ts), makes sure it plays everywhere (H.264 and AAC in an MP4: makePlayable),
+ * puts the file with the account's own media (storage.ts) and keeps it for a day; then the
+ * sweep deletes it. Not YouTube: see lib/downloads/schema.ts.
  *
  * The downloads table is its own queue, like the email outbox: a download isn't a project, and
  * jobs belong to projects. A route only writes a row; the workers' downloader (startDownloader,
@@ -191,15 +192,55 @@ export async function serveDownload(req: Request, userId: string, id: string, vi
 
 /* ------------------------------ The downloader ------------------------------ */
 
-/** Fetch a video into a folder and say where the file is (media.ts's downloadUrl; a stand-in in tests). */
-export type FetchVideo = (url: string, dir: string, opts: { signal: AbortSignal; onProgress: (p: number | null) => void }) => Promise<string>;
+/** Fetch a video into a folder and say where the file is (media.ts's downloadUrl; a stand-in in tests). `durationSec`: how long the site says it is. */
+export type FetchVideo = (url: string, dir: string, opts: { signal: AbortSignal; durationSec: number; onProgress: (p: number | null) => void }) => Promise<string>;
 
-const fetchVideo: FetchVideo = (url, dir, opts) => downloadUrl(url, dir, { ...opts, purpose: "download" });
+/**
+ * Make a fetched video play everywhere: H.264 and AAC in an MP4, its index at the front. A file
+ * that already is one is only rewrapped (seconds); anything else is converted, as imports are
+ * (prepareSource). Sites often give their sharpest version in VP9 or AV1 inside an MP4, which
+ * iPhones, and many players elsewhere, won't open: the file saved, and showed only its name.
+ * Returns the new file, next to the old one, which is deleted.
+ */
+export async function makePlayable(file: string, opts: { signal?: AbortSignal; onProgress?: (p: number) => void } = {}): Promise<string> {
+  const info = await probe(file, opts.signal);
+  // Sound with no picture: this saves videos.
+  if (!info.hasVideo) throw new HttpError(422, "no_video", "That link has no video Bamio can save as an MP4.");
+  const out = path.join(path.dirname(file), "video.mp4");
+  try {
+    await prepareSource(file, out, info, { signal: opts.signal, onProgress: opts.onProgress });
+  } catch (err) {
+    if (err instanceof HttpError && err.code === "prepare_failed") {
+      throw new HttpError(422, "convert_failed", "Bamio couldn’t turn that video into an MP4 that plays everywhere. Try another link to it.");
+    }
+    throw err;
+  }
+  await rm(file, { force: true });
+  return out;
+}
+
+/** The download takes most of the time; a conversion, when one is needed, the rest. */
+const FETCH_SHARE = 0.7;
+
+/**
+ * Up to this long, a video is fetched at the sharpest the site has and converted when it isn't
+ * H.264 (Facebook's reels: 956 x 1700 in AV1 against 476 x 846 in H.264). On the Droplet that
+ * conversion runs at about 0.7 times real time at that size: under four minutes of its CPU for
+ * the longest. Longer videos take the site's own H.264, so the server doesn't spend most of an
+ * hour converting an hour of video while imports wait.
+ */
+export const SHARPEST_UP_TO_SEC = 5 * 60;
+
+const fetchVideo: FetchVideo = async (url, dir, opts) => {
+  const formats = opts.durationSec > 0 && opts.durationSec <= SHARPEST_UP_TO_SEC ? "sharpest" : "playable";
+  const file = await downloadUrl(url, dir, { signal: opts.signal, purpose: "download", formats, onProgress: (p) => opts.onProgress(p === null ? null : p * FETCH_SHARE) });
+  return makePlayable(file, { signal: opts.signal, onProgress: (p) => opts.onProgress(FETCH_SHARE + p * (1 - FETCH_SHARE)) });
+};
 
 /** Claim the download that has waited longest and fetch it. False when none is waiting. */
 export async function downloadNext(fetch: FetchVideo = fetchVideo, signal?: AbortSignal, now = Date.now()): Promise<boolean> {
   const sql = db();
-  const [row] = await sql<{ id: string; user_id: string; url: string; attempts: number }[]>`
+  const [row] = await sql<{ id: string; user_id: string; url: string; duration_sec: number; attempts: number }[]>`
     update downloads set status = 'working', attempts = attempts + 1, lease_until = ${now + LEASE_MS}, progress = null
     where id = (
       select id from downloads
@@ -208,7 +249,7 @@ export async function downloadNext(fetch: FetchVideo = fetchVideo, signal?: Abor
       limit 1
       for update skip locked
     )
-    returning id, user_id, url, attempts`;
+    returning id, user_id, url, duration_sec, attempts`;
   if (!row) return false;
   const fail = (message: string) =>
     sql`update downloads set status = 'failed', error = ${message}, progress = null, lease_until = null, finished_at = ${Date.now()} where id = ${row.id}`;
@@ -244,6 +285,7 @@ export async function downloadNext(fetch: FetchVideo = fetchVideo, signal?: Abor
   try {
     const file = await fetch(row.url, dir, {
       signal: stopper.signal,
+      durationSec: Number(row.duration_sec),
       onProgress: (p) => {
         progress = p;
         if (Date.now() - last >= 2000) renew();

@@ -71,7 +71,7 @@ export function DownloadView() {
     <main id="main" className={`container ${styles.page}`}>
       <header className={styles.head}>
         <h1 className="t-heading-xl">Download a video</h1>
-        <p className="t-body-lg t-secondary">Paste a link from TikTok, Facebook, Twitch, Kick, Vimeo or another site, and save the video as an MP4. Free for every account.</p>
+        <p className="t-body-lg t-secondary">Paste a link from TikTok, Instagram, Facebook, Twitch, Kick, Vimeo or another site, and save the video as an MP4 that plays on any phone or computer. Free for every account.</p>
       </header>
 
       <form className={styles.form} onSubmit={(e) => void start(e)} noValidate>
@@ -110,7 +110,7 @@ export function DownloadView() {
           </p>
         </div>
         <p className={styles.rights}>Only download videos you own or have permission to use. Files are kept for {DOWNLOAD_LIMITS.keepHours} hours, then deleted.</p>
-        <p className={styles.rights}>Some sites, Instagram and Reddit among them, show videos only to people who are signed in. Bamio can’t fetch those.</p>
+        <p className={styles.rights}>Some videos are shown only to people who are signed in (all of Reddit’s, and private or restricted ones on Instagram). Bamio can’t fetch those.</p>
       </form>
 
       <section aria-labelledby={`${id}-list`} className={styles.listed}>

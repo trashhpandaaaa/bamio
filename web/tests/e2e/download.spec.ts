@@ -80,8 +80,14 @@ test.describe("the downloader", () => {
     const saved = await download;
     expect(saved.suggestedFilename()).toMatch(/\.mp4$/);
     const ffprobe = path.join(process.cwd(), "node_modules", "ffprobe-static", "bin", process.platform, process.arch, process.platform === "win32" ? "ffprobe.exe" : "ffprobe");
-    const probed = spawnSync(ffprobe, ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_type,width", "-of", "json", await saved.path()], { encoding: "utf8", windowsHide: true });
-    expect((JSON.parse(probed.stdout) as { streams: { codec_type: string; width: number }[] }).streams[0]).toMatchObject({ codec_type: "video" });
+    const probed = spawnSync(ffprobe, ["-v", "error", "-show_entries", "stream=codec_type,codec_name,pix_fmt,width,height", "-of", "json", await saved.path()], { encoding: "utf8", windowsHide: true });
+    const streams = (JSON.parse(probed.stdout) as { streams: { codec_type: string; codec_name: string; pix_fmt?: string; width?: number; height?: number }[] }).streams;
+    const picture = streams.find((st) => st.codec_type === "video");
+    console.log(`[download] ${new URL(url!).hostname}: ${picture?.codec_name} ${picture?.width}x${picture?.height}`);
+    // H.264 and AAC, whatever the site gave: Instagram and Facebook give VP9 or AV1, which an iPhone saves and won't play.
+    expect(streams.find((st) => st.codec_type === "video")).toMatchObject({ codec_name: "h264", pix_fmt: "yuv420p" });
+    const sound = streams.find((st) => st.codec_type === "audio");
+    if (sound) expect(sound.codec_name).toBe("aac");
 
     // Into the editor, as a new edit with the video in it.
     if (await canDecodeSample(page)) {

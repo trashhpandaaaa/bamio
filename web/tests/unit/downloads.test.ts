@@ -1,3 +1,5 @@
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -5,9 +7,9 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { InspectResult } from "@/lib/clips/schema";
 import { blockedSite, DOWNLOAD_LIMITS, fileSize, linkProblem, NO_YOUTUBE } from "@/lib/downloads/schema";
 import { db } from "@/lib/server/db";
-import { downloadKey, downloadNext, listDownloads, removeDownload, serveDownload, startDownload, sweepDownloads, type DownloadDeps, type FetchVideo } from "@/lib/server/downloads";
+import { downloadKey, downloadNext, listDownloads, makePlayable, removeDownload, serveDownload, startDownload, sweepDownloads, type DownloadDeps, type FetchVideo } from "@/lib/server/downloads";
 import { HttpError } from "@/lib/server/http";
-import { explainYtdlpError } from "@/lib/server/media";
+import { explainYtdlpError, probe } from "@/lib/server/media";
 import { storage } from "@/lib/server/storage";
 
 /* The downloader: which links it takes, what an account may start, and what the workers do with a download. */
@@ -274,4 +276,63 @@ describe("a download", () => {
     await sweepDownloads(now + 80 * HOUR);
     expect((await db()`select 1 from downloads where id in ${db()([kept.id, failed.id])}`).length).toBe(0);
   });
+});
+
+describe("a downloaded file", () => {
+  let dir: string;
+  const ffmpeg = path.join(process.cwd(), "node_modules", "ffmpeg-static", process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg");
+  /** Two seconds of picture and a tone, in the codecs given, in an MP4. */
+  const make = (name: string, video: string[], audio: string[]) => {
+    const out = path.join(dir, name, "download.mp4");
+    mkdirSync(path.dirname(out), { recursive: true });
+    const args = ["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x568:rate=30:duration=2"];
+    if (audio.length) args.push("-f", "lavfi", "-i", "sine=frequency=440:duration=2");
+    const res = spawnSync(ffmpeg, [...args, ...video, ...audio, "-shortest", out], { windowsHide: true, encoding: "utf8" });
+    if (res.status !== 0) throw new Error(`ffmpeg couldn't make the sample: ${res.stderr}`);
+    return out;
+  };
+  const codecs = (file: string) => {
+    const bin = path.join(process.cwd(), "node_modules", "ffprobe-static", "bin", process.platform, process.arch, process.platform === "win32" ? "ffprobe.exe" : "ffprobe");
+    const res = spawnSync(bin, ["-v", "error", "-show_entries", "stream=codec_type,codec_name", "-of", "json", file], { encoding: "utf8", windowsHide: true });
+    const streams = (JSON.parse(res.stdout) as { streams: { codec_type: string; codec_name: string }[] }).streams;
+    return Object.fromEntries(streams.map((st) => [st.codec_type, st.codec_name]));
+  };
+
+  beforeAll(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "bamio-playable-"));
+  });
+  afterAll(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("is converted to H.264 and AAC when the site gave VP9, as Instagram and Facebook do", async () => {
+    // What Instagram handed over: VP9 in an MP4, which an iPhone saves and won't play.
+    const vp9 = make("vp9", ["-c:v", "libvpx-vp9", "-b:v", "300k", "-deadline", "realtime", "-cpu-used", "8"], ["-c:a", "libopus", "-b:a", "64k"]);
+    expect(codecs(vp9)).toEqual({ video: "vp9", audio: "opus" });
+    const seen: number[] = [];
+    const out = await makePlayable(vp9, { onProgress: (p) => seen.push(p) });
+    expect(path.basename(out)).toBe("video.mp4");
+    expect(codecs(out)).toEqual({ video: "h264", audio: "aac" });
+    expect((await probe(out)).webSafe).toBe(true);
+    expect((await probe(out)).durationSec).toBeGreaterThan(1.8);
+    expect(existsSync(vp9)).toBe(false);
+    expect(seen.every((p) => p >= 0 && p <= 1)).toBe(true);
+  }, 60_000);
+
+  it("is only rewrapped when it already plays everywhere", async () => {
+    const h264 = make("h264", ["-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p"], ["-c:a", "aac", "-b:a", "96k"]);
+    const out = await makePlayable(h264);
+    expect(codecs(out)).toEqual({ video: "h264", audio: "aac" });
+    // A picture with no sound stays a picture with no sound.
+    const silent = make("silent", ["-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p"], []);
+    expect(codecs(await makePlayable(silent))).toEqual({ video: "h264" });
+  }, 60_000);
+
+  it("is refused when it's sound with no picture", async () => {
+    const out = path.join(dir, "sound", "download.m4a");
+    await mkdir(path.dirname(out), { recursive: true });
+    const res = spawnSync(ffmpeg, ["-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=2", "-c:a", "aac", out], { windowsHide: true });
+    expect(res.status).toBe(0);
+    await expect(makePlayable(out)).rejects.toMatchObject({ status: 422, code: "no_video" });
+  }, 60_000);
 });

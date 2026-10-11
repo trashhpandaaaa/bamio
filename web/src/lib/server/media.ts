@@ -280,6 +280,8 @@ export async function downloadUrl(
     onProgress?: (p: number | null) => void;
     /** What the file is wanted for, for the wording of an error. */
     purpose?: LinkPurpose;
+    /** "playable": the site's H.264 first, even when it has a sharper version in another codec. Otherwise the sharpest, as imports take. */
+    formats?: "sharpest" | "playable";
   },
 ): Promise<string> {
   await checkPublicUrl(url);
@@ -310,7 +312,7 @@ export async function downloadUrl(
     "--no-mtime",
     "--ffmpeg-location",
     ffmpeg,
-    ...FORMAT,
+    ...(opts.formats === "playable" ? PLAYABLE_FORMAT : FORMAT),
     "--merge-output-format",
     "mp4",
     "--progress-template",
@@ -383,8 +385,15 @@ export async function downloadUrl(
   return part;
 }
 
-/** yt-dlp's choice of formats: H.264/AAC up to 1080p where there is one. */
+/** yt-dlp's choice of formats for an import: the sharpest up to 1080p, H.264/AAC where two are as sharp (prepareSource converts the rest). */
 const FORMAT = ["-f", "bv*+ba/b", "-S", "res:1080,vcodec:h264,acodec:aac"];
+
+/**
+ * H.264 and AAC first, the sharpest of those up to 1080p: for a long video from the downloader,
+ * whose file goes to people's phones as it is. Sites often give their sharpest version only in
+ * VP9 or AV1 (Instagram, Facebook: about half the size again), which would have to be converted.
+ */
+const PLAYABLE_FORMAT = ["-f", "bv*+ba/b", "-S", "vcodec:h264,res:1080,acodec:aac"];
 
 type FormatInfo = {
   url?: string;
