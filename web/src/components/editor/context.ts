@@ -11,6 +11,8 @@ import type { EditActions } from "./use-edit";
 
 export type EditorContextValue = {
   edit: Edit;
+  /** The edit as it is now: for work that finishes later (a reversed clip, captions), which mustn’t undo what was changed meanwhile. */
+  current: () => Edit;
   selection: Selection;
   change: EditActions["change"];
   select: EditActions["select"];
@@ -25,6 +27,8 @@ export type EditorContextValue = {
    * background music). `select`: select the first sound added.
    */
   addFiles: (files: File[], options?: { at?: number; volume?: number; select?: boolean }) => Promise<void>;
+  /** Open files and keep them with the edit without putting them anywhere: the caller places them (a reversed clip, a layer). */
+  openFiles: (files: File[]) => Promise<Asset[]>;
   /** Open the file picker. `accept`: what it offers. `replace`: the id of a missing file to bring back. */
   pickFiles: (options?: { accept?: string; replace?: string }) => void;
   /** Counts up as thumbnails and waveforms arrive, so the timeline redraws them. */

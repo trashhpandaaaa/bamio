@@ -42,7 +42,9 @@ import { SILENCE_PRESETS, silenceCuts, type SilencePreset } from "@/lib/editor/s
 import { addMedia, addText, audioLength, clipLength, duplicateItem, patchAudio, patchClip, patchText, removeItem, rippleDelete, setSpeed, splitAt, totalDuration } from "@/lib/editor/timeline";
 import { wavFrom } from "@/lib/editor/wav";
 import { ACCEPT_SOUND, useEditor } from "./context";
+import { Group, percent, secs, signed, Slider } from "./controls";
 import styles from "./editor.module.css";
+import { AddLayerButton, BeatControls, CaptionsGroup, ClipFeatures, LevelGroup, OverlaySettings, TextLook } from "./feature-panels";
 import { PlanNote } from "./plan-note";
 
 const TABS = ["selected", "media", "text", "sound", "tools", "frame"] as const;
@@ -60,23 +62,6 @@ const BACKGROUNDS = [
 ] as const;
 const SPEEDS = [0.5, 1, 1.5, 2];
 
-/** A labelled slider. `format`: how its value reads. */
-function Slider({ label, value, min, max, step, format, onChange }: { label: string; value: number; min: number; max: number; step: number; format?: (v: number) => string; onChange: (v: number) => void }) {
-  const id = useId();
-  return (
-    <div className="field">
-      <label className={styles.sliderLabel} htmlFor={id}>
-        <span>{label}</span>
-        <output>{format ? format(value) : value}</output>
-      </label>
-      <input id={id} className={styles.range} type="range" min={min} max={max} step={step} value={value} aria-valuetext={format ? format(value) : undefined} onChange={(e) => onChange(Number(e.target.value))} />
-    </div>
-  );
-}
-
-const percent = (v: number) => `${Math.round(v * 100)}%`;
-const signed = (v: number) => `${v > 0 ? "+" : ""}${Math.round(v * 100)}`;
-const secs = (v: number) => `${v.toFixed(1)} s`;
 
 /** The tools beside the preview: what's selected, and things to add or change. */
 export function SidePanel() {
@@ -112,15 +97,6 @@ export function SidePanel() {
   );
 }
 
-function Group({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className={styles.group}>
-      <h3 className={styles.groupTitle}>{title}</h3>
-      {children}
-    </section>
-  );
-}
-
 /* ------------------------------ Selected ------------------------------ */
 
 function SelectedPanel() {
@@ -136,6 +112,15 @@ function SelectedPanel() {
   if (selection?.kind === "audio") {
     const sound = edit.audio.find((a) => a.id === selection.id);
     return sound ? <SoundSettings sound={sound} /> : null;
+  }
+  if (selection?.kind === "overlay") {
+    const overlay = edit.overlays.find((o) => o.id === selection.id);
+    return overlay ? (
+      <>
+        <OverlaySettings overlay={overlay} />
+        <ItemActions />
+      </>
+    ) : null;
   }
   return null;
 }
@@ -263,6 +248,7 @@ function ClipSettings({ clip }: { clip: Clip }) {
           <p className="field-help">Looks need a browser that can filter a canvas: Chrome, Edge or Firefox.</p>
         )}
       </Group>
+      <ClipFeatures clip={clip} />
       <ItemActions />
     </>
   );
@@ -311,6 +297,7 @@ function TextSettings({ layer }: { layer: TextLayer }) {
         </div>
         <Slider label="Size" value={layer.size} min={TEXT_SIZE.min} max={TEXT_SIZE.max} step={0.005} format={(v) => `${Math.round(v * 1000)}`} onChange={(v) => set({ size: v }, "size")} />
       </Group>
+      <TextLook layer={layer} />
       <Group title="Movement">
         <div className={styles.chips} role="group" aria-label="Movement">
           {TEXT_ANIMATION_IDS.map((animation) => (
@@ -366,6 +353,7 @@ function SoundSettings({ sound }: { sound: AudioClip }) {
         {mayDuck ? null : <PlanNote feature="duck" />}
         <p className="field-help">For music: it drops to a quarter of its volume while the video’s own sound or a voiceover is loud, and comes back in the pauses.</p>
       </Group>
+      <BeatControls sound={sound} />
       <ItemActions />
     </>
   );
@@ -398,6 +386,7 @@ function MediaPanel() {
                     <button className="btn btn-ghost btn-icon btn-sm" type="button" aria-label={`Add ${m.name} to the timeline again`} onClick={() => change(addMedia(edit, [m], engine.time))}>
                       <Plus size={16} aria-hidden />
                     </button>
+                    <AddLayerButton media={m} />
                   </>
                 )}
               </li>
@@ -446,6 +435,7 @@ function TextPanel() {
           ))}
         </div>
       </Group>
+      <CaptionsGroup />
     </>
   );
 }
@@ -597,6 +587,7 @@ function ToolsPanel() {
   return (
     <>
       <Silences />
+      <LevelGroup />
       <Group title="Progress bar">
         <label className={styles.switchRow}>
           <span>A bar that fills as the video plays</span>

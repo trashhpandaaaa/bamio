@@ -5,10 +5,13 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { useToast } from "@/components/toast";
-import { downloadFileUrl, exportUrl } from "@/lib/clips/api";
+import { api, downloadFileUrl, editorCutUrl, exportUrl } from "@/lib/clips/api";
+import { describeVideo } from "@/lib/editor/assets";
+import { can } from "@/lib/editor/features";
+import { editFromClip } from "@/lib/editor/from-clip";
 import type { EditorLevel } from "@/lib/editor/features";
 import { clock, newEdit, type Edit } from "@/lib/editor/model";
-import { deleteEdit, listEdits, loadEdit, saveEdit, type SavedEdit } from "@/lib/editor/store";
+import { deleteEdit, listEdits, loadEdit, saveEdit, saveFile, type SavedEdit } from "@/lib/editor/store";
 import { ACCEPT_ALL } from "./context";
 import { Editor } from "./editor";
 import styles from "./editor.module.css";
@@ -86,8 +89,33 @@ export function EditorApp({ level }: { level: EditorLevel }) {
     if (!bringing || brought.current) return;
     brought.current = true;
     const isId = (v: string | null): v is string => v !== null && /^[0-9a-f-]{36}$/i.test(v);
+    /**
+     * With Starter, a clip comes with its captions as words to restyle and fix: the cut of its
+     * source, framed the way the clip was. False when that can't be done: the export comes instead.
+     */
+    async function withCaptions(projectId: string, clipId: string): Promise<boolean> {
+      if (!can(level, "captions")) return false;
+      try {
+        const setup = await api.editor.source(projectId, clipId);
+        const res = await fetch(editorCutUrl(projectId, clipId), { cache: "no-store" });
+        if (!res.ok) return false;
+        const name = `${setup.title.replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim() || "Bamio clip"}.mp4`;
+        const file = new File([await res.blob()], name, { type: "video/mp4" });
+        const media = await describeVideo(file, name);
+        if (!media) return false;
+        const edit = editFromClip(setup, media);
+        await saveEdit(edit).catch(() => undefined);
+        await saveFile(edit.id, media.id, media.name, file);
+        setOpen({ edit, files: new Map([[media.id, file]]) });
+        router.replace(`/editor?edit=${edit.id}`);
+        return true;
+      } catch {
+        return false;
+      }
+    }
     void (async () => {
       try {
+        if (fromDownload === null && isId(fromProject) && isId(fromClip) && (await withCaptions(fromProject, fromClip))) return;
         let address: string;
         if (fromDownload !== null) {
           if (!isId(fromDownload)) throw new Error("not a download");

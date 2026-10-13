@@ -179,9 +179,81 @@ async function measureEnvelope(asset: Asset, gone: () => boolean, onChange: () =
   onChange();
 }
 
+/**
+ * A file's sound between two of its seconds, as one channel at `rate` samples a second (beats
+ * are found in it). Null without sound.
+ */
+export async function monoSamples(asset: Asset, from: number, to: number, rate = 16_000): Promise<Float32Array | null> {
+  const track = asset.audioTrack;
+  if (!track || to <= from) return null;
+  const out = new Float32Array(Math.ceil((to - from) * rate));
+  for await (const { buffer, timestamp } of new AudioBufferSink(track).buffers(from, to)) {
+    const step = buffer.sampleRate / rate;
+    const channels = Array.from({ length: buffer.numberOfChannels }, (_, c) => buffer.getChannelData(c));
+    const offset = Math.round((timestamp - from) * rate);
+    for (let i = 0; i * step < buffer.length; i++) {
+      const at = offset + i;
+      if (at < 0 || at >= out.length) continue;
+      const j = Math.floor(i * step);
+      let sum = 0;
+      for (const data of channels) sum += data[j]!;
+      out[at] = sum / channels.length;
+    }
+  }
+  return out;
+}
+
+const stillSinks = new WeakMap<Asset, CanvasSink>();
+
+/**
+ * One frame of a video, at a second of the file, as a canvas of its own (at most 1280 on its
+ * longer side): the last frame of a clip a transition comes out of. A photo is its own frame.
+ */
+export async function frameAt(asset: Asset, time: number): Promise<{ image: CanvasImageSource; width: number; height: number } | null> {
+  if (asset.bitmap) return { image: asset.bitmap, width: asset.bitmap.width, height: asset.bitmap.height };
+  const track = asset.videoTrack;
+  if (!track) return null;
+  let sink = stillSinks.get(asset);
+  if (!sink) {
+    const wide = track.displayWidth >= track.displayHeight;
+    const big = Math.max(track.displayWidth, track.displayHeight) > 1280;
+    sink = new CanvasSink(track, big ? (wide ? { width: 1280 } : { height: 1280 }) : {});
+    stillSinks.set(asset, sink);
+  }
+  try {
+    const wrapped = await sink.getCanvas(Math.max(0, time));
+    if (!wrapped) return null;
+    const source = wrapped.canvas;
+    const copy = document.createElement("canvas");
+    copy.width = source.width;
+    copy.height = source.height;
+    copy.getContext("2d")?.drawImage(source, 0, 0);
+    // The video's own size, as the preview's player reports it: the frame is drawn into that.
+    return { image: copy, width: asset.video?.videoWidth || source.width, height: asset.video?.videoHeight || source.height };
+  } catch {
+    return null;
+  }
+}
+
 /** The thumbnail nearest to a moment of a video. */
 export function thumbAt(thumbs: Thumb[], time: number): Thumb | null {
   let best: Thumb | null = null;
   for (const t of thumbs) if (!best || Math.abs(t.time - time) < Math.abs(best.time - time)) best = t;
   return best;
+}
+
+/** A video's facts for an edit, before it's opened (an edit set up ahead, like a Bamio clip's). Null when it can't be read. */
+export async function describeVideo(file: Blob, name: string): Promise<Media | null> {
+  const input = new Input({ formats: ALL_FORMATS, source: new BlobSource(file) });
+  try {
+    const video = await input.getPrimaryVideoTrack();
+    if (!video) return null;
+    const audio = await input.getPrimaryAudioTrack();
+    const duration = await input.computeDuration();
+    return { id: newId(), kind: "video", name: name.slice(0, 260), size: file.size, duration, width: video.displayWidth, height: video.displayHeight, hasAudio: audio !== null };
+  } catch {
+    return null;
+  } finally {
+    input.dispose();
+  }
 }

@@ -46,9 +46,10 @@ export function Editor({ initial, files, firstFiles, level, onClose }: { initial
 
   /* ------------------------------ Files ------------------------------ */
 
-  const addFiles = useCallback(
-    async (list: File[], options?: { at?: number; volume?: number; select?: boolean }) => {
-      if (list.length === 0) return;
+  const current = useCallback(() => latest.current, []);
+
+  const openFiles = useCallback(
+    async (list: File[]): Promise<Asset[]> => {
       setOpening((n) => n + list.length);
       const added: Asset[] = [];
       for (const file of list) {
@@ -65,15 +66,24 @@ export function Editor({ initial, files, firstFiles, level, onClose }: { initial
           setOpening((n) => n - 1);
         }
       }
+      if (added.length > 0) setAssets((before) => new Map([...before, ...added.map((a) => [a.media.id, a] as const)]));
+      return added;
+    },
+    [toast],
+  );
+
+  const addFiles = useCallback(
+    async (list: File[], options?: { at?: number; volume?: number; select?: boolean }) => {
+      if (list.length === 0) return;
+      const added = await openFiles(list);
       if (added.length === 0) return;
-      setAssets((before) => new Map([...before, ...added.map((a) => [a.media.id, a] as const)]));
       const before = latest.current;
       let next = addMedia(before, added.map((a) => a.media), options?.at ?? engine.time);
       const sounds = next.audio.filter((a) => !before.audio.some((b) => b.id === a.id));
       if (options?.volume !== undefined) for (const sound of sounds) next = patchAudio(next, sound.id, { volume: options.volume });
       change(next, options?.select && sounds[0] ? { selection: { kind: "audio", id: sounds[0].id } } : undefined);
     },
-    [change, engine, toast],
+    [change, engine, openFiles],
   );
 
   /** Bring back a file the browser no longer has. */
@@ -171,7 +181,7 @@ export function Editor({ initial, files, firstFiles, level, onClose }: { initial
     engine.pause();
     await saveEdit(latest.current).catch(() => undefined);
     // Files of clips that were all deleted go too.
-    const used = new Set([...latest.current.clips.map((c) => c.mediaId), ...latest.current.audio.map((a) => a.mediaId)]);
+    const used = new Set([...latest.current.clips.map((c) => c.mediaId), ...latest.current.audio.map((a) => a.mediaId), ...latest.current.overlays.map((o) => o.mediaId)]);
     await pruneFiles({ ...latest.current, media: latest.current.media.filter((m) => used.has(m.id)) }).catch(() => undefined);
     onClose();
   }
@@ -223,8 +233,8 @@ export function Editor({ initial, files, firstFiles, level, onClose }: { initial
   }, [change, engine, redo, select, selection, undo]);
 
   const value = useMemo<EditorContextValue>(
-    () => ({ edit, selection, change, select, engine, assets, missing, addFiles, pickFiles, drawn, level }),
-    [edit, selection, change, select, engine, assets, missing, addFiles, pickFiles, drawn, level],
+    () => ({ edit, current, selection, change, select, engine, assets, missing, addFiles, openFiles, pickFiles, drawn, level }),
+    [edit, current, selection, change, select, engine, assets, missing, addFiles, openFiles, pickFiles, drawn, level],
   );
 
   const saving = edit !== savedEdit;

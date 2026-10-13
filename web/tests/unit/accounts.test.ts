@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -70,6 +71,8 @@ async function seed(userId: string) {
   await storage().publish(downloadKey(userId, download), video, "video/mp4");
   await sql`insert into downloads (id, user_id, url, title, platform, duration_sec, status, created_at, expires_at)
     values (${download}, ${userId}, 'https://example.com/v/1', 'A video', 'other', 12, 'ready', ${now}, ${now + 86_400_000})`;
+  // Captions asked for in the editor.
+  await sql`insert into caption_jobs (id, user_id, duration_sec, created_at) values (${randomUUID()}, ${userId}, 30, ${now})`;
   // The card their free trial was started with.
   await sql`insert into trial_cards (fingerprint, user_id, brand, last4, created_at) values (${`fp_${userId}`}, ${userId}, 'visa', '4242', ${now})`;
   return p;
@@ -93,14 +96,15 @@ const counts = async (userId: string) => {
     (select count(*)::int from campaign_payouts where user_id = ${userId}) as payouts,
     (select count(*)::int from trial_cards where user_id = ${userId}) as cards,
     (select count(*)::int from campaign_requests where user_id = ${userId}) as requests,
-    (select count(*)::int from downloads where user_id = ${userId}) as downloads`;
+    (select count(*)::int from downloads where user_id = ${userId}) as downloads,
+    (select count(*)::int from caption_jobs where user_id = ${userId}) as captions`;
   return r!;
 };
 
 async function clean() {
   const sql = db();
   for (const u of USERS) {
-    for (const t of ["projects", "jobs", "billing_accounts", "usage_entries", "plan_grants", "referral_codes", "emails", "admins", "clippers", "campaign_requests", "downloads", "account_deletions"]) {
+    for (const t of ["projects", "jobs", "billing_accounts", "usage_entries", "plan_grants", "referral_codes", "emails", "admins", "clippers", "campaign_requests", "downloads", "caption_jobs", "account_deletions"]) {
       await sql`delete from ${sql(t)} where user_id = ${u}`;
     }
   }
@@ -140,7 +144,7 @@ describe("deleting an account", () => {
     const [row] = await db()<{ status: string; reason: string }[]>`select status, reason from account_deletions where user_id = ${GONE}`;
     expect(row).toEqual({ status: "done", reason: "self" });
 
-    expect(await counts(KEPT)).toEqual({ projects: 1, transcripts: 1, jobs: 1, billing: 1, usage: 1, grants: 1, codes: 1, emails: 1, admins: 1, clippers: 1, memberships: 1, clips: 1, payouts: 1, cards: 1, requests: 1, downloads: 1 });
+    expect(await counts(KEPT)).toEqual({ projects: 1, transcripts: 1, jobs: 1, billing: 1, usage: 1, grants: 1, codes: 1, emails: 1, admins: 1, clippers: 1, memberships: 1, clips: 1, payouts: 1, cards: 1, requests: 1, downloads: 1, captions: 1 });
     // The fingerprint of the card their free trial was started with stays, tied to nobody: that card can't start another trial.
     expect(await db()`select user_id, brand, last4 from trial_cards where fingerprint = ${`fp_${GONE}`}`).toMatchObject([{ user_id: null, brand: null, last4: null }]);
     // What a campaign paid them stays as an amount, tied to nobody and without its note.

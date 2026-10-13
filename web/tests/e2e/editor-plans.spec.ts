@@ -6,8 +6,8 @@ import postgres from "postgres";
 import { signIn } from "./auth";
 
 /*
- * The editor with plans switched on: the basics for an account without one, 1080p from Starter,
- * silence removal, 60 frames a second and ducking music from Pro (lib/editor/features.ts).
+ * The editor with plans switched on: the basics for an account without one, then Starter's and
+ * Pro's features (lib/editor/features.ts), each locked one saying which plan it comes with.
  * Opt-in, like billing.spec.ts, against a server started with a fake Stripe key, and without
  * BAMIO_SUPERADMINS naming the e2e user (an admin has everything):
  *   STRIPE_SECRET_KEY=sk_test_e2e_fake BAMIO_AI_MOCK=1 npx next start -p 3100
@@ -43,6 +43,52 @@ function tone(): string {
     spawnSync(ffmpeg, ["-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=330:duration=12", "-ac", "2", file], { windowsHide: true });
   }
   return file;
+}
+
+/** A small picture: a photo clip shows the clip tools a plan decides, in any browser (no video codec needed). */
+function logo(): string {
+  const file = path.join(process.cwd(), "qa", "fixtures", "logo.png");
+  if (!existsSync(file)) {
+    mkdirSync(path.dirname(file), { recursive: true });
+    const ffmpeg = path.join(process.cwd(), "node_modules", "ffmpeg-static", process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg");
+    spawnSync(ffmpeg, ["-v", "error", "-y", "-f", "lavfi", "-i", "color=c=0xC8FF3D:s=240x120", "-frames:v", "1", file], { windowsHide: true });
+  }
+  return file;
+}
+
+/** Add a photo and select its clip. */
+async function addPhoto(page: Page) {
+  await page.getByRole("tab", { name: "Media" }).click();
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Add videos, photos or sounds" }).click();
+  await (await chooser).setFiles(logo());
+  const clip = page.getByRole("listbox", { name: "Clips" }).getByRole("option");
+  await expect(clip).toHaveCount(1, { timeout: 30_000 });
+  await clip.click();
+}
+
+/** Which features show a plan note, across the panel and the export dialog (the sound, then a photo clip, selected). */
+async function lockedFeatures(page: Page): Promise<string[]> {
+  const notes = new Set<string>();
+  const collect = async () => {
+    for (const id of await page.locator("[data-testid^=plan-note-]").evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")!.replace("plan-note-", "")))) notes.add(id);
+  };
+  // The sound (clicking a selected item would deselect it).
+  const sound = page.getByRole("listbox", { name: "Sounds" }).getByRole("option");
+  if ((await sound.getAttribute("aria-selected")) !== "true") await sound.click();
+  await page.getByRole("tab", { name: "Edit" }).click();
+  await collect();
+  if ((await page.getByRole("listbox", { name: "Clips" }).getByRole("option").count()) === 0) await addPhoto(page);
+  else await page.getByRole("listbox", { name: "Clips" }).getByRole("option").click();
+  await collect();
+  for (const tab of ["Text", "Tools"]) {
+    await page.getByRole("tab", { name: tab }).click();
+    await collect();
+  }
+  await page.getByRole("button", { name: "Export", exact: true }).click();
+  await collect();
+  await page.getByRole("dialog", { name: "Export" }).getByRole("button", { name: "Not now" }).click();
+  return [...notes].sort();
 }
 
 /** An empty edit with a sound in it, selected: enough to see every control that a plan decides. */
@@ -104,6 +150,19 @@ test.describe("the editor's plans", () => {
     // What was always free still is: text, the progress bar, the shapes.
     await page.getByRole("tab", { name: "Frame" }).click();
     await expect(page.getByRole("group", { name: "Shape" }).getByRole("button", { name: /1:1/ })).toBeEnabled();
+    // The newer features: each locked one says its plan, and the free ones are open.
+    expect(await lockedFeatures(page)).toEqual(["autoCaptions", "beats", "duck", "greenScreen", "hd", "layouts", "level", "shapes", "silence", "smooth"]);
+    await page.getByRole("tab", { name: "Text" }).click();
+    await expect(page.getByRole("button", { name: "Make captions" })).toBeDisabled();
+    // The photo clip is still selected.
+    await page.getByRole("tab", { name: "Edit" }).click();
+    await expect(page.getByRole("group", { name: "Layout" }).getByRole("button", { name: "Facecam on top" })).toBeDisabled();
+    await expect(page.getByRole("switch", { name: "Take out the green behind" })).toBeDisabled();
+    await page.getByRole("tab", { name: "Media" }).click();
+    await expect(page.getByRole("button", { name: "Add logo.png as a layer" })).toBeEnabled();
+    // The locks in the page can be got around; the server says no by itself.
+    const status = await page.evaluate(() => fetch("/api/editor/captions?language=auto", { method: "POST", headers: { "Content-Type": "audio/wav" }, body: new Uint8Array(64) }).then((r) => r.status));
+    expect(status).toBe(402);
     await closeEditor(page);
   });
 
@@ -120,6 +179,7 @@ test.describe("the editor's plans", () => {
     await expect(dialog.getByTestId("plan-note-hd")).toHaveCount(0);
     await expect(dialog.getByRole("button", { name: "60 a second" })).toBeDisabled();
     await dialog.getByRole("button", { name: "Not now" }).click();
+    expect(await lockedFeatures(page)).toEqual(["autoCaptions", "beats", "bigExport", "duck", "greenScreen", "silence", "smooth"]);
     await closeEditor(page);
   });
 
@@ -139,6 +199,9 @@ test.describe("the editor's plans", () => {
     await expect(dialog.getByText("1080 x 1920, 60 frames a second")).toBeVisible();
     await expect(dialog.locator("[data-testid^=plan-note-]")).toHaveCount(0);
     await dialog.getByRole("button", { name: "Not now" }).click();
+    expect(await lockedFeatures(page)).toEqual([]);
+    await page.getByRole("tab", { name: "Text" }).click();
+    await expect(page.getByRole("button", { name: "Make captions" })).toBeEnabled();
     await closeEditor(page);
   });
 });

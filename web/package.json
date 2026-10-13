@@ -31,6 +31,7 @@
     "@clerk/backend": "^3.22.0",
     "@clerk/nextjs": "^7.9.7",
     "@google/genai": "^2.24.0",
+    "@mediapipe/tasks-vision": "^1.1.0",
     "@phosphor-icons/react": "^2.1.10",
     "@sentry/nextjs": "^11.4.0",
     "@sentry/node": "^11.4.0",

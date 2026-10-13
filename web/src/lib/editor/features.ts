@@ -2,7 +2,8 @@ import { PLANS, type PlanId } from "@/lib/billing/plans";
 
 /*
  * What the editor gives to whom. The basics are free for every account: cutting, combining,
- * text, music, a voiceover, every shape, a 720p export with no watermark. The features below
+ * text in any typeface and colour, picture layers (a logo), transitions, freeze frames, reverse,
+ * music, a voiceover, every shape, a 720p export with no watermark. The features below
  * need a plan, each from the plan named here up: the good ones from Starter, the high-end ones
  * from Pro. Moving a feature between plans, or making it free, is its line in this table (and
  * its line on the pricing page: billing/plans.ts lists every one under its plan by the name
@@ -21,9 +22,18 @@ export const TOP_LEVEL: EditorLevel = "team";
 
 export const EDITOR_FEATURES = {
   hd: { needs: "starter", name: "1080p export" },
+  captions: { needs: "starter", name: "Editable captions from your clips" },
+  layouts: { needs: "starter", name: "Picture-in-picture and layouts" },
+  level: { needs: "starter", name: "Loudness levelling" },
+  shapes: { needs: "starter", name: "Several shapes in one export" },
   silence: { needs: "pro", name: "Silence removal" },
   smooth: { needs: "pro", name: "60 fps export" },
   duck: { needs: "pro", name: "Music that ducks under speech" },
+  autoCaptions: { needs: "pro", name: "Auto captions in the editor" },
+  reframe: { needs: "pro", name: "Auto-reframe" },
+  beats: { needs: "pro", name: "Cut to the beat" },
+  greenScreen: { needs: "pro", name: "Green screen" },
+  bigExport: { needs: "pro", name: "4K and longer exports" },
 } as const satisfies Record<string, { needs: PlanId; name: string }>;
 export type EditorFeature = keyof typeof EDITOR_FEATURES;
 

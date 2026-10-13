@@ -3,10 +3,11 @@
 import { Camera, CaretLeft, CaretRight, FilmSlate, FrameCorners, Pause, Play, Plus } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import { textBoxAt } from "@/lib/editor/compose";
-import { clock, FORMATS, SAFE_ZONE, TEXT_SIZE } from "@/lib/editor/model";
-import { momentAt, patchClip, patchText, totalDuration } from "@/lib/editor/timeline";
+import { clock, FORMATS, SAFE_ZONE, TEXT_SIZE, type Rect } from "@/lib/editor/model";
+import { momentAt, overlayMomentAt, patchClip, patchOverlay, patchText, totalDuration } from "@/lib/editor/timeline";
 import { useEditor, usePlaying } from "./context";
 import styles from "./editor.module.css";
+import { editorFonts, loadFonts } from "./fonts";
 
 /** The preview draws at half the export's size: plenty for a screen, and light enough to play smoothly. */
 const SCALE = 0.5;
@@ -15,16 +16,14 @@ const SCALE = 0.5;
 const FRAME_GAP = 0.012;
 const CORNERS = ["nw", "ne", "sw", "se"] as const;
 
-/** The font the page's text uses, as a canvas wants it named. */
-function pageFont(): string {
-  const family = getComputedStyle(document.documentElement).getPropertyValue("--font-bricolage").trim();
-  return family ? `${family}, system-ui, sans-serif` : "system-ui, sans-serif";
-}
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+/** The smallest a layer is made by hand, as a share of the frame. */
+const SMALLEST = 0.06;
 
 /**
- * The frame being edited, with play, step and snapshot under it. Text can be dragged where it
- * should sit and resized by a corner of the frame around it, and the picture under it dragged
- * when there's more of it than the frame shows.
+ * The frame being edited, with play, step and snapshot under it. Text and layers can be dragged
+ * where they should sit and resized by a corner of the frame around them, and the picture under
+ * them dragged when there's more of it than the frame shows.
  */
 export function Preview({ opening }: { opening: number }) {
   const { edit, selection, change, select, engine, pickFiles } = useEditor();
@@ -32,7 +31,9 @@ export function Preview({ opening }: { opening: number }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const time = useRef<HTMLSpanElement>(null);
   const outline = useRef<HTMLDivElement>(null);
+  const layerFrame = useRef<HTMLDivElement>(null);
   const size = FORMATS[edit.format];
+  const layer = selection?.kind === "overlay" ? edit.overlays.find((o) => o.id === selection.id) : undefined;
   const total = totalDuration(edit);
   const empty = edit.clips.length === 0;
   /** The edges the apps cover, shaded over the preview (never in the export). They only mean something on a vertical video. */
@@ -45,12 +46,33 @@ export function Preview({ opening }: { opening: number }) {
     if (!el) return;
     el.width = Math.round(size.width * SCALE);
     el.height = Math.round(size.height * SCALE);
-    const font = pageFont();
-    engine.attach(el, font);
-    // Text drawn before the font has loaded would be in another one.
-    void document.fonts?.load(`800 40px ${font}`).then(() => engine.refresh());
+    engine.attach(el);
     return () => engine.attach(null);
   }, [engine, size.width, size.height]);
+
+  // The typefaces text and captions may use: drawn once they've loaded (before, they'd be in another one).
+  useEffect(() => {
+    const fonts = editorFonts();
+    engine.setFonts(fonts);
+    void loadFonts(fonts).then(() => engine.refresh());
+  }, [engine]);
+
+  // The frame around the selected layer: where its box is, while it's showing.
+  useEffect(() => {
+    const place = () => {
+      const el = layerFrame.current;
+      if (!el) return;
+      const on = Boolean(layer && overlayMomentAt(layer, engine.time));
+      el.toggleAttribute("data-on", on);
+      if (!layer || !on) return;
+      el.style.left = `${layer.box.x * 100}%`;
+      el.style.top = `${layer.box.y * 100}%`;
+      el.style.width = `${layer.box.w * 100}%`;
+      el.style.height = `${layer.box.h * 100}%`;
+    };
+    place();
+    return engine.onDraw(place);
+  }, [engine, layer]);
 
   useEffect(() => {
     const show = () => {
@@ -103,13 +125,64 @@ export function Preview({ opening }: { opening: number }) {
     el.addEventListener("pointercancel", onUp);
   }
 
-  /** Drag text to place it, or the picture to choose what the frame shows; a plain click plays or pauses. */
+  /**
+   * Drag the selected layer's frame to move the layer, or a corner of it to resize it (keeping
+   * its shape). `corner`: which one; none moves it.
+   */
+  function dragLayer(e: React.PointerEvent<HTMLElement>, corner?: (typeof CORNERS)[number]) {
+    const el = e.currentTarget;
+    const rect = canvas.current?.getBoundingClientRect();
+    if (e.button !== 0 || !layer || !rect) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const start = { x: e.clientX, y: e.clientY };
+    const from = layer.box;
+    el.setPointerCapture(e.pointerId);
+    const onMove = (m: PointerEvent) => {
+      const dx = (m.clientX - start.x) / rect.width;
+      const dy = (m.clientY - start.y) / rect.height;
+      let box: Rect;
+      if (!corner) box = { ...from, x: clamp(from.x + dx, -from.w * 0.8, 1 - from.w * 0.2), y: clamp(from.y + dy, -from.h * 0.8, 1 - from.h * 0.2) };
+      else {
+        // From the opposite corner, which stays put; the shape stays the same.
+        const grow = (corner === "nw" || corner === "sw" ? -dx : dx) * rect.width;
+        const w = clamp(from.w + grow / rect.width, SMALLEST, 1.5);
+        const h = (from.h * w) / from.w;
+        box = { x: corner === "nw" || corner === "sw" ? from.x + from.w - w : from.x, y: corner === "nw" || corner === "ne" ? from.y + from.h - h : from.y, w, h };
+      }
+      const tidy = (v: number) => Math.round(v * 1000) / 1000;
+      // Shares stay inside the frame's own range (a layer can hang over the edge, not leave it).
+      const x = clamp(tidy(box.x), 0, 1 - SMALLEST);
+      const y = clamp(tidy(box.y), 0, 1 - SMALLEST);
+      change(patchOverlay(edit, layer.id, { box: { x, y, w: clamp(tidy(box.w), 0.02, 1 - x), h: clamp(tidy(box.h), 0.02, 1 - y) } }), { key: `box:${layer.id}` });
+    };
+    const onUp = () => {
+      el.removeEventListener("pointermove", onMove);
+      el.removeEventListener("pointerup", onUp);
+      el.removeEventListener("pointercancel", onUp);
+    };
+    el.addEventListener("pointermove", onMove);
+    el.addEventListener("pointerup", onUp);
+    el.addEventListener("pointercancel", onUp);
+  }
+
+  /** The layer showing under a point of the picture (shares), the top one first. */
+  const layerAt = (x: number, y: number) =>
+    [...edit.overlays].reverse().find((o) => overlayMomentAt(o, engine.time) && x >= o.box.x && x <= o.box.x + o.box.w && y >= o.box.y && y <= o.box.y + o.box.h);
+
+  /** Drag text to place it, a layer to pick it, or the picture to choose what the frame shows; a plain click plays or pauses. */
   function onPointerDown(e: React.PointerEvent<HTMLCanvasElement>) {
     const el = e.currentTarget;
     const rect = el.getBoundingClientRect();
     const k = el.width / rect.width;
     const box = textBoxAt(engine.boxes, (e.clientX - rect.left) * k, (e.clientY - rect.top) * k);
     const layer = box ? edit.texts.find((t) => t.id === box.id) : undefined;
+    const picked = layer ? undefined : layerAt((e.clientX - rect.left) / rect.width, (e.clientY - rect.top) / rect.height);
+    if (picked) {
+      // Selected, its frame appears; a drag from there moves it.
+      select({ kind: "overlay", id: picked.id });
+      return;
+    }
     const moment = momentAt(edit, engine.time);
     const clip = !layer && selection?.kind === "clip" && moment?.clip.id === selection.id ? moment.clip : undefined;
     if (layer) select({ kind: "text", id: layer.id });
@@ -121,7 +194,6 @@ export function Preview({ opening }: { opening: number }) {
       const dy = (m.clientY - start.y) / rect.height;
       if (!moved && Math.hypot(m.clientX - start.x, m.clientY - start.y) < 4) return;
       moved = true;
-      const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
       if (layer) change(patchText(edit, layer.id, { x: clamp(layer.x + dx, 0.02, 0.98), y: clamp(layer.y + dy, 0.02, 0.98) }), { key: `place:${layer.id}` });
       // Dragging the picture right shows more of its left: the position runs the other way. Twice the drag, so a full swipe crosses it.
       else if (clip) change(patchClip(edit, clip.id, { x: clamp(clip.x - dx * 2, -1, 1), y: clamp(clip.y - dy * 2, -1, 1) }), { key: `pan:${clip.id}` });
@@ -174,6 +246,12 @@ export function Preview({ opening }: { opening: number }) {
           <div ref={outline} className={styles.textFrame} data-testid="text-frame" aria-hidden>
             {CORNERS.map((corner) => (
               <span key={corner} className={styles.grip} data-corner={corner} data-testid={`text-corner-${corner}`} onPointerDown={resizeText} />
+            ))}
+          </div>
+          {/* Around the selected layer: dragged to move it, its corners to resize it. */}
+          <div ref={layerFrame} className={styles.layerFrame} data-testid="layer-frame" aria-hidden onPointerDown={(e) => dragLayer(e)}>
+            {CORNERS.map((corner) => (
+              <span key={corner} className={styles.grip} data-corner={corner} data-testid={`layer-corner-${corner}`} onPointerDown={(e) => dragLayer(e, corner)} />
             ))}
           </div>
           {guides && vertical && !empty ? (

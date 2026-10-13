@@ -70,6 +70,11 @@ export function mediaKeys(userId: string, projectId: string) {
     live: `${base}/live`,
     /** A frame at a time in tenths of a second (clip cards, the trim bar). */
     frame: (tenths: number) => `${base}/frames/${Math.max(0, Math.round(tenths))}.jpg`,
+    /** A clip cut from the source for the editor (keyframe to its end, not re-encoded): editor-source.ts. */
+    editorCut: (clipId: string) => {
+      if (!CLIP_ID.test(clipId)) throw new HttpError(404, "not_found", "That clip doesn't exist.");
+      return `${base}/editor/${clipId.toLowerCase()}.mp4`;
+    },
     export: (clipId: string) => {
       if (!CLIP_ID.test(clipId)) throw new HttpError(404, "not_found", "That clip doesn’t exist.");
       return `${base}/exports/${clipId.toLowerCase()}.mp4`;

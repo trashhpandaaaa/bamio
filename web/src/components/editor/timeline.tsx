@@ -1,9 +1,9 @@
 "use client";
 
-import { ArrowsOutLineHorizontal, Copy, MagnifyingGlassMinus, MagnifyingGlassPlus, Scissors, SpeakerSimpleSlash, Trash } from "@phosphor-icons/react";
+import { ArrowsOutLineHorizontal, Copy, MagnifyingGlassMinus, MagnifyingGlassPlus, Scissors, Snowflake, SpeakerSimpleSlash, Trash } from "@phosphor-icons/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { thumbAt, type Asset } from "@/lib/editor/assets";
-import { clock, VOLT, type Edit, type Selection } from "@/lib/editor/model";
+import { clock, TRANSITIONS, VOLT, type Edit, type Selection } from "@/lib/editor/model";
 import {
   audioLength,
   clipLength,
@@ -11,6 +11,7 @@ import {
   layout,
   moveClip,
   moveOverlay,
+  overlayLength,
   removeItem,
   rowsOf,
   snap,
@@ -28,6 +29,7 @@ const MIN_ZOOM = 3;
 const MAX_ZOOM = 320;
 const TEXT_ROW = 30;
 const SOUND_ROW = 40;
+const LAYER_ROW = 40;
 /** Seconds between the ruler's marks, by how much room a second has. */
 const STEPS = [0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600];
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -122,7 +124,8 @@ export function Timeline() {
   const placed = useMemo(() => layout(edit), [edit]);
   const textRows = useMemo(() => rowsOf(edit.texts.map((t) => ({ id: t.id, at: t.at, length: t.duration }))), [edit.texts]);
   const soundRows = useMemo(() => rowsOf(edit.audio.map((a) => ({ id: a.id, at: a.at, length: audioLength(a) }))), [edit.audio]);
-  const end = Math.max(total, ...edit.texts.map((t) => t.at + t.duration), ...edit.audio.map((a) => a.at + audioLength(a)));
+  const layerRows = useMemo(() => rowsOf(edit.overlays.map((o) => ({ id: o.id, at: o.at, length: overlayLength(o) }))), [edit.overlays]);
+  const end = Math.max(total, ...edit.texts.map((t) => t.at + t.duration), ...edit.audio.map((a) => a.at + audioLength(a)), ...edit.overlays.map((o) => o.at + overlayLength(o)));
   // Fitted: the whole edit across the timeline's width.
   const fitted = end > 0 ? clamp((view.width - 64) / end, MIN_ZOOM, MAX_ZOOM) : 60;
   const pps = zoom ?? fitted;
@@ -265,6 +268,7 @@ export function Timeline() {
   for (let s = Math.max(0, Math.floor((view.left - 80) / pps / step) * step); s * pps < view.left + view.width + 80; s += step) marks.push(s);
   const textHeight = Math.max(1, Math.max(0, ...textRows.values()) + (edit.texts.length ? 1 : 0)) * TEXT_ROW;
   const soundHeight = Math.max(1, Math.max(0, ...soundRows.values()) + (edit.audio.length ? 1 : 0)) * SOUND_ROW;
+  const layerHeight = Math.max(1, Math.max(0, ...layerRows.values()) + (edit.overlays.length ? 1 : 0)) * LAYER_ROW;
   const nothing = !selection;
 
   return (
@@ -345,12 +349,49 @@ export function Timeline() {
                 >
                   <Strip asset={asset} start={p.clip.start} perSecond={p.clip.speed / pps} width={w} height={56} view={view} offset={p.from * pps} wave="under" drawn={drawn} />
                   <span className={styles.clipLabel}>
+                    {p.clip.freeze ? <Snowflake size={12} aria-hidden /> : null}
                     {p.clip.muted ? <SpeakerSimpleSlash size={12} aria-hidden /> : null}
                     {p.clip.speed !== 1 ? <b>{p.clip.speed}x</b> : null}
                     {missing.has(p.clip.mediaId) ? "Missing: " : ""}
                     {media?.name}
                   </span>
                   <TrimHandles onTrim={(e, edge) => trimClipBy(e, p, edge)} />
+                </div>
+              );
+            })}
+            {/* Where a transition plays: into a clip, from the one before. */}
+            {placed.map((p) =>
+              p.index > 0 && p.clip.transition ? (
+                <span key={`t-${p.clip.id}`} className={styles.transitionMark} style={{ left: p.from * pps }} title={`${TRANSITIONS[p.clip.transition.kind]}, ${p.clip.transition.sec.toFixed(1)} s`} aria-hidden />
+              ) : null,
+            )}
+          </div>
+
+          <div className={styles.rowLayers} style={{ height: layerHeight }} role={edit.overlays.length ? "listbox" : undefined} aria-label={edit.overlays.length ? "Layers" : undefined} onPointerDown={scrub}>
+            {edit.overlays.length === 0 ? <p className={styles.rowHint}>Layers: pictures and videos over the main one</p> : null}
+            {edit.overlays.map((o) => {
+              const selected = isSelected("overlay", o.id);
+              const item: NonNullable<Selection> = { kind: "overlay", id: o.id };
+              const media = edit.media.find((m) => m.id === o.mediaId);
+              const length = overlayLength(o);
+              const w = Math.max(6, length * pps);
+              return (
+                <div
+                  key={o.id}
+                  role="option"
+                  tabIndex={0}
+                  aria-selected={selected}
+                  aria-label={`Layer: ${media?.name ?? "picture"}, ${clock(length)}`}
+                  className={styles.layer}
+                  data-selected={selected ? "" : undefined}
+                  data-missing={missing.has(o.mediaId) ? "" : undefined}
+                  style={{ left: o.at * pps, width: w, top: (layerRows.get(o.id) ?? 0) * LAYER_ROW }}
+                  onPointerDown={(e) => moveOverlayBy(e, item, o.at, length)}
+                  onKeyDown={onOptionKey(item)}
+                >
+                  <Strip asset={assets.get(o.mediaId)} start={o.start} perSecond={o.speed / pps} width={w} height={LAYER_ROW - 6} view={view} offset={o.at * pps} wave="under" drawn={drawn} />
+                  <span className={styles.clipLabel}>{media?.name}</span>
+                  <TrimHandles onTrim={(e, edge) => trimOverlayBy(e, item, edge)} />
                 </div>
               );
             })}
@@ -403,6 +444,12 @@ export function Timeline() {
                   onKeyDown={onOptionKey(item)}
                 >
                   <Strip asset={assets.get(a.mediaId)} start={a.start} perSecond={1 / pps} width={w} height={SOUND_ROW - 6} view={view} offset={a.at * pps} wave="only" drawn={drawn} />
+                  {/* Its beats, once found (Cut to the beat): cuts snap to them. */}
+                  {(a.beats ?? [])
+                    .filter((b) => b >= a.start && b <= a.end)
+                    .map((b) => (
+                      <span key={b} className={styles.beat} style={{ left: (b - a.start) * pps }} aria-hidden />
+                    ))}
                   <span className={styles.clipLabel}>{media?.name}</span>
                   <TrimHandles onTrim={(e, edge) => trimOverlayBy(e, item, edge)} />
                 </div>

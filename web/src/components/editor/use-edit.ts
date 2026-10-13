@@ -23,7 +23,7 @@ const HISTORY = 100;
 /** Whatever was selected, if it's still in the edit. */
 function keep(edit: Edit, selection: Selection): Selection {
   if (!selection) return null;
-  const list = selection.kind === "clip" ? edit.clips : selection.kind === "text" ? edit.texts : edit.audio;
+  const list = selection.kind === "clip" ? edit.clips : selection.kind === "text" ? edit.texts : selection.kind === "overlay" ? edit.overlays : edit.audio;
   return list.some((item) => item.id === selection.id) ? selection : null;
 }
 

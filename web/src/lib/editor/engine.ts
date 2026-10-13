@@ -1,19 +1,23 @@
-import type { Asset } from "./assets";
-import { canFilter, drawScene, type Picture, type TextBox } from "./compose";
+import { frameAt, type Asset } from "./assets";
+import { canFilter, drawScene, type Fonts, type Picture, type TextBox } from "./compose";
 import { duckAt, duckLine, ducks, type DuckPoint } from "./duck";
-import { newEdit, type Edit } from "./model";
+import { newEdit, type Clip, type Edit, type Overlay } from "./model";
 import type { Envelope } from "./silence";
-import { audioLength, clipLength, fade, momentAt, totalDuration, type Moment } from "./timeline";
+import { audioLength, clipLength, fade, lastFrameAt, momentAt, overlayMomentAt, totalDuration, transitionAt, type Moment } from "./timeline";
 
 /*
  * The preview: plays an edit in the browser and draws it on a canvas, frame by frame, with the
  * same drawing code as the export (compose.ts). The main track's <video> elements do the
  * decoding and make the sound; while one plays, its own clock is the edit's clock, so picture,
- * sound and playhead can't drift apart. Photos and gaps in loading run on the wall clock.
+ * sound and playhead can't drift apart. Photos, freeze frames and gaps in loading run on the
+ * wall clock. Each video layer has a player of its own (the same file can be a layer and a
+ * clip at once); a transition's outgoing frame is decoded ahead of time (frameAt).
  */
 
 /** How far a player may be from where it should be before it's moved there. */
 const DRIFT = 0.3;
+/** Outgoing frames kept for transitions. */
+const STILLS = 24;
 
 export class Engine {
   edit: Edit = newEdit();
@@ -31,12 +35,16 @@ export class Engine {
   readonly filters = canFilter();
 
   private canvas: HTMLCanvasElement | null = null;
-  private font = "system-ui, sans-serif";
+  private fonts: Fonts = {};
   private frame = 0;
   private last = 0;
   /** The clip that was playing on the last frame. */
   private active: string | null = null;
   private sounds = new Map<string, HTMLAudioElement>();
+  /** A player for each video layer, by the layer's id. */
+  private layers = new Map<string, HTMLVideoElement>();
+  /** Clips' last frames for transitions, by file and second ("loading" while decoding). */
+  private stills = new Map<string, Picture | "loading">();
   private watched = new WeakSet<HTMLVideoElement>();
   private listeners = new Set<() => void>();
   private painted = new Set<() => void>();
@@ -68,9 +76,14 @@ export class Engine {
     this.silent = silent;
   }
 
-  attach(canvas: HTMLCanvasElement | null, font?: string) {
+  /** The typefaces text and captions may use, as the page loaded them. */
+  setFonts(fonts: Fonts) {
+    this.fonts = fonts;
+    this.refresh();
+  }
+
+  attach(canvas: HTMLCanvasElement | null) {
     this.canvas = canvas;
-    if (font) this.font = font;
     this.refresh();
   }
 
@@ -78,7 +91,7 @@ export class Engine {
     this.edit = edit;
     const total = totalDuration(edit);
     if (this.time > total) this.time = total;
-    // Sounds that left the edit stop.
+    // Sounds and layers that left the edit stop.
     const kept = new Set(edit.audio.map((a) => a.id));
     for (const [id, el] of this.sounds) {
       if (kept.has(id)) continue;
@@ -86,20 +99,33 @@ export class Engine {
       el.removeAttribute("src");
       this.sounds.delete(id);
     }
+    const layers = new Map(edit.overlays.map((o) => [o.id, o]));
+    for (const [id, el] of this.layers) {
+      const layer = layers.get(id);
+      if (layer && this.assets.get(layer.mediaId)?.url === el.src) continue;
+      el.pause();
+      el.removeAttribute("src");
+      this.layers.delete(id);
+    }
+    // The frames transitions will need, decoded now rather than when they're due.
+    edit.clips.forEach((clip, i) => {
+      if (i > 0 && clip.transition) this.stillOf(edit.clips[i - 1]!);
+    });
     this.refresh();
     this.emit();
   }
 
   setAssets(assets: ReadonlyMap<string, Asset>) {
     this.assets = assets;
-    for (const asset of assets.values()) {
-      const video = asset.video;
-      if (!video || this.watched.has(video)) continue;
-      this.watched.add(video);
-      // A frame arrives some time after a seek: draw it when it does.
-      for (const event of ["seeked", "loadeddata", "canplay"]) video.addEventListener(event, () => this.refresh());
-    }
+    for (const asset of assets.values()) if (asset.video) this.watch(asset.video);
     this.refresh();
+  }
+
+  /** A frame arrives some time after a seek: draw it when it does. */
+  private watch(video: HTMLVideoElement) {
+    if (this.watched.has(video)) return;
+    this.watched.add(video);
+    for (const event of ["seeked", "loadeddata", "canplay"]) video.addEventListener(event, () => this.refresh());
   }
 
   get total() {
@@ -123,6 +149,7 @@ export class Engine {
     cancelAnimationFrame(this.frame);
     this.frame = 0;
     this.quiet();
+    this.park();
     this.emit();
     this.refresh();
   }
@@ -161,8 +188,10 @@ export class Engine {
     cancelAnimationFrame(this.frame);
     this.frame = 0;
     this.quiet();
-    for (const el of this.sounds.values()) el.removeAttribute("src");
+    for (const el of [...this.sounds.values(), ...this.layers.values()]) el.removeAttribute("src");
     this.sounds.clear();
+    this.layers.clear();
+    this.stills.clear();
     this.listeners.clear();
     this.painted.clear();
     this.canvas = null;
@@ -182,7 +211,7 @@ export class Engine {
       const total = this.total;
       let moment = momentAt(this.edit, this.time);
       const video = moment ? this.assets.get(moment.clip.mediaId)?.video : undefined;
-      if (moment && video) {
+      if (moment && video && !moment.clip.freeze) {
         // A new clip starts on its own first frame, even when that's only a moment away in the same file (a silence cut out).
         if (moment.clip.id !== this.active) {
           this.active = moment.clip.id;
@@ -196,6 +225,12 @@ export class Engine {
           this.time = Math.abs(implied - this.time) > DRIFT ? implied : Math.max(this.time, implied);
         }
       } else {
+        // A photo, a freeze frame (its player held on its frame), or a file still loading.
+        if (moment && video && moment.clip.freeze) {
+          this.active = moment.clip.id;
+          if (!video.paused) video.pause();
+          if (!video.seeking && Math.abs(video.currentTime - moment.source) > 0.01) video.currentTime = moment.source;
+        }
         this.time += elapsed;
       }
       if (this.time >= total) {
@@ -213,6 +248,7 @@ export class Engine {
         if (asset.video && asset.media.id !== moment?.clip.mediaId && !asset.video.paused) asset.video.pause();
       }
       this.driveSounds();
+      this.driveLayers();
       this.draw(moment);
       this.emit();
       this.frame = requestAnimationFrame(tick);
@@ -273,22 +309,90 @@ export class Engine {
     }
   }
 
+  /** The player of a video layer, made when it's first needed. */
+  private layerVideo(overlay: Overlay): HTMLVideoElement | null {
+    const asset = this.assets.get(overlay.mediaId);
+    if (!asset?.video) return null;
+    let el = this.layers.get(overlay.id);
+    if (!el) {
+      el = document.createElement("video");
+      el.preload = "auto";
+      el.playsInline = true;
+      el.preservesPitch = false;
+      el.src = asset.url;
+      this.watch(el);
+      this.layers.set(overlay.id, el);
+    }
+    return el;
+  }
+
+  /** Video layers follow the playhead, as sounds do. */
+  private driveLayers() {
+    const total = this.total;
+    for (const overlay of this.edit.overlays) {
+      if (!this.assets.get(overlay.mediaId)?.video) continue;
+      const at = overlayMomentAt(overlay, this.time);
+      const el = this.layerVideo(overlay);
+      if (!el) continue;
+      if (!at || !this.playing || this.time >= total) {
+        if (!el.paused) el.pause();
+        continue;
+      }
+      if (el.playbackRate !== overlay.speed) el.playbackRate = overlay.speed;
+      el.muted = overlay.muted || this.silent;
+      el.volume = overlay.volume;
+      if (el.seeking) continue;
+      if (el.paused || Math.abs(el.currentTime - at.source) > DRIFT) {
+        if (Math.abs(el.currentTime - at.source) > 0.04) el.currentTime = at.source;
+        void el.play().catch(() => undefined);
+      }
+    }
+  }
+
   /** Everything stops making sound. */
   private quiet() {
     for (const asset of this.assets.values()) if (asset.video && !asset.video.paused) asset.video.pause();
-    for (const el of this.sounds.values()) if (!el.paused) el.pause();
+    for (const el of [...this.sounds.values(), ...this.layers.values()]) if (!el.paused) el.pause();
   }
 
-  /** Paused: put the video under the playhead on its frame. */
+  /** Paused: put the video under the playhead, and each video layer showing, on its frame. */
   private park() {
     const moment = momentAt(this.edit, this.time);
     const video = moment ? this.assets.get(moment.clip.mediaId)?.video : undefined;
-    if (!moment || !video) return;
-    if (!video.paused) video.pause();
-    if (Math.abs(video.currentTime - moment.source) > 0.01) video.currentTime = moment.source;
+    if (moment && video) {
+      if (!video.paused) video.pause();
+      if (Math.abs(video.currentTime - moment.source) > 0.01) video.currentTime = moment.source;
+    }
+    for (const overlay of this.edit.overlays) {
+      const at = overlayMomentAt(overlay, this.time);
+      const el = at ? this.layerVideo(overlay) : null;
+      if (!at || !el) continue;
+      if (!el.paused) el.pause();
+      if (Math.abs(el.currentTime - at.source) > 0.01) el.currentTime = at.source;
+    }
   }
 
   /* ------------------------------ Drawing ------------------------------ */
+
+  /** A clip's last frame (for a transition out of it): ready, or being decoded (null for now). */
+  private stillOf(clip: Clip): Picture | null {
+    const asset = this.assets.get(clip.mediaId);
+    if (!asset) return null;
+    if (asset.bitmap) return { image: asset.bitmap, width: asset.bitmap.width, height: asset.bitmap.height };
+    const time = lastFrameAt(clip);
+    const key = `${clip.mediaId}@${time.toFixed(3)}`;
+    const known = this.stills.get(key);
+    if (known === "loading") return null;
+    if (known) return known;
+    this.stills.set(key, "loading");
+    void frameAt(asset, time).then((picture) => {
+      if (picture) this.stills.set(key, picture);
+      else this.stills.delete(key);
+      while (this.stills.size > STILLS) this.stills.delete(this.stills.keys().next().value!);
+      this.refresh();
+    });
+    return null;
+  }
 
   private picture(moment: Moment | null): Picture | null {
     if (!moment) return null;
@@ -299,18 +403,37 @@ export class Engine {
     return null;
   }
 
+  /** The layers showing now, each with its picture. */
+  private layerPictures(): { overlay: Overlay; picture: Picture | null }[] {
+    const out: { overlay: Overlay; picture: Picture | null }[] = [];
+    for (const overlay of this.edit.overlays) {
+      if (!overlayMomentAt(overlay, this.time)) continue;
+      const asset = this.assets.get(overlay.mediaId);
+      if (asset?.bitmap) {
+        out.push({ overlay, picture: { image: asset.bitmap, width: asset.bitmap.width, height: asset.bitmap.height } });
+        continue;
+      }
+      const el = this.layerVideo(overlay);
+      out.push({ overlay, picture: el && el.readyState >= 2 && el.videoWidth > 0 ? { image: el, width: el.videoWidth, height: el.videoHeight } : null });
+    }
+    return out;
+  }
+
   private draw(moment: Moment | null) {
     const canvas = this.canvas;
     const ctx = canvas?.getContext("2d");
     if (!canvas || !ctx) return;
     this.surface = { width: canvas.width, height: canvas.height };
+    const step = moment ? transitionAt(this.edit, moment) : null;
     this.boxes = drawScene(ctx, canvas.width, canvas.height, {
       edit: this.edit,
       time: this.time,
       total: this.total,
       moment,
       picture: this.picture(moment),
-      font: this.font,
+      previous: step ? this.stillOf(step.previous.clip) : null,
+      layers: this.layerPictures(),
+      fonts: this.fonts,
       filters: this.filters,
       selectedText: this.selectedText,
       paused: !this.playing,

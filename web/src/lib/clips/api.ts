@@ -10,6 +10,8 @@ import type {
   Transcript,
 } from "@/lib/clips/schema";
 import type { Download, DownloadList } from "@/lib/downloads/schema";
+import type { CaptionJob } from "@/lib/server/editor-captions";
+import type { EditorSource } from "@/lib/server/editor-source";
 
 /* Browser client for the /api routes. Errors carry the server's user-facing message. */
 
@@ -27,11 +29,13 @@ export class ApiError extends Error {
 async function request<T>(method: string, url: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   let res: Response;
   try {
+    // A Blob goes as it is (a sound for captions); anything else as JSON.
+    const raw = body instanceof Blob;
     res = await fetch(url, {
       method,
       signal,
-      headers: body === undefined ? undefined : { "Content-Type": "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      headers: body === undefined ? undefined : { "Content-Type": raw ? body.type || "application/octet-stream" : "application/json" },
+      body: body === undefined ? undefined : raw ? body : JSON.stringify(body),
       cache: "no-store",
     });
   } catch (err) {
@@ -121,6 +125,14 @@ export const api = {
     /** Take one off the list and delete its file. Answers with the list as it is now. */
     remove: (id: string) => request<DownloadList>("DELETE", `/api/downloads/${encodeURIComponent(id)}`),
   },
+  /** The editor's calls to the server: only for these features, never for its files. */
+  editor: {
+    /** A Bamio clip cut out for the editor, with its captions as words (Starter). */
+    source: (projectId: string, clipId: string) => request<EditorSource>("POST", `${base(projectId)}/clips/${encodeURIComponent(clipId)}/editor`),
+    /** Auto captions (Pro): the sound of what an edit uses, as a WAV. */
+    captions: (sound: Blob, language: string, signal?: AbortSignal) => request<{ id: string }>("POST", `/api/editor/captions?language=${encodeURIComponent(language)}`, sound, signal),
+    captionJob: (id: string, signal?: AbortSignal) => request<CaptionJob>("GET", `/api/editor/captions/${encodeURIComponent(id)}`, undefined, signal),
+  },
   /** Delete the signed-in account and everything in it. */
   deleteAccount: () => request<void>("DELETE", "/api/account", { confirm: "delete" }),
   /** The admin panel’s changes (the server checks the role). */
@@ -152,6 +164,8 @@ export const isPlanError = (err: unknown) => err instanceof ApiError && ((err.st
 export const downloadFileUrl = (id: string, view = false) => `/api/downloads/${encodeURIComponent(id)}/file${view ? "?view=1" : ""}`;
 
 export const sourceUrl = (id: string) => `${base(id)}/source`;
+/** A clip's cut for the editor (made by api.editor.source). */
+export const editorCutUrl = (id: string, clipId: string) => `${base(id)}/clips/${encodeURIComponent(clipId)}/editor/file`;
 /** A followed stream's video while it grows (HLS). */
 export const liveUrl = (id: string) => `${base(id)}/live/source.m3u8`;
 export const thumbUrl = (id: string, t?: number) => (t === undefined ? `${base(id)}/thumb` : `${base(id)}/thumb?t=${Math.max(0, Math.round(t * 10) / 10)}`);

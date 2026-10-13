@@ -8,6 +8,7 @@ import { db } from "@/lib/server/db";
 import { reportError } from "@/lib/server/monitor";
 import { storage } from "@/lib/server/storage";
 import { isUserId, scratch, userMediaPrefix } from "@/lib/server/store";
+import { deleteCaptionsOf } from "@/lib/server/editor-captions";
 import { releaseTrialCard } from "@/lib/server/trial-cards";
 
 /*
@@ -71,6 +72,8 @@ export async function deleteAccountData(userId: string, deps: AccountDeps = defa
   for (const p of projects) await deps.stopProject(p.id);
   await storage().removePrefix(userMediaPrefix(userId));
   for (const p of projects) await rm(scratch(p.id).dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  // Sound sent for captions and not yet transcribed, with its jobs.
+  await deleteCaptionsOf(userId);
   await sql.begin(async (tx) => {
     await tx`delete from projects where user_id = ${userId}`;
     await tx`delete from jobs where user_id = ${userId}`;

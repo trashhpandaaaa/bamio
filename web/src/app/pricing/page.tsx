@@ -30,12 +30,12 @@ const FAQ: FaqItem[] = [
     q: "Is anything free?",
     a: (
       <>
-        Yes. The <Link href="/video-editor">video editor</Link>’s basics are free for every account, with no watermark: cutting, text, music, a voiceover and a 720p export. It runs in your
-        browser, so it costs Bamio nothing to offer. Plans pay for what Bamio’s servers do (importing long videos, transcribing them and finding the clips with AI) and add the editor’s
-        extras: 1080p, and with Pro silence removal, 60 fps and music that ducks under speech.
+        Yes. The <Link href="/video-editor">video editor</Link>’s basics are free for every account, with no watermark: cutting, transitions, text, logos, music, a voiceover and a 720p
+        export. It runs in your browser, so it costs Bamio nothing to offer. Plans pay for what Bamio’s servers do (importing long videos, transcribing them and finding the clips with AI)
+        and add the editor’s extras: 1080p, layouts and captions you can fix, and with Pro auto captions, auto-reframe, silence removal, green screen, 60 fps and 4K.
       </>
     ),
-    text: "Yes. The video editor’s basics are free for every account, with no watermark: cutting, text, music, a voiceover and a 720p export. It runs in your browser, so it costs Bamio nothing to offer. Plans pay for what Bamio’s servers do (importing long videos, transcribing them and finding the clips with AI) and add the editor’s extras: 1080p, and with Pro silence removal, 60 fps and music that ducks under speech.",
+    text: "Yes. The video editor’s basics are free for every account, with no watermark: cutting, transitions, text, logos, music, a voiceover and a 720p export. It runs in your browser, so it costs Bamio nothing to offer. Plans pay for what Bamio’s servers do (importing long videos, transcribing them and finding the clips with AI) and add the editor’s extras: 1080p, layouts and captions you can fix, and with Pro auto captions, auto-reframe, silence removal, green screen, 60 fps and 4K.",
   },
   {
     q: "What’s an AI processing minute?",

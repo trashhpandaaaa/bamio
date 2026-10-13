@@ -63,6 +63,9 @@
  */
 .textFrame { position: absolute; display: none; box-sizing: border-box; border: 1.5px dashed #fff; filter: drop-shadow(0 0 1px rgb(0 0 0 / .8)); pointer-events: none; z-index: 1; }
 .textFrame[data-on] { display: block; }
+/* Around the selected layer: dragged to move it, its corners to resize it. */
+.layerFrame { position: absolute; display: none; box-sizing: border-box; border: 1.5px solid var(--volt); cursor: move; touch-action: none; z-index: 1; }
+.layerFrame[data-on] { display: block; }
 .grip { position: absolute; width: 28px; height: 28px; margin: -14px; pointer-events: auto; touch-action: none; }
 .grip::after { content: ""; position: absolute; inset: 9px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 1.5px var(--ink); }
 .grip[data-corner="nw"] { left: 0; top: 0; cursor: nwse-resize; }
@@ -116,6 +119,22 @@
 .swatch[data-blur] { background: conic-gradient(from 40deg, #555, #bbb, #777, #ddd, #555); filter: blur(.6px); }
 .swatch:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .textarea { min-height: 76px; resize: vertical; }
+/* A colour of one's own: the browser's picker as a swatch. */
+.colorPick { display: flex; align-items: center; gap: var(--s-2); font: var(--t-body-sm); cursor: pointer; }
+.colorPick input { width: 32px; height: 32px; padding: 0; border: 2px solid var(--line-control); border-radius: 50%; background: none; cursor: pointer; }
+.colorPick input::-webkit-color-swatch-wrapper { padding: 0; }
+.colorPick input::-webkit-color-swatch { border: 0; border-radius: 50%; }
+.colorPick input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+/* Work that takes a while (reverse, finding faces, captions), with its stop. */
+.busy { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--s-1) var(--s-2); font: var(--t-body-sm); }
+.busy progress { grid-column: 1; width: 100%; height: 6px; accent-color: var(--volt); }
+.busy button { grid-row: 1 / span 2; grid-column: 2; }
+.choose { display: grid; gap: var(--s-2); padding: var(--s-3); border-radius: var(--r-sm); background: var(--surface-sunken); }
+.choose p { margin: 0; }
+.captionLines summary { min-height: var(--s-6); font: var(--t-label-sm); cursor: pointer; }
+.captionLines ol { margin: var(--s-2) 0 0; padding: 0; list-style: none; display: grid; gap: var(--s-1-5); max-height: 320px; overflow-y: auto; }
+.captionLines li { display: grid; grid-template-columns: 40px minmax(0, 1fr); align-items: center; gap: var(--s-2); }
+.captionLines small { font: var(--t-mono); font-size: 12px; color: var(--text-tertiary); }
 .stickers { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
 .sticker { height: 44px; padding: 0; border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--surface-sunken); font-size: 22px; line-height: 1; cursor: pointer; }
 .sticker:hover { border-color: var(--line-control); }
@@ -152,13 +171,20 @@
 .tracks { position: relative; display: grid; align-content: start; gap: 6px; min-height: 100%; padding-bottom: 10px; }
 .ruler { position: sticky; top: 0; z-index: 3; height: 24px; background: var(--surface); border-bottom: 1px solid var(--line); cursor: ew-resize; touch-action: none; }
 .ruler span { position: absolute; top: 0; height: 100%; padding-left: 5px; border-left: 1px solid var(--line-control); font: 500 10.5px/24px var(--font-mono); color: var(--text-tertiary); font-variant-numeric: tabular-nums; pointer-events: none; }
-.rowClips, .rowTexts, .rowSounds { position: relative; touch-action: pan-y; }
+.rowClips, .rowTexts, .rowSounds, .rowLayers { position: relative; touch-action: pan-y; }
 .rowClips { height: 56px; }
 .rowHint { position: sticky; left: 0; display: inline-block; margin: 0; padding: 0 var(--gutter); font: var(--t-caption); line-height: 30px; color: var(--text-tertiary); white-space: nowrap; pointer-events: none; }
 .rowClips .rowHint { line-height: 56px; }
 
-.clip, .text, .sound { position: absolute; overflow: hidden; border-radius: 8px; cursor: grab; touch-action: none; user-select: none; }
-.clip:active, .text:active, .sound:active { cursor: grabbing; }
+.clip, .text, .sound, .layer { position: absolute; overflow: hidden; border-radius: 8px; cursor: grab; touch-action: none; user-select: none; }
+.layer { height: 34px; background: var(--surface-raised); box-shadow: inset 0 0 0 1px var(--line-control); }
+.layer[data-selected] { box-shadow: inset 0 0 0 2.5px var(--volt); z-index: 2; }
+.layer:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; z-index: 2; }
+/* Where a transition plays, at the cut between two clips. */
+.transitionMark { position: absolute; top: 18px; width: 20px; height: 20px; margin-left: -10px; border-radius: 50%; background: var(--volt); box-shadow: 0 0 0 2px var(--surface), inset 0 0 0 5px var(--volt), inset 0 0 0 7px var(--ink); pointer-events: none; z-index: 3; }
+/* A beat of a sound. */
+.beat { position: absolute; top: 0; bottom: 0; width: 1px; background: color-mix(in srgb, var(--volt) 70%, transparent); pointer-events: none; }
+.clip:active, .text:active, .sound:active, .layer:active { cursor: grabbing; }
 .clip { top: 0; height: 56px; background: var(--surface-raised); box-shadow: inset 0 0 0 1px var(--line-control); }
 .clip[data-selected], .text[data-selected], .sound[data-selected] { box-shadow: inset 0 0 0 2.5px var(--volt); z-index: 2; }
 .clip[data-missing], .sound[data-missing] { background: repeating-linear-gradient(135deg, var(--surface-raised) 0 8px, var(--error-bg) 8px 16px); }
@@ -194,6 +220,10 @@
 .exportDialog { width: min(92vw, 520px); }
 /* A choice that needs a plan: there, and plainly not on offer. */
 .exportDialog :global(.seg) button:disabled { color: var(--text-tertiary); cursor: not-allowed; }
+/* The files an export made, each with its own download. */
+.madeList { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.madeList li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.madeList :global(.dialog-body) svg { vertical-align: -2px; color: var(--success); }
 /* Only while open: a display of its own would show a closed dialog. */
 .exportDialog[open] { display: grid; gap: 14px; }
 .exportDialog :global(.dialog-body) { margin: 0; }

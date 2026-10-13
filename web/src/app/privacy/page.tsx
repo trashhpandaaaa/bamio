@@ -36,7 +36,10 @@ export default function PrivacyPage() {
           </li>
           <li>
             <strong>The editor</strong> is the exception: videos, photos and sounds you open in it stay on your device. They are read, edited and exported in your
-            browser, the edit is saved in your browser’s own storage, and none of it is sent to Bamio. Clearing the browser’s data for this site deletes them.
+            browser, the edit is saved in your browser’s own storage, and none of it is sent to Bamio. Clearing the browser’s data for this site deletes them. Two things
+            are different, and only when you ask for them. Auto captions send the sound of the parts your edit uses (not the picture) to Bamio, where it is transcribed
+            on our own server and deleted once it is; the words are kept for a day so your browser can fetch them, and the minutes count against your plan. Opening one
+            of your Bamio clips with its captions makes a copy of that part of your video on our server, kept with its project and deleted with it.
           </li>
           <li>
             <strong>Your plan:</strong> which plan you have, its renewal date, the AI minutes you used and your Stripe customer number. Your card is entered on Stripe’s
