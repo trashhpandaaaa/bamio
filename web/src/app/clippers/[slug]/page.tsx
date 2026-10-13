@@ -1,5 +1,5 @@
 import { auth } from "@clerk/nextjs/server";
-import { ArrowLeft, ArrowUpRight, LockSimple, Scissors } from "@phosphor-icons/react/ssr";
+import { ArrowLeft, ArrowUpRight, Scissors } from "@phosphor-icons/react/ssr";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -13,7 +13,7 @@ import { CHANNEL_PLATFORMS, CLIP_PLATFORMS } from "@/lib/campaigns/links";
 import { compactNumber } from "@/lib/campaigns/money";
 import type { Leader } from "@/lib/campaigns/schema";
 import { adminOf } from "@/lib/server/admin";
-import { campaignAccess, canSeeCampaigns } from "@/lib/server/campaign-access";
+import { ownsCampaign } from "@/lib/server/campaign-access";
 import { campaignBySlug, campaignRef, type CampaignPage } from "@/lib/server/campaigns";
 import { PRIVATE_PAGE } from "@/lib/site";
 import { CampaignPanel } from "./campaign-panel";
@@ -21,42 +21,36 @@ import styles from "../clippers.module.css";
 
 type Props = { params: Promise<{ slug: string }> };
 
-/** "locked": there is a campaign here, and this visitor may not see it. "owner": theirs, though they have no plan. */
-type Loaded = { state: "missing" } | { state: "locked"; signedIn: boolean } | { state: "open"; page: CampaignPage; owner: boolean };
+/** "owner": the campaign was made from this visitor's request. */
+type Loaded = { state: "missing" } | { state: "open"; page: CampaignPage; owner: boolean };
 
 /**
- * The campaign, for the page and its metadata (one read for both), if this visitor may see it.
- * Campaigns are for subscribers (campaign-access.ts); everyone else gets the locked page, which
- * says nothing about the campaign. A draft shows only to admins, who look at it here before it
- * goes live.
+ * The campaign, for the page and its metadata (one read for both). Open to everyone; a draft
+ * shows only to admins, who look at it here before it goes live.
  */
 const load = cache(async (slug: string): Promise<Loaded> => {
   const ref = await campaignRef(slug);
   if (!ref) return { state: "missing" };
   const { userId } = await auth();
   if (ref.status === "draft" && !(userId && (await adminOf(userId)))) return { state: "missing" };
-  const access = await campaignAccess(userId, ref.id);
-  if (!canSeeCampaigns(access)) return { state: "locked", signedIn: Boolean(userId) };
   const page = await campaignBySlug(slug, { drafts: true });
-  return page ? { state: "open", page, owner: access === "owner" } : { state: "missing" };
+  return page ? { state: "open", page, owner: await ownsCampaign(userId, ref.id) } : { state: "missing" };
 });
 
-/** Campaign pages are for subscribers, so never for search engines; only someone who may see one gets its name in the tab. */
+/** Campaign pages change by the hour and end, so they stay out of search engines. */
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const loaded = await load((await params).slug).catch(() => null);
   if (!loaded || loaded.state === "missing") return { title: "Campaign not found", robots: PRIVATE_PAGE };
-  if (loaded.state === "locked") return { title: "A clipping campaign", robots: PRIVATE_PAGE };
   const c = loaded.page.campaign;
   return { title: `${c.title}: ${rateLabel(c.rateCents)}`, robots: PRIVATE_PAGE };
 }
 
-/** One campaign: what to clip, what it pays, how much budget is left, who has earned the most, and the clipper's own clips. For subscribers; others see the locked page. */
+/** One campaign: what to clip, what it pays, how much budget is left, who has earned the most, and the clipper's own clips. */
 export default async function CampaignPageView({ params }: Props) {
   await connection();
   const slug = (await params).slug;
   const loaded = await load(slug);
   if (loaded.state === "missing") notFound();
-  if (loaded.state === "locked") return <Locked slug={slug} signedIn={loaded.signedIn} />;
   const { campaign: c, leaders } = loaded.page;
   const byHand = c.platforms.filter((p) => !CLIP_PLATFORMS[p].counted).map((p) => CLIP_PLATFORMS[p].name);
 
@@ -87,10 +81,10 @@ export default async function CampaignPageView({ params }: Props) {
         <div className={`container ${styles.layout}`}>
           <aside className={styles.side} aria-label="Your place in this campaign">
             {loaded.owner ? (
-              // They asked for this campaign and have no plan: they see it, and don't clip in it.
+              // They asked for this campaign: they see it, and don't clip in it.
               <div className={styles.panel}>
                 <h2 className="t-heading-md">Your campaign</h2>
-                <p className={styles.panelText}>Clippers with a Bamio plan join here and send the clips they post. We look at each clip and count its views.</p>
+                <p className={styles.panelText}>Clippers join here and send the clips they post. We look at each clip and count its views.</p>
                 <p className={styles.panelText}>You pay Bamio for the campaign, and Bamio pays the clippers what their clips earn. We’ll write to you with what has been earned.</p>
               </div>
             ) : (
@@ -127,6 +121,18 @@ export default async function CampaignPageView({ params }: Props) {
                 <div>
                   <dt>Most one clip can earn</dt>
                   <dd>{formatPrice(c.maxClipCents)}</dd>
+                </div>
+              ) : null}
+              {c.minClipperViews > 0 ? (
+                <div>
+                  <dt>You earn once your clips have</dt>
+                  <dd>{c.minClipperViews.toLocaleString("en-US")} views in all</dd>
+                </div>
+              ) : null}
+              {c.maxClipperCents !== null ? (
+                <div>
+                  <dt>Most one clipper can earn</dt>
+                  <dd>{formatPrice(c.maxClipperCents)}</dd>
                 </div>
               ) : null}
               {c.endsAt !== null ? (
@@ -208,41 +214,6 @@ export default async function CampaignPageView({ params }: Props) {
             </section>
           </div>
         </div>
-      </main>
-      <SiteFooter links={SITE_LINKS} />
-    </>
-  );
-}
-
-/** For visitors who may not see campaigns: that there is one, and how to get in. Nothing about the campaign itself. */
-function Locked({ slug, signedIn }: { slug: string; signedIn: boolean }) {
-  return (
-    <>
-      <SiteHeader links={SITE_LINKS} current="/clippers" />
-      <main id="main">
-        <section className={`container ${styles.head} ${styles.lockedPage}`} aria-labelledby="locked-title">
-          <Link href="/clippers" className={styles.back}>
-            <ArrowLeft size={16} aria-hidden />
-            Campaigns
-          </Link>
-          <div className="empty">
-            <LockSimple size={32} aria-hidden />
-            <h1 id="locked-title" className="empty-title">
-              This campaign is for subscribers
-            </h1>
-            <p className="empty-body">With a Bamio plan you can see it, join, and earn for every 1,000 views on the clips you post.</p>
-            <div className={styles.heroActions}>
-              <Link href="/pricing" className="btn btn-volt">
-                See plans
-              </Link>
-              {signedIn ? null : (
-                <Link href={`/sign-in?redirect_url=${encodeURIComponent(`/clippers/${slug}`)}`} className="btn btn-secondary">
-                  Sign in
-                </Link>
-              )}
-            </div>
-          </div>
-        </section>
       </main>
       <SiteFooter links={SITE_LINKS} />
     </>

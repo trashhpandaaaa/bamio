@@ -13,7 +13,8 @@ import {
   waitingRequests,
   withdrawCampaignRequest,
 } from "@/lib/server/campaign-requests";
-import { assertCampaignAccess, campaignAccess, canSeeCampaigns } from "@/lib/server/campaign-access";
+import { forgetAdminRoles } from "@/lib/server/admin";
+import { ownsCampaign } from "@/lib/server/campaign-access";
 import { countNextViews } from "@/lib/server/campaign-views";
 import {
   adminCampaign,
@@ -30,7 +31,6 @@ import {
   myCampaign,
   myCampaigns,
   myClipper,
-  openCampaignCount,
   recordPayout,
   recountClip,
   resolveClipLink,
@@ -557,75 +557,62 @@ describe("asking to run a campaign", () => {
   });
 });
 
-describe("who may see campaigns", () => {
+describe("whose campaign it is", () => {
   const ADA = "user_camp_ada";
   const tidy = async () => {
     const sql = db();
-    for (const u of [MIRA, OTTO, ADA]) {
-      await sql`delete from billing_accounts where user_id = ${u}`;
-      await sql`delete from plan_grants where user_id = ${u}`;
-      await sql`delete from admins where user_id = ${u}`;
-    }
-    delete process.env.STRIPE_SECRET_KEY;
+    for (const u of [MIRA, OTTO, ADA]) await sql`delete from admins where user_id = ${u}`;
+    forgetAdminRoles();
     await clean();
   };
   beforeEach(tidy);
   afterAll(tidy);
 
-  /** A subscription as Stripe's webhooks would have saved it (read just now, so nothing asks Stripe). */
-  const subscribe = async (userId: string, status: string) => {
-    const now = Date.now();
-    const subscription = { id: `sub_${userId}`, status, plan: "starter", interval: "month", anchor: now - 86400_000, periodEnd: now + 29 * 86400_000, cancelAt: null, checkedAt: now };
-    await db()`insert into billing_accounts (user_id, data, updated_at) values (${userId}, ${db().json({ customerId: `cus_${userId}`, subscription })}, ${now})
-      on conflict (user_id) do update set data = excluded.data`;
-  };
-
-  it("is everyone while plans are off", async () => {
-    expect(await campaignAccess(null)).toBe("open");
-    expect(await campaignAccess(MIRA)).toBe("open");
-    await expect(assertCampaignAccess(MIRA)).resolves.toBeUndefined();
-  });
-
-  it("is only accounts with a plan once plans are on: not visitors, not the free trial, not a plan that has ended", async () => {
-    process.env.STRIPE_SECRET_KEY = "sk_test_unit";
-    expect(await campaignAccess(null)).toBe("signed_out");
-    expect(canSeeCampaigns("signed_out")).toBe(false);
-    // A new account has its free video, which isn't a plan.
-    expect(await campaignAccess(MIRA)).toBe("no_plan");
-    await expect(assertCampaignAccess(MIRA)).rejects.toMatchObject({ status: 402, code: "plan_required" });
-
-    await subscribe(OTTO, "active");
-    expect(await campaignAccess(OTTO)).toBe("open");
-    await expect(assertCampaignAccess(OTTO)).resolves.toBeUndefined();
-    await subscribe(OTTO, "canceled");
-    expect(await campaignAccess(OTTO)).toBe("no_plan");
-
-    // A plan given without paying is a plan.
-    await db()`insert into plan_grants (user_id, plan, note, created_at) values (${MIRA}, 'pro', 'test', ${Date.now()})`;
-    expect(await campaignAccess(MIRA)).toBe("open");
-  });
-
-  it("lets admins in, and the person who asked for a campaign into that one", async () => {
-    process.env.STRIPE_SECRET_KEY = "sk_test_unit";
-    // An admin runs the campaigns, plan or no plan.
-    await db()`insert into admins (user_id, email, added_by, created_at) values (${ADA}, 'ada@example.com', 'test', ${Date.now()})`;
-    expect(await campaignAccess(ADA)).toBe("open");
-
-    // Mira asked for a campaign and has no plan: she may open hers, not the others, and can't clip in any.
+  it("is the person who asked for it, for that one only; never an admin, never a visitor", async () => {
     const asked = await requestCampaign(MIRA, campaignRequestSchema.parse({ kind: "podcaster", name: "The Test Show", sourceUrl: "youtube.com/@thetestshow", brief: "The funniest minute of each episode.", platforms: ["tiktok"], rateCents: 100, budgetCents: 10_000, contact: "" }), null);
     const hers = await createCampaignFromRequest(boss, asked, input());
     const other = await createCampaign(boss, input());
-    expect(await campaignAccess(MIRA, hers.id)).toBe("owner");
-    expect(canSeeCampaigns("owner")).toBe(true);
-    expect(await campaignAccess(MIRA, other.id)).toBe("no_plan");
-    expect(await campaignAccess(MIRA)).toBe("no_plan");
-    expect(await campaignAccess(OTTO, hers.id)).toBe("no_plan");
-    await expect(assertCampaignAccess(MIRA)).rejects.toMatchObject({ status: 402 });
-    // The page asks by address: what it needs to decide, without the campaign's sums.
+    expect(await ownsCampaign(MIRA, hers.id)).toBe(true);
+    expect(await ownsCampaign(MIRA, other.id)).toBe(false);
+    expect(await ownsCampaign(OTTO, hers.id)).toBe(false);
+    expect(await ownsCampaign(null, hers.id)).toBe(false);
+    await db()`insert into admins (user_id, email, added_by, created_at) values (${MIRA}, 'mira@example.com', 'test', ${Date.now()})`;
+    forgetAdminRoles();
+    expect(await ownsCampaign(MIRA, hers.id)).toBe(false);
+    // The page asks by address: what it needs, without the campaign's sums.
     expect(await campaignRef(hers.slug)).toEqual({ id: hers.id, status: "draft" });
     expect(await campaignRef("no-such-campaign")).toBeNull();
     expect(await campaignRef("../etc")).toBeNull();
-    await setCampaignStatus(boss, hers.id, "live");
-    expect(await openCampaignCount()).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("what a clipper can earn", () => {
+  const base = { rateCents: 150, budgetCents: 250_000, minViews: 1000, maxClipCents: 35_000 };
+  const clip = (id: number, userId: string, views: number) => ({ id, userId, views, approvedAt: id });
+
+  it("stops at the most one clipper can earn, leaving the budget to the others", () => {
+    // $1.50 per 1,000: 300k views is $450 a clip, capped at $350; Mira's second clip has only $150 of her $500 left.
+    const s = settle({ ...base, maxClipperCents: 50_000 }, [clip(1, "mira", 300_000), clip(2, "mira", 300_000), clip(3, "otto", 100_000)], []);
+    expect(s.clips.get(1)).toBe(35_000);
+    expect(s.clips.get(2)).toBe(15_000);
+    expect(s.clips.get(3)).toBe(15_000);
+    expect(s.clippers.get("mira")?.earnedCents).toBe(50_000);
+    expect(s.leftCents).toBe(250_000 - 65_000);
+  });
+
+  it("pays nothing until a clipper's clips have the views asked for in all", () => {
+    const terms = { ...base, minClipperViews: 10_000 };
+    // Otto: 6k + 3k = 9k, short of 10k. Mira: 8k + 4k = 12k.
+    const s = settle(terms, [clip(1, "otto", 6000), clip(2, "otto", 3000), clip(3, "mira", 8000), clip(4, "mira", 4000)], []);
+    expect(s.clippers.get("otto")?.earnedCents).toBe(0);
+    expect(s.clippers.get("mira")?.earnedCents).toBe(1200 + 600);
+    // Their views still show on the leaderboard and the campaign's total.
+    expect(s.clippers.get("otto")?.views).toBe(9000);
+    expect(s.views).toBe(21_000);
+  });
+
+  it("is unchanged for campaigns without these terms", () => {
+    const s = settle(base, [clip(1, "mira", 300_000), clip(2, "mira", 300_000)], []);
+    expect(s.clippers.get("mira")?.earnedCents).toBe(70_000);
   });
 });

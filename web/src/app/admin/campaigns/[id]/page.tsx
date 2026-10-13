@@ -67,6 +67,8 @@ export default async function AdminCampaignPage({ params }: { params: Promise<{ 
           {c.brand} · {rateLabel(c.rateCents)}
           {c.minViews > 0 ? ` from ${count(c.minViews)} views` : ""}
           {c.maxClipCents !== null ? `, up to ${formatPrice(c.maxClipCents)} a clip` : ""}
+          {c.maxClipperCents !== null ? `, ${formatPrice(c.maxClipperCents)} a clipper` : ""}
+          {c.minClipperViews > 0 ? ` once they have ${count(c.minClipperViews)} views` : ""}
           {c.endsAt !== null ? ` · last day ${dayLabel(c.endsAt)}` : ""}
         </>
       }

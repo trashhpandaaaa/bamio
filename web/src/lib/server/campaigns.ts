@@ -28,8 +28,7 @@ import { HttpError } from "@/lib/server/http";
 import { isUserId } from "@/lib/server/store";
 
 /*
- * Clipping campaigns (/clippers), for subscribers (campaign-access.ts says who may see them:
- * the pages and the clipper's API routes ask it; the functions here don't). An admin sets one up: what to clip, a rate per 1,000 views, a
+ * Clipping campaigns (/clippers), open to everyone to see and to any account to join. An admin sets one up: what to clip, a rate per 1,000 views, a
  * budget. Clippers join it, clip with Bamio, post on their own channels and send the links.
  * Each clip waits for an admin; approved ones count. Bamio reads the views itself where the
  * site allows (campaign-views.ts) and an admin types them in where it doesn't; money.ts says
@@ -59,6 +58,8 @@ type CampaignRow = {
   budget_cents: number;
   min_views: number;
   max_clip_cents: number | null;
+  max_clipper_cents: number | null;
+  min_clipper_views: number;
   payout: string;
   status: CampaignStatus;
   ends_at: number | null;
@@ -66,7 +67,7 @@ type CampaignRow = {
 };
 
 const cols = (sql: Sql | Tx) =>
-  sql`id, slug, title, brand, summary, brief, rules, source_url, platforms, rate_cents, budget_cents, min_views, max_clip_cents, payout, status,
+  sql`id, slug, title, brand, summary, brief, rules, source_url, platforms, rate_cents, budget_cents, min_views, max_clip_cents, max_clipper_cents, min_clipper_views, payout, status,
       ends_at::float8 as ends_at, created_at::float8 as created_at`;
 
 const campaign = (r: CampaignRow): Campaign => ({
@@ -83,13 +84,22 @@ const campaign = (r: CampaignRow): Campaign => ({
   budgetCents: r.budget_cents,
   minViews: r.min_views,
   maxClipCents: r.max_clip_cents,
+  maxClipperCents: r.max_clipper_cents,
+  minClipperViews: r.min_clipper_views,
   payout: r.payout,
   status: r.status,
   endsAt: r.ends_at,
   createdAt: r.created_at,
 });
 
-const terms = (r: CampaignRow): Terms => ({ rateCents: r.rate_cents, budgetCents: r.budget_cents, minViews: r.min_views, maxClipCents: r.max_clip_cents });
+const terms = (r: CampaignRow): Terms => ({
+  rateCents: r.rate_cents,
+  budgetCents: r.budget_cents,
+  minViews: r.min_views,
+  maxClipCents: r.max_clip_cents,
+  maxClipperCents: r.max_clipper_cents,
+  minClipperViews: r.min_clipper_views,
+});
 
 const isUuid = (id: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
 const isSlug = (slug: string) => /^[a-z0-9-]{3,70}$/.test(slug);
@@ -151,12 +161,6 @@ export async function campaignRef(slug: string): Promise<{ id: string; status: C
   if (!isSlug(slug)) return null;
   const [row] = await db()<{ id: string; status: CampaignStatus }[]>`select id, status from campaigns where slug = ${slug}`;
   return row ?? null;
-}
-
-/** How many campaigns are open now: all that someone without a plan is told about them. */
-export async function openCampaignCount(): Promise<number> {
-  const [row] = await db()<{ n: number }[]>`select count(*)::int as n from campaigns where status = 'live'`;
-  return row?.n ?? 0;
 }
 
 export type CampaignPage = { campaign: CampaignCard; leaders: Leader[] };
@@ -395,6 +399,8 @@ const values = (input: CampaignInput) => ({
   budget_cents: input.budgetCents,
   min_views: input.minViews,
   max_clip_cents: input.maxClipCents,
+  max_clipper_cents: input.maxClipperCents,
+  min_clipper_views: input.minClipperViews,
   payout: input.payout,
   ends_at: input.endsAt,
 });

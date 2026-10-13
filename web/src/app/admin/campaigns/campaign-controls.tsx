@@ -30,13 +30,15 @@ type FormValues = {
   budget: string;
   minViews: string;
   maxClip: string;
+  maxClipper: string;
+  minClipperViews: string;
   payout: string;
   ends: string;
 };
 
 type TextKey = Exclude<keyof FormValues, "platforms">;
 
-const BLANK: FormValues = { title: "", brand: "", summary: "", brief: "", rules: "", sourceUrl: "", platforms: ["tiktok", "youtube"], rate: "", budget: "", minViews: "0", maxClip: "", payout: "", ends: "" };
+const BLANK: FormValues = { title: "", brand: "", summary: "", brief: "", rules: "", sourceUrl: "", platforms: ["tiktok", "youtube"], rate: "", budget: "", minViews: "0", maxClip: "", maxClipper: "", minClipperViews: "0", payout: "", ends: "" };
 
 /** What the form takes from a request to run a campaign (the "Run a campaign" form on /clippers). */
 export type RequestStart = { id: number; name: string; sourceUrl: string; brief: string; platforms: ClipPlatform[]; rateCents: number; budgetCents: number };
@@ -60,6 +62,8 @@ export function CampaignForm({ campaign, request }: { campaign?: Campaign; reque
           budget: dollars(campaign.budgetCents),
           minViews: String(campaign.minViews),
           maxClip: dollars(campaign.maxClipCents),
+          maxClipper: dollars(campaign.maxClipperCents),
+          minClipperViews: String(campaign.minClipperViews),
           payout: campaign.payout,
           ends: dayValue(campaign.endsAt),
         }
@@ -78,11 +82,15 @@ export function CampaignForm({ campaign, request }: { campaign?: Campaign; reque
     const budgetCents = parseDollars(values.budget);
     const maxClipCents = values.maxClip.trim() ? parseDollars(values.maxClip) : null;
     const minViews = /^\d{1,10}$/.test(values.minViews.trim()) ? Number(values.minViews.trim()) : null;
+    const maxClipperCents = values.maxClipper.trim() ? parseDollars(values.maxClipper) : null;
+    const minClipperViews = /^\d{1,10}$/.test(values.minClipperViews.trim()) ? Number(values.minClipperViews.trim()) : null;
     const endsAt = values.ends ? dayEnd(values.ends) : null;
     if (rateCents === null) found.rateCents = "An amount in dollars, like 2 or 1.50.";
     if (budgetCents === null) found.budgetCents = "An amount in dollars, like 1000.";
     if (values.maxClip.trim() && maxClipCents === null) found.maxClipCents = "An amount in dollars, or leave it empty.";
     if (minViews === null) found.minViews = "A whole number of views (0 for none).";
+    if (values.maxClipper.trim() && maxClipperCents === null) found.maxClipperCents = "An amount in dollars, or leave it empty.";
+    if (minClipperViews === null) found.minClipperViews = "A whole number of views (0 for none).";
     if (values.ends && endsAt === null) found.endsAt = "A date, or leave it empty.";
     const parsed = campaignInputSchema.safeParse({
       title: values.title,
@@ -96,6 +104,8 @@ export function CampaignForm({ campaign, request }: { campaign?: Campaign; reque
       budgetCents: budgetCents ?? 1,
       minViews: minViews ?? 0,
       maxClipCents,
+      maxClipperCents,
+      minClipperViews: minClipperViews ?? 0,
       payout: values.payout,
       endsAt,
     });
@@ -214,6 +224,10 @@ export function CampaignForm({ campaign, request }: { campaign?: Campaign; reque
         <div className={styles.pair}>
           {field("minViews", "minViews", "A clip earns from (views)", "Clips under this earn nothing. 0 for no minimum.", { inputMode: "numeric" })}
           {field("maxClip", "maxClipCents", "Most one clip can earn ($)", "Empty for no cap.", { inputMode: "decimal" })}
+        </div>
+        <div className={styles.pair}>
+          {field("minClipperViews", "minClipperViews", "A clipper earns from (views in all)", "Their approved clips together. 0 for no minimum.", { inputMode: "numeric" })}
+          {field("maxClipper", "maxClipperCents", "Most one clipper can earn ($)", "Empty for no cap.", { inputMode: "decimal" })}
         </div>
         {area("payout", "How clippers are paid", "Shown on the page: how and when Bamio pays clippers.", CAMPAIGN_LIMITS.payoutTerms, 3)}
         {field("ends", "endsAt", "Last day", "Optional. The campaign ends at the end of this day (UTC).", { type: "date" })}

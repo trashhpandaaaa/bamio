@@ -107,6 +107,15 @@ The user pasted a production-readiness checklist (keys, Postgres, S3/R2, Redis a
 - **Health and deploy:** `GET /api/health` (public, nothing about users) reports the database, storage, media tools and the queue (waiting, running, oldest wait) with 200 or 503. A database that can't be reached gives a 503 "can't reach its database" everywhere. `web/Dockerfile` (one image for both roles: Node 24 slim, tini, a non-root user, migrations on start, a health check) and `web/compose.yaml` (Postgres 18, MinIO and its bucket, a web server that only queues, a worker; `--scale worker=N`).
 - **Decision: a Postgres queue instead of Redis and BullMQ.** Same guarantees for this load (durable, leased, retried, prioritised, cancellable), one less service to run and back up, and a job is queued in the same transaction as the project change that asks for it, so neither can exist without the other. `queue.ts` is small, so it can be swapped if volume ever needs it. Redis and Docker weren't available on this machine either.
 
+### Campaigns open to everyone, and Bamio's own campaign (2026-10-13, later)
+
+The user: "Make the campaign part visible to all users. And add this one campaign", with Bamio's own brief (Europe and Asia audiences, 28-day cycles, $2,500 each).
+
+- **Open to everyone:** `/clippers` and every campaign page show to anyone, signed in or not; joining and sending clips needs a free account, no plan. The locked pages, the open-campaign count and the 402 on the clipper's API are gone. The person who asked for a campaign still sees "Your campaign" on it (`ownsCampaign`). "Clipping campaigns" left the Starter plan's list; the privacy page, the terms and the owner's "your campaign is live" email no longer say clippers need a plan.
+- **Two more terms** (migration 0015, `money.ts`): the most one clipper can earn in a campaign, and the views a clipper's approved clips need in all before any of them earn. Both in the admin form and on the campaign's page; tested in `campaigns.test.ts`.
+- **Bamio's campaign** as two campaigns, since the rates differ: "Clip Bamio for Europe" ($1.50 per 1,000 views, from 1,000 views a clip, up to $350 a post and $500 a clipper, 10,000 views per clipper, Tier 1 audience of 40 to 45%, $5 a paid sign-up) and "Clip Bamio for Asia" ($0.15 per 1,000, up to $250 a post and $400 a clipper, 15,000 views per clipper, $2 a paid sign-up). Each $2,500, Instagram and YouTube, English captions, #Bamio and #ad, a dedicated page, ending 2026-11-09, paid by bank or crypto after the cycle. Made from `qa/bamio-campaigns.ts` (checked against the campaign schema) and put in by `qa/insert-campaigns.mjs`.
+- **Not in the app:** the sign-up bonus is counted from each clipper's referral link and paid by the team; the app records payments only up to what views earned, so bonuses can't be recorded there. "Open a ticket" and "the server" in the brief became sending the clip on the campaign's page and being removed from the campaign.
+
 ### The editor: thirteen more features, tiered (2026-10-13)
 
 The user: "Let's add some good features on the editor. Make it the best", then, to the list proposed: "Add all of those."

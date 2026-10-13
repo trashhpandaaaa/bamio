@@ -1,12 +1,22 @@
 /*
  * What campaign clips earn. A clip earns its views at the campaign's rate per 1,000 once it has
  * the campaign's minimum, never more than the most one clip can earn, in whole cents (rounded
- * down). The budget is shared in the order clips were approved: first approved, first paid,
+ * down). A clipper earns only once their approved clips have the campaign's views in all, and
+ * never more than the most one clipper can earn. The budget is shared in the order clips were approved: first approved, first paid,
  * until it runs out. Bamio pays clippers (from what the campaign's owner pays Bamio) and an admin writes each payment down; what a
  * clipper is owed is what they earned less what they've been paid.
  */
 
-export type Terms = { rateCents: number; budgetCents: number; minViews: number; maxClipCents: number | null };
+export type Terms = {
+  rateCents: number;
+  budgetCents: number;
+  minViews: number;
+  maxClipCents: number | null;
+  /** The most one clipper can earn in the campaign (null: no cap). */
+  maxClipperCents?: number | null;
+  /** Views a clipper's approved clips need in all before any of them earn (0: none). */
+  minClipperViews?: number;
+};
 
 /** An approved clip that counts (its clipper isn't blocked). */
 export type CountedClip = { id: number; userId: string; views: number; approvedAt: number };
@@ -47,9 +57,15 @@ export function settle(terms: Terms, clips: CountedClip[], payouts: Payout[]): S
     return t;
   };
 
+  // Each clipper's views in all: under the campaign's minimum, none of their clips earn yet.
+  const reach = new Map<string, number>();
+  for (const clip of clips) reach.set(clip.userId, (reach.get(clip.userId) ?? 0) + Math.max(0, clip.views));
+  const qualifies = (userId: string) => (reach.get(userId) ?? 0) >= (terms.minClipperViews ?? 0);
+
   let views = 0;
   for (const clip of [...clips].sort((a, b) => a.approvedAt - b.approvedAt || a.id - b.id)) {
-    const earned = Math.min(clipEarned(clip.views, terms), left);
+    const room = terms.maxClipperCents == null ? Infinity : Math.max(0, terms.maxClipperCents - (clippers.get(clip.userId)?.earnedCents ?? 0));
+    const earned = qualifies(clip.userId) ? Math.min(clipEarned(clip.views, terms), left, room) : 0;
     left -= earned;
     perClip.set(clip.id, earned);
     const t = totals(clip.userId);

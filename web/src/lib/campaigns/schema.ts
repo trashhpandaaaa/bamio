@@ -106,6 +106,8 @@ export const campaignInputSchema = z.object({
   budgetCents: cents(CAMPAIGN_LIMITS.budgetCents, "The budget"),
   minViews: z.number().int().min(0).max(CAMPAIGN_LIMITS.views),
   maxClipCents: cents(CAMPAIGN_LIMITS.budgetCents, "The most a clip can earn").nullable(),
+  maxClipperCents: cents(CAMPAIGN_LIMITS.budgetCents, "The most a clipper can earn").nullable().default(null),
+  minClipperViews: z.number().int().min(0).max(CAMPAIGN_LIMITS.views).default(0),
   payout: lines(CAMPAIGN_LIMITS.payoutTerms),
   endsAt: z.number().int().positive().nullable(),
 });
@@ -204,6 +206,8 @@ export type Campaign = {
   budgetCents: number;
   minViews: number;
   maxClipCents: number | null;
+  maxClipperCents: number | null;
+  minClipperViews: number;
   payout: string;
   status: CampaignStatus;
   endsAt: number | null;

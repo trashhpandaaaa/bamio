@@ -278,12 +278,12 @@ function draft(email: Email): Draft {
     case "campaign-live":
       return {
         subject: `Your campaign “${short(email.campaign)}” is live`,
-        preview: "Clippers with a Bamio plan can join it now.",
+        preview: "Clippers can join it now.",
         heading: "Your campaign is live",
         blocks: [
-          { p: `“${email.campaign}” is open on Bamio: clippers with a Bamio plan can join it, clip your content and post it on their own channels.` },
+          { p: `“${email.campaign}” is open on Bamio: clippers can join it, clip your content and post it on their own channels.` },
           { p: "We look at every clip before it counts and keep the count of views. You pay Bamio for what the clips earn, up to your budget, and Bamio pays the clippers. We’ll write to you with what has been earned." },
-          { p: "Share the campaign’s page with your audience: your own fans often make the best clippers. They’ll need a Bamio plan to open it and join." },
+          { p: "Share the campaign’s page with your audience: your own fans often make the best clippers. Anyone can open it, and joining takes a free Bamio account." },
         ],
         button: { label: "See your campaign", path: `/clippers/${email.slug}` },
       };

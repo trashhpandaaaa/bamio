@@ -121,8 +121,7 @@ export default function TermsPage() {
           <li>
             A <Link href="/clippers">campaign</Link> is an offer from its owner (a creator or a brand) to pay for views on clips of their content, at the rate and
             up to the budget on its page. The owner pays Bamio, and Bamio pays clippers what their approved clips earn. Bamio lists campaigns, counts views and shows
-            what was earned and paid. Campaigns are open to accounts with a plan: if
-            your plan ends, you can’t open campaigns or send clips until you have one again, and what you already earned is still owed to you.
+            what was earned and paid. Anyone can see a campaign, and any Bamio account can join one and send clips, with or without a plan.
           </li>
           <li>
             Bamio pays clippers out of what the campaign’s owner has paid Bamio for it, in the way and at the times its page says, using the payment details you
