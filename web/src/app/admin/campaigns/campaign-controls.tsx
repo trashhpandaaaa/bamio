@@ -7,7 +7,8 @@ import { useToast } from "@/components/toast";
 import { formatPrice } from "@/lib/billing/plans";
 import { api } from "@/lib/clips/api";
 import { CLIP_PLATFORM_IDS, CLIP_PLATFORMS, type ClipPlatform } from "@/lib/campaigns/links";
-import { CAMPAIGN_LIMITS, campaignInputSchema, parseDollars, type Campaign, type CampaignStatus, type ClipStatus } from "@/lib/campaigns/schema";
+import { AUDIENCE_IDS, AUDIENCES, type Audience } from "@/lib/campaigns/regions";
+import { CAMPAIGN_LIMITS, campaignInputSchema, parseDollars, type Campaign, type CampaignStatus, type ClipStatus, type ProofStatus } from "@/lib/campaigns/schema";
 import { useAction } from "../admin-controls";
 import styles from "../admin.module.css";
 
@@ -32,13 +33,15 @@ type FormValues = {
   maxClip: string;
   maxClipper: string;
   minClipperViews: string;
+  audience: Audience;
+  audienceProof: boolean;
   payout: string;
   ends: string;
 };
 
-type TextKey = Exclude<keyof FormValues, "platforms">;
+type TextKey = Exclude<keyof FormValues, "platforms" | "audience" | "audienceProof">;
 
-const BLANK: FormValues = { title: "", brand: "", summary: "", brief: "", rules: "", sourceUrl: "", platforms: ["tiktok", "youtube"], rate: "", budget: "", minViews: "0", maxClip: "", maxClipper: "", minClipperViews: "0", payout: "", ends: "" };
+const BLANK: FormValues = { title: "", brand: "", summary: "", brief: "", rules: "", sourceUrl: "", platforms: ["tiktok", "youtube"], rate: "", budget: "", minViews: "0", maxClip: "", maxClipper: "", minClipperViews: "0", audience: "worldwide", audienceProof: false, payout: "", ends: "" };
 
 /** What the form takes from a request to run a campaign (the "Run a campaign" form on /clippers). */
 export type RequestStart = { id: number; name: string; sourceUrl: string; brief: string; platforms: ClipPlatform[]; rateCents: number; budgetCents: number };
@@ -64,6 +67,8 @@ export function CampaignForm({ campaign, request }: { campaign?: Campaign; reque
           maxClip: dollars(campaign.maxClipCents),
           maxClipper: dollars(campaign.maxClipperCents),
           minClipperViews: String(campaign.minClipperViews),
+          audience: campaign.audience,
+          audienceProof: campaign.audienceProof,
           payout: campaign.payout,
           ends: dayValue(campaign.endsAt),
         }
@@ -106,6 +111,8 @@ export function CampaignForm({ campaign, request }: { campaign?: Campaign; reque
       maxClipCents,
       maxClipperCents,
       minClipperViews: minClipperViews ?? 0,
+      audience: values.audience,
+      audienceProof: values.audienceProof,
       payout: values.payout,
       endsAt,
     });
@@ -211,6 +218,24 @@ export function CampaignForm({ campaign, request }: { campaign?: Campaign; reque
             {errors.platforms ?? "Bamio counts views on TikTok and YouTube itself. On Instagram and X someone types them in."}
           </p>
         </fieldset>
+        <div className="field">
+          <label className="field-label" htmlFor={`${id}-audience`}>
+            Audience
+          </label>
+          <select id={`${id}-audience`} className="select" value={values.audience} disabled={busy} onChange={(e) => set("audience", e.target.value as Audience)}>
+            {AUDIENCE_IDS.map((a) => (
+              <option key={a} value={a}>
+                {AUDIENCES[a]}
+              </option>
+            ))}
+          </select>
+          <p className="field-help">Where the views should come from. Clippers who join or send clips from elsewhere are flagged for you, never blocked.</p>
+        </div>
+        <label className="choice">
+          <input className="check" type="checkbox" checked={values.audienceProof} disabled={busy} onChange={(e) => set("audienceProof", e.target.checked)} />
+          Clippers show where their audience is before their clips count
+        </label>
+        <p className="field-help">They send screenshots from Instagram Insights or YouTube Studio; you accept them before approving their clips.</p>
       </section>
 
       <section className={styles.panel} aria-labelledby={`${id}-pay`}>
@@ -590,5 +615,53 @@ export function CopyTextButton({ text, label, done }: { text: string; label: str
     >
       {label}
     </button>
+  );
+}
+
+/** A clipper's audience proof: open the screenshots, accept them or reject them with a word about why. */
+export function ProofActions({ campaignId, userId, name, status, images }: { campaignId: string; userId: string; name: string; status: ProofStatus; images: number }) {
+  const { busy, run } = useAction();
+  const id = useId();
+  const [rejecting, setRejecting] = useState(false);
+  const [note, setNote] = useState("");
+  if (images === 0) return <span className="t-tertiary">None sent</span>;
+  const base = `/api/admin/campaigns/${encodeURIComponent(campaignId)}/proof/${encodeURIComponent(userId)}`;
+  return (
+    <div className={styles.rowActions}>
+      {Array.from({ length: images }, (_, i) => (
+        <a key={i} className={styles.subLink} href={`${base}/${i + 1}`} target="_blank" rel="noopener noreferrer">
+          Screenshot {i + 1}
+        </a>
+      ))}
+      {status !== "accepted" ? (
+        <button className="btn btn-primary btn-sm" type="button" disabled={busy} onClick={() => run(() => api.admin.proof(campaignId, userId, true), `${name}’s audience accepted`)}>
+          Accept
+        </button>
+      ) : null}
+      {status !== "rejected" ? (
+        <button className="btn btn-ghost btn-sm" type="button" disabled={busy} onClick={() => setRejecting(true)}>
+          Reject
+        </button>
+      ) : null}
+      <FormDialog
+        open={rejecting}
+        title={`Reject ${name}’s audience proof?`}
+        submitLabel="Reject proof"
+        busy={busy}
+        onClose={() => setRejecting(false)}
+        onSubmit={() => {
+          setRejecting(false);
+          void run(() => api.admin.proof(campaignId, userId, false, note.trim()), "Proof rejected");
+        }}
+      >
+        <div className="field">
+          <label className="field-label" htmlFor={`${id}-note`}>
+            Why (they’ll see this)
+          </label>
+          <input id={`${id}-note`} className="input" type="text" maxLength={CAMPAIGN_LIMITS.note} placeholder="Less than 40% of your audience is in Tier 1 countries" value={note} onChange={(e) => setNote(e.target.value)} />
+          <p className="field-help">Their clips can’t be approved until new proof is accepted.</p>
+        </div>
+      </FormDialog>
+    </div>
   );
 }

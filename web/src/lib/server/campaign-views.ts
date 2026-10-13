@@ -1,6 +1,7 @@
 import "server-only";
 import os from "node:os";
 import { randomUUID } from "node:crypto";
+import { logViews } from "@/lib/campaigns/flags";
 import { CLIP_PLATFORM_IDS, CLIP_PLATFORMS } from "@/lib/campaigns/links";
 import { isAbortError, ProcessError, run } from "@/lib/server/bin";
 import { closeIfSpent, endDueCampaigns, VIEWS_CHANNEL } from "@/lib/server/campaigns";
@@ -17,7 +18,7 @@ import { ytdlpArgs } from "@/lib/server/media";
  * for admins. Counts stop when a campaign ends. BAMIO_VIEW_COUNTS=off turns the counter off.
  */
 
-export type ViewCount = { views: number | null; title: string | null; author: string | null };
+export type ViewCount = { views: number | null; title: string | null; author: string | null; likes?: number | null; comments?: number | null };
 export type ViewLookup = (url: string, signal?: AbortSignal) => Promise<ViewCount>;
 
 const text = (v: unknown, max: number) => (typeof v === "string" && v.trim() ? v.trim().slice(0, max) : null);
@@ -25,12 +26,13 @@ const text = (v: unknown, max: number) => (typeof v === "string" && v.trim() ? v
 /** A post's view count, title and the account that posted it, as its site says. Throws when the page can't be read. */
 export const lookupViews: ViewLookup = async (url, signal) => {
   const { stdout } = await run("yt-dlp", [...ytdlpArgs(), "-J", "--skip-download", "--", url], { signal, timeoutMs: 90_000, collectStdout: 30 * 1024 * 1024 });
-  const info = JSON.parse(stdout) as { view_count?: unknown; title?: unknown; uploader?: unknown; uploader_id?: unknown; channel?: unknown };
-  const views = typeof info.view_count === "number" && Number.isFinite(info.view_count) && info.view_count >= 0 ? Math.floor(info.view_count) : null;
+  const info = JSON.parse(stdout) as { view_count?: unknown; like_count?: unknown; comment_count?: unknown; title?: unknown; uploader?: unknown; uploader_id?: unknown; channel?: unknown };
+  const count = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.floor(v) : null);
+  const views = count(info.view_count);
   // The account's handle where the site gives one (YouTube "@name", X "name"); TikTok's id is a number, so its name is used.
   const handle = text(info.uploader_id, 60);
   const author = (handle && !/^\d+$/.test(handle) ? handle : (text(info.uploader, 60) ?? text(info.channel, 60)))?.replace(/^@/, "") ?? null;
-  return { views, title: text(info.title, 200), author };
+  return { views, title: text(info.title, 200), author, likes: count(info.like_count), comments: count(info.comment_count) };
 };
 
 const everyMs = () => Math.max(5, Number(process.env.BAMIO_VIEWS_EVERY_MIN) || 360) * 60_000;
@@ -47,7 +49,7 @@ export async function countNextViews(lookup: ViewLookup = lookupViews, now = Dat
   const sql = db();
   const counted = CLIP_PLATFORM_IDS.filter((p) => CLIP_PLATFORMS[p].counted);
   // Claimed by its check time, so a clip whose page hangs or crashes the reader waits its turn again.
-  const [clip] = await sql<{ id: number; url: string; campaign_id: string }[]>`
+  const [clip] = await sql<{ id: number; url: string; campaign_id: string; view_log: [number, number][] }[]>`
     update campaign_clips set views_checked_at = ${now}
     where id = (
       select c.id from campaign_clips c join campaigns g on g.id = c.campaign_id
@@ -57,13 +59,15 @@ export async function countNextViews(lookup: ViewLookup = lookupViews, now = Dat
       limit 1
       for update of c skip locked
     )
-    returning id::int as id, url, campaign_id`;
+    returning id::int as id, url, campaign_id, view_log`;
   if (!clip) return false;
   try {
     const found = await lookup(clip.url, signal);
     await sql`
       update campaign_clips set views = coalesce(${found.views}, views), views_error = ${found.views === null ? "The site didn’t give a view count." : null},
-        title = coalesce(${found.title}, title), author = coalesce(${found.author}, author)
+        title = coalesce(${found.title}, title), author = coalesce(${found.author}, author),
+        likes = coalesce(${found.likes ?? null}, likes), comments = coalesce(${found.comments ?? null}, comments),
+        view_log = ${sql.json(logViews(Array.isArray(clip.view_log) ? clip.view_log : [], now, found.views))}
       where id = ${clip.id}`;
   } catch (err) {
     if (isAbortError(err)) {

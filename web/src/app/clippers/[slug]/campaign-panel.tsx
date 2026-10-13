@@ -11,7 +11,7 @@ import { formatPrice } from "@/lib/billing/plans";
 import { api } from "@/lib/clips/api";
 import { clipLink, CLIP_PLATFORMS, type ClipPlatform } from "@/lib/campaigns/links";
 import { compactNumber } from "@/lib/campaigns/money";
-import { CAMPAIGN_LIMITS, clipperInputSchema, type CampaignStatus, type MyCampaign, type MyClip } from "@/lib/campaigns/schema";
+import { CAMPAIGN_LIMITS, clipperInputSchema, PROOF_LIMITS, type CampaignStatus, type MyCampaign, type MyClip } from "@/lib/campaigns/schema";
 import styles from "../clippers.module.css";
 
 type Props = { slug: string; brand: string; status: CampaignStatus; platforms: ClipPlatform[] };
@@ -287,6 +287,8 @@ function Joined({ slug, status, platforms, mine, onChange }: Props & { mine: MyC
         </p>
       ) : null}
 
+      {mine.proof.required || mine.proof.images > 0 ? <ProofBox slug={slug} mine={mine} ended={status === "ended"} onChange={onChange} /> : null}
+
       {open ? (
         <form className="field" onSubmit={(e) => void send(e)} noValidate>
           <label className="field-label" htmlFor={`${id}-url`}>
@@ -371,5 +373,82 @@ function ClipRow({ clip, busy, onTakeBack }: { clip: MyClip; busy: boolean; onTa
       </div>
       {clip.note ? <p className={styles.clipNote}>{clip.note}</p> : null}
     </li>
+  );
+}
+
+const PROOF_STATE = {
+  none: ["", "Not sent yet"],
+  waiting: ["is-info", "Waiting for a look"],
+  accepted: ["is-success", "Accepted"],
+  rejected: ["is-error", "Not accepted"],
+} as const;
+
+/** Where the clipper's audience is: screenshots for Bamio's team, who accept them before the clips can count. */
+function ProofBox({ slug, mine, ended, onChange }: { slug: string; mine: MyCampaign; ended: boolean; onChange: (mine: MyCampaign) => void }) {
+  const toast = useToast();
+  const id = useId();
+  const [files, setFiles] = useState<File[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const { proof } = mine;
+  const [tone, label] = PROOF_STATE[proof.status];
+
+  async function send(e: FormEvent) {
+    e.preventDefault();
+    if (files.length === 0) return setError("Choose a screenshot first.");
+    if (files.length > PROOF_LIMITS.images) return setError(`Up to ${PROOF_LIMITS.images} screenshots.`);
+    if (files.some((f) => f.size > PROOF_LIMITS.bytes)) return setError(`Each screenshot can be up to ${PROOF_LIMITS.bytes / 1024 / 1024} MB.`);
+    setError(null);
+    setBusy(true);
+    try {
+      onChange(await api.campaigns.sendProof(slug, files));
+      setFiles([]);
+      toast({ tone: "success", title: "Sent", body: "Bamio’s team will look at it. Your clips count once it’s accepted." });
+    } catch (err) {
+      toast({ tone: "error", title: "Couldn’t send that", body: err instanceof Error ? err.message : "Check your connection and try again." });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className={styles.proof} aria-labelledby={`${id}-title`}>
+      <div className={styles.proofHead}>
+        <h3 id={`${id}-title`} className="t-heading-sm">
+          Your audience
+        </h3>
+        <span className={`badge ${tone}`}>{label}</span>
+      </div>
+      <p className={styles.panelText}>
+        {proof.status === "accepted"
+          ? "Bamio’s team checked where your viewers are. Your clips can count."
+          : "This campaign pays for views from its audience. Send screenshots of your viewers’ countries (Instagram: Insights, Audience; YouTube: Studio, Analytics, Audience). Your clips count once Bamio’s team accepts them."}
+      </p>
+      {proof.status === "rejected" && proof.note ? <p className={styles.clipNote}>{proof.note}</p> : null}
+      {!ended && proof.status !== "accepted" ? (
+        <form className="field" onSubmit={(e) => void send(e)} noValidate>
+          <label className="field-label" htmlFor={`${id}-files`}>
+            {proof.images > 0 ? "Send new screenshots" : "Screenshots"}
+          </label>
+          <input
+            id={`${id}-files`}
+            className="input"
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            multiple
+            disabled={busy}
+            aria-invalid={error ? true : undefined}
+            aria-describedby={`${id}-files-help`}
+            onChange={(e) => setFiles([...(e.target.files ?? [])])}
+          />
+          <p id={`${id}-files-help`} className={error ? "field-error" : "field-help"} role={error ? "alert" : undefined}>
+            {error ?? `Up to ${PROOF_LIMITS.images} pictures, ${PROOF_LIMITS.bytes / 1024 / 1024} MB each. Only Bamio’s team sees them.`}
+          </p>
+          <button className="btn btn-secondary btn-sm" type="submit" disabled={busy || files.length === 0} aria-busy={busy}>
+            {busy ? "Sending…" : "Send screenshots"}
+          </button>
+        </form>
+      ) : null}
+    </section>
   );
 }

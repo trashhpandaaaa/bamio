@@ -29,13 +29,14 @@ export class ApiError extends Error {
 async function request<T>(method: string, url: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   let res: Response;
   try {
-    // A Blob goes as it is (a sound for captions); anything else as JSON.
+    // A Blob goes as it is (a sound for captions), form data as a form (the browser sets its type); anything else as JSON.
     const raw = body instanceof Blob;
+    const form = typeof FormData !== "undefined" && body instanceof FormData;
     res = await fetch(url, {
       method,
       signal,
-      headers: body === undefined ? undefined : { "Content-Type": raw ? body.type || "application/octet-stream" : "application/json" },
-      body: body === undefined ? undefined : raw ? body : JSON.stringify(body),
+      headers: body === undefined || form ? undefined : { "Content-Type": raw ? body.type || "application/octet-stream" : "application/json" },
+      body: body === undefined ? undefined : raw || form ? body : JSON.stringify(body),
       cache: "no-store",
     });
   } catch (err) {
@@ -111,6 +112,12 @@ export const api = {
     join: (slug: string, input: ClipperInput) => request<MyCampaign>("POST", `${campaignBase(slug)}/join`, input),
     sendClip: (slug: string, url: string) => request<MyCampaign>("POST", `${campaignBase(slug)}/clips`, { url }),
     withdrawClip: (slug: string, clipId: number) => request<MyCampaign>("DELETE", `${campaignBase(slug)}/clips/${clipId}`),
+    /** Screenshots of where the clipper's audience is, replacing any sent before. */
+    sendProof: (slug: string, images: File[]) => {
+      const form = new FormData();
+      for (const image of images) form.append("images", image);
+      return request<MyCampaign>("POST", `${campaignBase(slug)}/proof`, form);
+    },
   },
   /** Asking to run a campaign (the "Run a campaign" form on /clippers). Each answers with the user's requests as they are now. */
   campaignRequests: {
@@ -154,6 +161,9 @@ export const api = {
     payout: (campaignId: string, userId: string, amountCents: number, note: string) =>
       request<{ ok: true }>("POST", `/api/admin/campaigns/${encodeURIComponent(campaignId)}/payouts`, { userId, amountCents, note }),
     clipper: (userId: string, action: "block" | "unblock") => request<{ ok: true }>("POST", `/api/admin/clippers/${encodeURIComponent(userId)}`, { action }),
+    /** Accept a clipper's audience proof, or reject it with a word about why. */
+    proof: (campaignId: string, userId: string, accept: boolean, note = "") =>
+      request<{ ok: true }>("POST", `/api/admin/campaigns/${encodeURIComponent(campaignId)}/proof/${encodeURIComponent(userId)}`, { accept, note }),
   },
 };
 

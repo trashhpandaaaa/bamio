@@ -1,8 +1,12 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { formatPrice } from "@/lib/billing/plans";
 import { channelLink, clipLink, CLIP_PLATFORMS, type ClipLink, type ClipPlatform } from "@/lib/campaigns/links";
+import { clipFlags, clipperFlags, logViews, payoutKey, type Flag } from "@/lib/campaigns/flags";
 import { settle, type Settlement, type Terms } from "@/lib/campaigns/money";
+import type { Audience } from "@/lib/campaigns/regions";
 import {
   CAMPAIGN_LIMITS,
   isOpen,
@@ -20,12 +24,16 @@ import {
   type MyCampaign,
   type MyClip,
   type MyClipper,
+  type MyProof,
+  type ProofStatus,
+  PROOF_LIMITS,
 } from "@/lib/campaigns/schema";
 import type { Admin } from "@/lib/server/admin";
 import { db, type Sql, type Tx } from "@/lib/server/db";
 import { queueEmail } from "@/lib/server/email";
 import { HttpError } from "@/lib/server/http";
-import { isUserId } from "@/lib/server/store";
+import { storage } from "@/lib/server/storage";
+import { isUserId, userMediaPrefix, workRoot } from "@/lib/server/store";
 
 /*
  * Clipping campaigns (/clippers), open to everyone to see and to any account to join. An admin sets one up: what to clip, a rate per 1,000 views, a
@@ -60,6 +68,8 @@ type CampaignRow = {
   max_clip_cents: number | null;
   max_clipper_cents: number | null;
   min_clipper_views: number;
+  audience: Audience;
+  audience_proof: boolean;
   payout: string;
   status: CampaignStatus;
   ends_at: number | null;
@@ -67,7 +77,7 @@ type CampaignRow = {
 };
 
 const cols = (sql: Sql | Tx) =>
-  sql`id, slug, title, brand, summary, brief, rules, source_url, platforms, rate_cents, budget_cents, min_views, max_clip_cents, max_clipper_cents, min_clipper_views, payout, status,
+  sql`id, slug, title, brand, summary, brief, rules, source_url, platforms, rate_cents, budget_cents, min_views, max_clip_cents, max_clipper_cents, min_clipper_views, audience, audience_proof, payout, status,
       ends_at::float8 as ends_at, created_at::float8 as created_at`;
 
 const campaign = (r: CampaignRow): Campaign => ({
@@ -86,6 +96,8 @@ const campaign = (r: CampaignRow): Campaign => ({
   maxClipCents: r.max_clip_cents,
   maxClipperCents: r.max_clipper_cents,
   minClipperViews: r.min_clipper_views,
+  audience: r.audience,
+  audienceProof: r.audience_proof,
   payout: r.payout,
   status: r.status,
   endsAt: r.ends_at,
@@ -221,13 +233,13 @@ async function publicRow(slug: string, sql: Sql | Tx = db()): Promise<CampaignRo
 }
 
 /** Join a campaign, saving the clipper's details with it. Joining twice changes nothing. */
-export async function joinCampaign(userId: string, slug: string, input: ClipperInput, imageUrl: string | null, now = Date.now()): Promise<void> {
+export async function joinCampaign(userId: string, slug: string, input: ClipperInput, imageUrl: string | null, now = Date.now(), country: string | null = null): Promise<void> {
   const row = await publicRow(slug);
   if (!isOpen(row)) throw new HttpError(409, "closed", row.status === "ended" ? "This campaign has ended." : "This campaign isn’t taking new clippers right now.");
   if ((await myClipper(userId))?.blocked) throw new HttpError(403, "blocked", BLOCKED);
   await db().begin(async (tx) => {
     await saveClipper(userId, input, imageUrl, tx, now);
-    await tx`insert into campaign_members (campaign_id, user_id, joined_at) values (${row.id}, ${userId}, ${now}) on conflict do nothing`;
+    await tx`insert into campaign_members (campaign_id, user_id, joined_at, country) values (${row.id}, ${userId}, ${now}, ${country}) on conflict do nothing`;
   });
 }
 
@@ -249,7 +261,7 @@ export async function myCampaign(userId: string, slug: string): Promise<MyCampai
   const row = await publicRow(slug);
   const [clipper, members, clips, done] = await Promise.all([
     myClipper(userId),
-    sql`select 1 from campaign_members where campaign_id = ${row.id} and user_id = ${userId}`,
+    sql<{ proof_keys: string[]; proof_status: ProofStatus; proof_note: string | null }[]>`select proof_keys, proof_status, proof_note from campaign_members where campaign_id = ${row.id} and user_id = ${userId}`,
     sql<ClipRow[]>`
       select id::int as id, url, platform, status, note, views::float8 as views, views_manual::float8 as views_manual, views_error, created_at::float8 as created_at
       from campaign_clips where campaign_id = ${row.id} and user_id = ${userId} order by id desc`,
@@ -277,8 +289,16 @@ export async function myCampaign(userId: string, slug: string): Promise<MyCampai
     earnedCents: totals?.earnedCents ?? 0,
     paidCents: totals?.paidCents ?? 0,
     owedCents: totals?.owedCents ?? 0,
+    proof: proofOf(row, members[0]),
   };
 }
+
+const proofOf = (row: CampaignRow, member?: { proof_keys: string[]; proof_status: ProofStatus; proof_note: string | null }): MyProof => ({
+  required: row.audience_proof,
+  status: member?.proof_status ?? "none",
+  images: member?.proof_keys.length ?? 0,
+  note: member?.proof_status === "rejected" ? member.proof_note : null,
+});
 
 /** The campaigns the user joined, the newest first, with what each has earned them. */
 export async function myCampaigns(userId: string): Promise<JoinedCampaign[]> {
@@ -327,7 +347,7 @@ export const resolveClipLink: LinkResolver = async (link) => {
 const platformNames = (list: ClipPlatform[]) => list.map((p) => CLIP_PLATFORMS[p].name).join(", ");
 
 /** Send a clip the user posted. It waits for an admin; the same post can't be sent twice. */
-export async function submitClip(userId: string, slug: string, input: string, resolve: LinkResolver = resolveClipLink, now = Date.now()): Promise<void> {
+export async function submitClip(userId: string, slug: string, input: string, resolve: LinkResolver = resolveClipLink, now = Date.now(), country: string | null = null): Promise<void> {
   const sql = db();
   const row = await publicRow(slug);
   if (!isOpen(row)) throw new HttpError(409, "closed", row.status === "ended" ? "This campaign has ended." : "This campaign isn’t taking clips right now.");
@@ -350,7 +370,7 @@ export async function submitClip(userId: string, slug: string, input: string, re
   if ((count?.waiting ?? 0) >= CAMPAIGN_LIMITS.waiting) throw new HttpError(409, "too_many_waiting", `${CAMPAIGN_LIMITS.waiting} of your clips are waiting for a look. Send more once some are through.`);
 
   const added = await sql`
-    insert into campaign_clips (campaign_id, user_id, url, url_key, platform, created_at) values (${row.id}, ${userId}, ${link.url}, ${link.key}, ${link.platform}, ${now})
+    insert into campaign_clips (campaign_id, user_id, url, url_key, platform, created_at, country) values (${row.id}, ${userId}, ${link.url}, ${link.key}, ${link.platform}, ${now}, ${country})
     on conflict (campaign_id, url_key) do nothing returning id`;
   if (added.length === 0) throw new HttpError(409, "duplicate", "That clip was already sent to this campaign.");
   await sql`select pg_notify(${VIEWS_CHANNEL}, '')`;
@@ -401,6 +421,8 @@ const values = (input: CampaignInput) => ({
   max_clip_cents: input.maxClipCents,
   max_clipper_cents: input.maxClipperCents,
   min_clipper_views: input.minClipperViews,
+  audience: input.audience,
+  audience_proof: input.audienceProof,
   payout: input.payout,
   ends_at: input.endsAt,
 });
@@ -503,6 +525,10 @@ export type AdminClip = {
   error: string | null;
   title: string | null;
   author: string | null;
+  likes: number | null;
+  comments: number | null;
+  country: string | null;
+  flags: Flag[];
   earnedCents: number;
   reviewedBy: string | null;
   createdAt: number;
@@ -522,6 +548,9 @@ export type AdminClipper = {
   earnedCents: number;
   paidCents: number;
   owedCents: number;
+  country: string | null;
+  proof: { status: ProofStatus; images: number; note: string | null; at: number | null; by: string | null };
+  flags: Flag[];
 };
 
 export type AdminPayout = { id: number; userId: string | null; name: string | null; amountCents: number; note: string; paidBy: string; paidAt: number };
@@ -546,12 +575,14 @@ export async function adminCampaign(id: string): Promise<AdminCampaign | null> {
     settlements([row]),
     sql<Record<string, unknown>[]>`
       select c.id::int as id, c.user_id, k.name, k.link, k.blocked_at, c.url, c.platform, c.status, c.note, c.views::float8 as views, c.views_manual::float8 as views_manual,
-             c.views_checked_at::float8 as checked_at, c.views_error, c.title, c.author, c.reviewed_by, c.created_at::float8 as created_at
+             c.views_checked_at::float8 as checked_at, c.views_error, c.title, c.author, c.reviewed_by, c.created_at::float8 as created_at,
+             c.likes::float8 as likes, c.comments::float8 as comments, c.country, c.view_log
       from campaign_clips c left join clippers k on k.user_id = c.user_id
       where c.campaign_id = ${id}
       order by array_position(array['pending', 'approved', 'rejected'], c.status), c.id desc limit 1000`,
     sql<Record<string, unknown>[]>`
-      select m.user_id, m.joined_at::float8 as joined_at, k.name, k.link, k.image_url, k.payout, k.blocked_at,
+      select m.user_id, m.joined_at::float8 as joined_at, k.name, k.link, k.image_url, k.payout, k.blocked_at, m.country,
+             m.proof_keys, m.proof_status, m.proof_note, m.proof_at::float8 as proof_at, m.proof_reviewed_by,
              (select count(*)::int from campaign_clips c where c.campaign_id = m.campaign_id and c.user_id = m.user_id and c.status = 'pending') as waiting
       from campaign_members m join clippers k on k.user_id = m.user_id
       where m.campaign_id = ${id} order by m.joined_at limit 1000`,
@@ -563,6 +594,8 @@ export async function adminCampaign(id: string): Promise<AdminCampaign | null> {
   const s = done.get(row.id)!;
   const num = (v: unknown) => (v === null || v === undefined ? null : Number(v));
   const text = (v: unknown) => (v === null || v === undefined ? null : String(v));
+  // Other clipper accounts (in any campaign) with the same payment details or the same channel.
+  const twins = await sharedDetails(members.map((m) => String(m.user_id)));
   return {
     campaign: campaign(row),
     spentCents: s.spentCents,
@@ -585,6 +618,21 @@ export async function adminCampaign(id: string): Promise<AdminCampaign | null> {
       error: text(c.views_error),
       title: text(c.title),
       author: text(c.author),
+      likes: num(c.likes),
+      comments: num(c.comments),
+      country: text(c.country),
+      flags: clipFlags(
+        {
+          platform: String(c.platform),
+          author: text(c.author),
+          channel: text(c.link),
+          country: text(c.country),
+          views: num(c.views_manual) ?? num(c.views) ?? 0,
+          likes: num(c.likes),
+          viewLog: Array.isArray(c.view_log) ? (c.view_log as [number, number][]) : [],
+        },
+        row.audience,
+      ),
       earnedCents: s.clips.get(Number(c.id)) ?? 0,
       reviewedBy: text(c.reviewed_by),
       createdAt: Number(c.created_at),
@@ -606,6 +654,24 @@ export async function adminCampaign(id: string): Promise<AdminCampaign | null> {
           earnedCents: totals?.earnedCents ?? 0,
           paidCents: totals?.paidCents ?? 0,
           owedCents: totals?.owedCents ?? 0,
+          country: text(m.country),
+          proof: {
+            status: (m.proof_status as ProofStatus) ?? "none",
+            images: Array.isArray(m.proof_keys) ? m.proof_keys.length : 0,
+            note: text(m.proof_note),
+            at: num(m.proof_at),
+            by: text(m.proof_reviewed_by),
+          },
+          flags: clipperFlags(
+            {
+              country: text(m.country),
+              proofRequired: row.audience_proof,
+              proofStatus: (m.proof_status as ProofStatus) ?? "none",
+              samePayout: twins.payout.get(String(m.user_id)) ?? 0,
+              sameChannel: twins.channel.get(String(m.user_id)) ?? 0,
+            },
+            row.audience,
+          ),
         };
       })
       .sort((a, b) => b.owedCents - a.owedCents || b.earnedCents - a.earnedCents || a.joinedAt - b.joinedAt),
@@ -629,6 +695,12 @@ export async function campaignCounts(): Promise<{ live: number; waiting: number;
 export async function reviewClip(admin: Admin, clipId: number, action: "approve" | "reject", note = "", now = Date.now()): Promise<void> {
   const sql = db();
   const status: ClipStatus = action === "approve" ? "approved" : "rejected";
+  if (action === "approve") {
+    const [proof] = await sql<{ needed: boolean; status: ProofStatus | null }[]>`
+      select g.audience_proof as needed, m.proof_status as status from campaign_clips c join campaigns g on g.id = c.campaign_id
+      left join campaign_members m on m.campaign_id = c.campaign_id and m.user_id = c.user_id where c.id = ${clipId}`;
+    if (proof?.needed && proof.status !== "accepted") throw new HttpError(409, "proof_needed", "This campaign asks for proof of the clipper’s audience. Accept it first.");
+  }
   const [clip] = await sql<{ campaign_id: string; user_id: string; url: string }[]>`
     update campaign_clips set
       reviewed_at = case when status = 'approved' and ${status} = 'approved' then reviewed_at else ${now}::bigint end,
@@ -642,7 +714,10 @@ export async function reviewClip(admin: Admin, clipId: number, action: "approve"
 
 /** Set a clip's views by hand (the number then wins over what Bamio reads), or clear it with null. Logged. */
 export async function setClipViews(admin: Admin, clipId: number, views: number | null, now = Date.now()): Promise<void> {
-  const [clip] = await db()<{ campaign_id: string }[]>`update campaign_clips set views_manual = ${views} where id = ${clipId} returning campaign_id`;
+  const sql = db();
+  const [before] = await sql<{ view_log: [number, number][] }[]>`select view_log from campaign_clips where id = ${clipId}`;
+  const viewLog = logViews(Array.isArray(before?.view_log) ? before.view_log : [], now, views);
+  const [clip] = await sql<{ campaign_id: string }[]>`update campaign_clips set views_manual = ${views}, view_log = ${sql.json(viewLog)} where id = ${clipId} returning campaign_id`;
   if (!clip) throw new HttpError(404, "not_found", "That clip isn’t there any more.");
   await closeIfSpent(clip.campaign_id, now);
   await log(admin, "campaign.clip.views", String(clipId), { campaignId: clip.campaign_id, views });
@@ -685,4 +760,91 @@ export async function blockClipper(admin: Admin, userId: string, blocked: boolea
   const rows = await db()<{ name: string }[]>`update clippers set blocked_at = ${blocked ? now : null}, updated_at = ${now} where user_id = ${userId} returning name`;
   if (rows.length === 0) throw new HttpError(404, "not_found", "That person isn’t a clipper.");
   await log(admin, blocked ? "clipper.block" : "clipper.unblock", userId, { name: rows[0]!.name });
+}
+
+/* ------------------------------ Checks against fraud ------------------------------ */
+
+/** For each of these clippers, how many other clipper accounts share their payment details, and their channel. */
+async function sharedDetails(userIds: string[]): Promise<{ payout: Map<string, number>; channel: Map<string, number> }> {
+  const out = { payout: new Map<string, number>(), channel: new Map<string, number>() };
+  if (userIds.length === 0) return out;
+  const sql = db();
+  const mine = await sql<{ user_id: string; payout: string; link: string | null }[]>`select user_id, payout, link from clippers where user_id in ${sql(userIds)}`;
+  const payouts = [...new Set(mine.map((m) => payoutKey(m.payout)).filter((k) => k.length >= 4))];
+  const links = [...new Set(mine.map((m) => m.link?.toLowerCase()).filter((l): l is string => Boolean(l)))];
+  // Every clipper whose details could match (payment details compared after payoutKey, so all are read; a few thousand rows at most).
+  const others = payouts.length || links.length ? await sql<{ user_id: string; payout: string; link: string | null }[]>`select user_id, payout, link from clippers where payout <> '' or link is not null` : [];
+  for (const m of mine) {
+    const key = payoutKey(m.payout);
+    const link = m.link?.toLowerCase() ?? null;
+    out.payout.set(m.user_id, key.length >= 4 ? others.filter((o) => o.user_id !== m.user_id && payoutKey(o.payout) === key).length : 0);
+    out.channel.set(m.user_id, link ? others.filter((o) => o.user_id !== m.user_id && o.link?.toLowerCase() === link).length : 0);
+  }
+  return out;
+}
+
+/** The kinds of picture taken as audience proof, by their first bytes (what the browser says isn't trusted). */
+function imageKind(bytes: Uint8Array): { ext: string; type: string } | null {
+  const starts = (...b: number[]) => b.every((v, i) => bytes[i] === v);
+  if (starts(0x89, 0x50, 0x4e, 0x47)) return { ext: "png", type: "image/png" };
+  if (starts(0xff, 0xd8, 0xff)) return { ext: "jpg", type: "image/jpeg" };
+  if (starts(0x52, 0x49, 0x46, 0x46) && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) return { ext: "webp", type: "image/webp" };
+  return null;
+}
+
+const proofPrefix = (userId: string, campaignId: string) => `${userMediaPrefix(userId)}/campaigns/${campaignId.toLowerCase()}`;
+
+/**
+ * A clipper shows where their audience is: up to PROOF_LIMITS.images screenshots (from
+ * Instagram Insights or YouTube Studio), replacing any sent before. Kept with the account's own
+ * media, seen only by Bamio's team, and waiting for an admin's answer.
+ */
+export async function saveProof(userId: string, slug: string, images: Uint8Array[], now = Date.now()): Promise<void> {
+  const row = await publicRow(slug);
+  if (row.status === "ended") throw new HttpError(409, "closed", "This campaign has ended.");
+  const [member] = await db()<{ proof_keys: string[] }[]>`select proof_keys from campaign_members where campaign_id = ${row.id} and user_id = ${userId}`;
+  if (!member) throw new HttpError(403, "not_joined", "Join the campaign first.");
+  if ((await myClipper(userId))?.blocked) throw new HttpError(403, "blocked", BLOCKED);
+  if (images.length === 0) throw new HttpError(400, "no_images", "Add a screenshot of where your audience is.");
+  if (images.length > PROOF_LIMITS.images) throw new HttpError(400, "too_many", `Up to ${PROOF_LIMITS.images} screenshots.`);
+  const kinds = images.map((bytes) => {
+    if (bytes.byteLength > PROOF_LIMITS.bytes) throw new HttpError(413, "too_large", `Each screenshot can be up to ${PROOF_LIMITS.bytes / 1024 / 1024} MB.`);
+    const kind = imageKind(bytes);
+    if (!kind) throw new HttpError(400, "not_image", "Screenshots must be PNG, JPEG or WebP pictures.");
+    return kind;
+  });
+  const prefix = proofPrefix(userId, row.id);
+  const keys = await Promise.all(
+    images.map(async (bytes, i) => {
+      const key = `${prefix}/proof-${now}-${i + 1}.${kinds[i]!.ext}`;
+      const file = path.join(workRoot(), "proofs", `${randomUUID()}.${kinds[i]!.ext}`);
+      await mkdir(path.dirname(file), { recursive: true });
+      await writeFile(file, bytes);
+      await storage().publish(key, file, kinds[i]!.type);
+      return key;
+    }),
+  );
+  await db()`update campaign_members set proof_keys = ${db().json(keys)}, proof_status = 'waiting', proof_note = null, proof_at = ${now}, proof_reviewed_by = null
+    where campaign_id = ${row.id} and user_id = ${userId}`;
+  for (const old of member.proof_keys) if (!keys.includes(old)) await storage().remove(old).catch(() => undefined);
+}
+
+/** One of a clipper's proof screenshots, for an admin (n from 1). */
+export async function serveProof(req: Request, campaignId: string, userId: string, n: number): Promise<Response> {
+  if (!isUuid(campaignId) || !isUserId(userId) || !Number.isInteger(n) || n < 1) throw notFound();
+  const [member] = await db()<{ proof_keys: string[] }[]>`select proof_keys from campaign_members where campaign_id = ${campaignId} and user_id = ${userId}`;
+  const key = member?.proof_keys[n - 1];
+  if (!key || !key.startsWith(`${proofPrefix(userId, campaignId)}/`)) throw notFound();
+  const ext = key.split(".").pop();
+  return storage().serve(req, key, { type: ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg" });
+}
+
+/** Accept a clipper's audience proof, or reject it with a word about why (they see it). Logged. */
+export async function reviewProof(admin: Admin, campaignId: string, userId: string, accept: boolean, note = "", now = Date.now()): Promise<void> {
+  if (!isUuid(campaignId) || !isUserId(userId)) throw notFound();
+  const rows = await db()<{ status: ProofStatus }[]>`
+    update campaign_members set proof_status = ${accept ? "accepted" : "rejected"}, proof_note = ${accept ? null : note.slice(0, CAMPAIGN_LIMITS.note) || null}, proof_reviewed_by = ${admin.email}, proof_at = coalesce(proof_at, ${now})
+    where campaign_id = ${campaignId} and user_id = ${userId} and jsonb_array_length(proof_keys) > 0 returning proof_status as status`;
+  if (rows.length === 0) throw new HttpError(404, "not_found", "They haven’t sent any proof.");
+  await log(admin, accept ? "campaign.proof.accept" : "campaign.proof.reject", userId, { campaignId, ...(note ? { note } : {}) });
 }

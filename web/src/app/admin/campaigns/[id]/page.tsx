@@ -1,10 +1,12 @@
-import { ArrowUpRight } from "@phosphor-icons/react/ssr";
+import { ArrowUpRight, Flag as FlagIcon } from "@phosphor-icons/react/ssr";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { dayLabel, PLATFORM_ICONS, rateLabel, StatusBadge } from "@/components/campaigns/parts";
 import { formatPrice } from "@/lib/billing/plans";
+import type { Flag } from "@/lib/campaigns/flags";
 import { channelLink, CLIP_PLATFORMS } from "@/lib/campaigns/links";
+import { AUDIENCES, countryName } from "@/lib/campaigns/regions";
 import { REQUEST_KINDS } from "@/lib/campaigns/schema";
 import { requireAdmin, usersById } from "@/lib/server/admin";
 import { requestOfCampaign } from "@/lib/server/campaign-requests";
@@ -13,12 +15,22 @@ import { PRIVATE_PAGE } from "@/lib/site";
 import { AdminShell } from "../../admin-shell";
 import { ago, count, when } from "../../format";
 import { UserLink } from "../../tables";
-import { BlockButton, CampaignStatusActions, ClipActions, CopyTextButton, PayoutButton } from "../campaign-controls";
+import { BlockButton, CampaignStatusActions, ClipActions, CopyTextButton, PayoutButton, ProofActions } from "../campaign-controls";
 import styles from "../../admin.module.css";
 
 export const metadata: Metadata = { title: "Campaign · Admin", robots: PRIVATE_PAGE };
 
 const CLIP_BADGE = { pending: ["is-info", "Waiting"], approved: ["is-success", "Counting"], rejected: ["is-error", "Rejected"] } as const;
+const PROOF_BADGE = { none: ["", "Not sent"], waiting: ["is-info", "Waiting"], accepted: ["is-success", "Accepted"], rejected: ["is-error", "Rejected"] } as const;
+
+/** Signs worth a closer look (lib/campaigns/flags.ts): never a verdict. */
+function Flags({ flags }: { flags: Flag[] }) {
+  return flags.map((f) => (
+    <span key={f.kind} className={`${styles.sub} ${styles.warn}`}>
+      <FlagIcon size={12} weight="fill" aria-hidden /> {f.text}
+    </span>
+  ));
+}
 
 /** Where a clip's view count comes from, and how fresh it is. */
 function viewsNote(c: AdminClip): string {
@@ -56,6 +68,8 @@ export default async function AdminCampaignPage({ params }: { params: Promise<{ 
   const owed = clippers.reduce((n, k) => n + k.owedCents, 0);
   const paid = payouts.reduce((n, p) => n + p.amountCents, 0);
   const owedList = clippers.filter((k) => k.owedCents > 0);
+  const flaggedClips = clips.filter((k) => k.flags.length > 0).length;
+  const flaggedClippers = clippers.filter((k) => k.flags.some((f) => f.kind !== "proof")).length;
   const payoutText = payoutList(c.title, owedList);
 
   return (
@@ -70,6 +84,8 @@ export default async function AdminCampaignPage({ params }: { params: Promise<{ 
           {c.maxClipperCents !== null ? `, ${formatPrice(c.maxClipperCents)} a clipper` : ""}
           {c.minClipperViews > 0 ? ` once they have ${count(c.minClipperViews)} views` : ""}
           {c.endsAt !== null ? ` · last day ${dayLabel(c.endsAt)}` : ""}
+          {` · audience: ${AUDIENCES[c.audience]}`}
+          {c.audienceProof ? ", proof asked for" : ""}
         </>
       }
     >
@@ -113,6 +129,13 @@ export default async function AdminCampaignPage({ params }: { params: Promise<{ 
             <span className={styles.kicker}>Clippers</span>
             <span className={styles.big}>{count(clippers.length)}</span>
             <p>{waiting > 0 ? <span className={styles.warn}>{`${count(waiting)} ${waiting === 1 ? "clip" : "clips"} waiting for a look`}</span> : "No clips waiting"}</p>
+          </div>
+          <div className={styles.stat}>
+            <span className={styles.kicker}>Flagged</span>
+            <span className={`${styles.big} ${flaggedClips + flaggedClippers > 0 ? styles.warn : ""}`}>{count(flaggedClips + flaggedClippers)}</span>
+            <p>
+              {count(flaggedClips)} {flaggedClips === 1 ? "clip" : "clips"}, {count(flaggedClippers)} {flaggedClippers === 1 ? "clipper" : "clippers"}: look before approving or paying
+            </p>
           </div>
         </div>
       </section>
@@ -180,7 +203,9 @@ export default async function AdminCampaignPage({ params }: { params: Promise<{ 
                           <span className="sr-only">(opens in a new tab)</span>
                         </a>
                         {k.author ? <span className={styles.sub}>posted by {k.author}</span> : null}
+                        {k.country ? <span className={styles.sub}>sent from {countryName(k.country)}</span> : null}
                         {k.error ? <span className={styles.error}>{k.error}</span> : null}
+                        <Flags flags={k.flags} />
                       </td>
                       <td className={styles.roomy}>
                         {k.name}
@@ -195,6 +220,7 @@ export default async function AdminCampaignPage({ params }: { params: Promise<{ 
                       <td className={styles.num}>
                         {count(k.views)}
                         <span className={styles.sub}>{viewsNote(k)}</span>
+                        {k.likes !== null ? <span className={styles.sub}>{count(k.likes)} likes{k.comments !== null ? `, ${count(k.comments)} comments` : ""}</span> : null}
                       </td>
                       <td className={styles.num}>{k.status === "approved" ? formatPrice(k.earnedCents) : "—"}</td>
                       <td className={styles.nowrap} title={when(k.createdAt)}>
@@ -231,6 +257,7 @@ export default async function AdminCampaignPage({ params }: { params: Promise<{ 
                   <th className={styles.num}>Earned</th>
                   <th className={styles.num}>Paid</th>
                   <th className={styles.num}>Owed</th>
+                  <th>Audience proof</th>
                   <th>Pay them by</th>
                   <th>
                     <span className="sr-only">Actions</span>
@@ -257,11 +284,13 @@ export default async function AdminCampaignPage({ params }: { params: Promise<{ 
                             {channel.url.replace("https://", "")}
                           </a>
                         ) : null}
+                        <Flags flags={k.flags.filter((f) => f.kind !== "proof")} />
                       </td>
                       <td className={styles.roomy}>
                         <UserLink id={k.userId} user={users.get(k.userId)} />
                         <span className={styles.sub} title={when(k.joinedAt)}>
                           joined {ago(k.joinedAt)}
+                          {k.country ? ` from ${countryName(k.country)}` : ""}
                         </span>
                       </td>
                       <td className={styles.num}>
@@ -272,6 +301,18 @@ export default async function AdminCampaignPage({ params }: { params: Promise<{ 
                       <td className={styles.num}>{formatPrice(k.earnedCents)}</td>
                       <td className={styles.num}>{formatPrice(k.paidCents)}</td>
                       <td className={`${styles.num} ${k.owedCents > 0 ? styles.warn : ""}`}>{formatPrice(k.owedCents)}</td>
+                      <td className={styles.roomy}>
+                        {c.audienceProof || k.proof.images > 0 ? (
+                          <>
+                            <span className={`badge ${PROOF_BADGE[k.proof.status][0]}`}>{PROOF_BADGE[k.proof.status][1]}</span>
+                            {k.proof.status === "rejected" && k.proof.note ? <span className={styles.sub}>{k.proof.note}</span> : null}
+                            {k.proof.by && k.proof.status !== "waiting" ? <span className={styles.sub}>by {k.proof.by}</span> : null}
+                            <ProofActions campaignId={c.id} userId={k.userId} name={k.name} status={k.proof.status} images={k.proof.images} />
+                          </>
+                        ) : (
+                          <span className="t-tertiary">Not asked for</span>
+                        )}
+                      </td>
                       <td className={styles.roomy}>{k.payout ? <span className={styles.mono}>{k.payout}</span> : <span className="t-tertiary">Not given yet</span>}</td>
                       <td>
                         <div className={styles.rowActions}>

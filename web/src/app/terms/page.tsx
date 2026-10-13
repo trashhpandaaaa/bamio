@@ -124,6 +124,11 @@ export default function TermsPage() {
             what was earned and paid. Anyone can see a campaign, and any Bamio account can join one and send clips, with or without a plan.
           </li>
           <li>
+            Views count only when they come from real people in the campaign’s audience. A campaign can ask you to show where your audience is before your
+            clips count, and Bamio checks clips and clippers for bought or automated views, posts that aren’t yours and accounts that share payment details.
+            If we find any of these, we can reject your clips, withhold what they earned and remove you from campaigns.
+          </li>
+          <li>
             Bamio pays clippers out of what the campaign’s owner has paid Bamio for it, in the way and at the times its page says, using the payment details you
             give under Profile. If an owner pays Bamio late or not at all, payments for that campaign can be late or reduced, and we may pause or end it.
           </li>

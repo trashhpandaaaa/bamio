@@ -54,7 +54,9 @@ export default function PrivacyPage() {
             <strong>Clipping campaigns,</strong> only if you join one: the name and channel link you give, your profile picture, the links to the clips you send, their
             view counts and what they earned. Your name, picture, channel and those numbers are shown on the leaderboard of a{" "}
             <Link href="/clippers">campaign</Link> once a clip of yours is approved, and campaign pages are open to anyone, signed in or not. A campaign’s owner pays Bamio, and Bamio pays the clippers. How you want to be paid is seen only by our team, who pay you with it; a campaign’s owner
-            never sees it. We keep a record of each payment we make to you. If you ask to run a campaign: what you tell us about
+            never sees it. We keep a record of each payment we make to you. To check that views come from a campaign’s audience, we note the country your
+            sign-in is in when you join a campaign or send a clip (Clerk works it out from your IP address; we keep only the country), and keep the screenshots
+            of your audience you send for a campaign that asks for them, with the likes and comments on your clips; all of it is seen only by our team. If you ask to run a campaign: what you tell us about
             it (your show, channel or business, the link to your content, the rate and the budget) and your account’s email, seen by our team; the
             campaign’s name and terms are on its page, open to anyone, once it opens.
           </li>

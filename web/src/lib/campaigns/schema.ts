@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { channelLink, CLIP_PLATFORM_IDS, LINK_MAX, type ChannelLink, type ClipPlatform } from "@/lib/campaigns/links";
+import { AUDIENCE_IDS, type Audience } from "@/lib/campaigns/regions";
 
 /*
  * Clipping campaigns (/clippers): what a campaign is, what clippers and admins may send, and
@@ -110,6 +111,10 @@ export const campaignInputSchema = z.object({
   minClipperViews: z.number().int().min(0).max(CAMPAIGN_LIMITS.views).default(0),
   payout: lines(CAMPAIGN_LIMITS.payoutTerms),
   endsAt: z.number().int().positive().nullable(),
+  /** Who the views should come from (regions.ts). */
+  audience: z.enum(AUDIENCE_IDS as [Audience, ...Audience[]]).default("worldwide"),
+  /** Clippers show their audience's countries, and an admin accepts it, before their clips can be approved. */
+  audienceProof: z.boolean().default(false),
 });
 export type CampaignInput = z.infer<typeof campaignInputSchema>;
 
@@ -208,6 +213,8 @@ export type Campaign = {
   maxClipCents: number | null;
   maxClipperCents: number | null;
   minClipperViews: number;
+  audience: Audience;
+  audienceProof: boolean;
   payout: string;
   status: CampaignStatus;
   endsAt: number | null;
@@ -235,8 +242,15 @@ export type MyClip = {
   createdAt: number;
 };
 
+/** A clipper's proof of their audience in one campaign, as they see it. */
+export type ProofStatus = "none" | "waiting" | "accepted" | "rejected";
+export type MyProof = { required: boolean; status: ProofStatus; images: number; note: string | null };
+
 /** A signed-in user's place in one campaign. */
-export type MyCampaign = { clipper: MyClipper | null; joined: boolean; clips: MyClip[]; earnedCents: number; paidCents: number; owedCents: number };
+export type MyCampaign = { clipper: MyClipper | null; joined: boolean; clips: MyClip[]; earnedCents: number; paidCents: number; owedCents: number; proof: MyProof };
+
+/** Audience proof: screenshots of where a clipper's viewers are. */
+export const PROOF_LIMITS = { images: 3, bytes: 5 * 1024 * 1024 } as const;
 
 /** A campaign the user joined, for their list. */
 export type JoinedCampaign = { slug: string; title: string; brand: string; status: CampaignStatus; clips: number; waiting: number; earnedCents: number; owedCents: number };

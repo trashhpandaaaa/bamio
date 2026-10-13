@@ -11,6 +11,7 @@ import { SITE_LINKS } from "@/components/site/use-case";
 import { formatPrice } from "@/lib/billing/plans";
 import { CHANNEL_PLATFORMS, CLIP_PLATFORMS } from "@/lib/campaigns/links";
 import { compactNumber } from "@/lib/campaigns/money";
+import { AUDIENCES } from "@/lib/campaigns/regions";
 import type { Leader } from "@/lib/campaigns/schema";
 import { adminOf } from "@/lib/server/admin";
 import { ownsCampaign } from "@/lib/server/campaign-access";
@@ -111,6 +112,12 @@ export default async function CampaignPageView({ params }: Props) {
                   <span aria-hidden="true">{c.platforms.map((p) => CLIP_PLATFORMS[p].name).join(", ")}</span>
                 </dd>
               </div>
+              {c.audience !== "worldwide" ? (
+                <div>
+                  <dt>Audience</dt>
+                  <dd>{AUDIENCES[c.audience]}</dd>
+                </div>
+              ) : null}
               {c.minViews > 0 ? (
                 <div>
                   <dt>A clip earns from</dt>
@@ -189,6 +196,7 @@ export default async function CampaignPageView({ params }: Props) {
                 Bamio pays clippers. {c.brand} pays Bamio for the campaign; Bamio counts the views, works out what each clip has earned, pays it and shows what has been paid.
               </p>
               <p>
+                {c.audienceProof ? "Before your clips count, show where your viewers are: screenshots of your audience’s countries, which Bamio’s team checks. " : ""}
                 A clip counts once Bamio’s team has looked at it. Clips earn in the order they were approved, until the budget is used.{" "}
                 {byHand.length === c.platforms.length
                   ? `Views on ${byHand.join(" and ")} are added by the team.`

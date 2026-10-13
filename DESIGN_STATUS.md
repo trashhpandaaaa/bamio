@@ -107,6 +107,17 @@ The user pasted a production-readiness checklist (keys, Postgres, S3/R2, Redis a
 - **Health and deploy:** `GET /api/health` (public, nothing about users) reports the database, storage, media tools and the queue (waiting, running, oldest wait) with 200 or 503. A database that can't be reached gives a 503 "can't reach its database" everywhere. `web/Dockerfile` (one image for both roles: Node 24 slim, tini, a non-root user, migrations on start, a health check) and `web/compose.yaml` (Postgres 18, MinIO and its bucket, a web server that only queues, a worker; `--scale worker=N`).
 - **Decision: a Postgres queue instead of Redis and BullMQ.** Same guarantees for this load (durable, leased, retried, prioritised, cancellable), one less service to run and back up, and a job is queued in the same transaction as the project change that asks for it, so neither can exist without the other. `queue.ts` is small, so it can be swapped if volume ever needs it. Redis and Docker weren't available on this machine either.
 
+### Campaigns: checks against fraud (2026-10-13, evening)
+
+The user asked about showing campaigns by the clipper's location, to stop fraud. I advised against it (a VPN beats it, it turns away people who live or travel elsewhere, and the campaigns' rules are about where the audience is, not the clipper) and proposed checks instead; the user: "let's build according to the system".
+
+- **Audience** (migration 0016): each campaign names a region (worldwide, Europe, Asia, North America, Latin America, Africa, Oceania), shown on its page, and can ask for **audience proof**. A clipper then sends up to 3 screenshots of their audience's countries (Instagram Insights, YouTube Studio) from the campaign's panel; an admin opens them and accepts or rejects them with a reason the clipper sees. Until they're accepted, none of that clipper's clips can be approved. Pictures are checked by their bytes (PNG, JPEG, WebP, 5 MB each), kept under the account's own media (deleted with it), and served only to admins.
+- **Country**: when a clipper joins and when they send each clip, the country of their sign-in (Clerk's own IP geolocation; only the country is kept). Admins see it; it flags, never blocks.
+- **Flags** on the admin's campaign page (a count at the top, and on each clip and clipper): sent or joined from outside the audience; a clip posted by another account than the clipper's channel; under 0.3% likes on 10,000 views or more; views up 10 times and 50,000 within a day (each count is logged, typed-in ones too); payment details or a channel shared with other clipper accounts; proof missing, waiting or rejected. Likes and comments are now read with the views.
+- The privacy page says what is noted and who sees it; the terms say views must be real and from the audience, and what happens otherwise.
+- Bamio's two campaigns were set to their regions, with proof asked for.
+- Tests: `tests/unit/campaign-fraud.test.ts` (regions, every flag, the view log, and the whole proof round in the database).
+
 ### Campaigns open to everyone, and Bamio's own campaign (2026-10-13, later)
 
 The user: "Make the campaign part visible to all users. And add this one campaign", with Bamio's own brief (Europe and Asia audiences, 28-day cycles, $2,500 each).

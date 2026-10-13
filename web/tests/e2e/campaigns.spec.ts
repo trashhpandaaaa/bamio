@@ -274,6 +274,45 @@ test.describe("a clipper", () => {
     expect(await sql`select payout from clippers where user_id = ${id}`).toMatchObject([{ payout: "Wise: e2e@example.com" }]);
   });
 
+  test("shows where their audience is when a campaign asks, and an admin accepts it before clips count", async ({ page }) => {
+    await seedCampaign(sql);
+    await sql`update campaigns set audience = 'europe', audience_proof = true where id = ${DEMO.id}`;
+    await page.goto(`/clippers/${DEMO.slug}`);
+    await expect(page.getByRole("definition").filter({ hasText: "Europe" })).toBeVisible();
+    await page.getByLabel("Your name as a clipper").fill(NAME);
+    await page.getByLabel("Your channel").fill("tiktok.com/@bamio_e2e");
+    await page.getByRole("button", { name: "Join the campaign" }).click();
+    const proof = page.getByRole("region", { name: "Your audience" });
+    await expect(proof.getByText("Not sent yet")).toBeVisible();
+    await page.getByLabel("Send a clip you posted").fill(REEL(5));
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(page.getByText("Clip sent")).toBeVisible();
+
+    // A picture is needed; a text file pretending to be one is refused by the server.
+    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+    await proof.getByLabel("Screenshots").setInputFiles({ name: "fake.png", mimeType: "image/png", buffer: Buffer.from("not a picture") });
+    await proof.getByRole("button", { name: "Send screenshots" }).click();
+    await expect(page.getByText("Screenshots must be PNG, JPEG or WebP pictures.")).toBeVisible();
+    await proof.getByLabel("Screenshots").setInputFiles({ name: "audience.png", mimeType: "image/png", buffer: png });
+    await proof.getByRole("button", { name: "Send screenshots" }).click();
+    await expect(proof.getByText("Waiting for a look")).toBeVisible();
+    expect(await sql`select proof_status, jsonb_array_length(proof_keys) as n from campaign_members where user_id = ${id}`).toMatchObject([{ proof_status: "waiting", n: 1 }]);
+
+    if (!process.env.E2E_ADMIN) return;
+    // The admin can't approve the clip yet, opens the screenshot, accepts it, and then can.
+    const [clip] = await sql<{ id: number }[]>`select id::int as id from campaign_clips where user_id = ${id}`;
+    expect((await page.request.post(`/api/admin/campaign-clips/${clip!.id}`, { data: { action: "approve" } })).status()).toBe(409);
+    await page.goto(`/admin/campaigns/${DEMO.id}`);
+    const row = page.getByRole("row").filter({ hasText: NAME }).filter({ hasText: "Screenshot 1" });
+    const shot = await page.request.get(await row.getByRole("link", { name: "Screenshot 1" }).getAttribute("href").then((h) => h!));
+    expect(shot.headers()["content-type"]).toBe("image/png");
+    await row.getByRole("button", { name: "Accept" }).click();
+    await expect(page.getByText(`${NAME}’s audience accepted`)).toBeVisible();
+    expect((await page.request.post(`/api/admin/campaign-clips/${clip!.id}`, { data: { action: "approve" } })).status()).toBe(200);
+    // Someone else can't see the screenshot: admins only.
+    expect((await page.request.get(`/api/campaigns/${DEMO.slug}/proof`)).status()).toBe(405);
+  });
+
   test("can't join or send clips once a campaign has ended, and a blocked clipper is told", async ({ page }) => {
     await seedCampaign(sql, { joined: id });
     await sql`update campaigns set status = 'ended' where id = ${DEMO.id}`;
