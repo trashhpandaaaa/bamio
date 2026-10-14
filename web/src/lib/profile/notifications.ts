@@ -9,11 +9,13 @@ export const notificationsSchema = z.object({
   videos: z.boolean(),
   /** Most, then all, of this month's AI minutes are used. */
   minutes: z.boolean(),
+  /** Bamio's news: new campaigns and features, now and then. */
+  news: z.boolean(),
 });
 
 export type Notifications = z.infer<typeof notificationsSchema>;
 
-export const DEFAULT_NOTIFICATIONS: Notifications = { videos: true, minutes: true };
+export const DEFAULT_NOTIFICATIONS: Notifications = { videos: true, minutes: true, news: true };
 
 /** Saved settings from user metadata, falling back field by field. */
 export function readNotifications(unsafeMetadata: unknown): Notifications {
@@ -22,5 +24,6 @@ export function readNotifications(unsafeMetadata: unknown): Notifications {
   return {
     videos: typeof record.videos === "boolean" ? record.videos : DEFAULT_NOTIFICATIONS.videos,
     minutes: typeof record.minutes === "boolean" ? record.minutes : DEFAULT_NOTIFICATIONS.minutes,
+    news: typeof record.news === "boolean" ? record.news : DEFAULT_NOTIFICATIONS.news,
   };
 }

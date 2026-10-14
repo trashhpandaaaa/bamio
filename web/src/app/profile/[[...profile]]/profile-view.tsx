@@ -102,6 +102,14 @@ function NotificationsForm({ initial, address }: { initial: Notifications; addre
         </div>
       ) : null}
 
+      <div className={styles.option}>
+        <label className="choice">
+          <input className="switch" type="checkbox" role="switch" name="news" checked={values.news} onChange={(e) => setValues((v) => ({ ...v, news: e.target.checked }))} />
+          Bamio news
+        </label>
+        <p className="t-body-sm t-tertiary">New clipping campaigns and features, now and then.</p>
+      </div>
+
       <p className="t-body-sm t-secondary">Emails about your plan and payments are always sent.</p>
 
       <div className={styles.actions}>

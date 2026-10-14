@@ -107,6 +107,14 @@ The user pasted a production-readiness checklist (keys, Postgres, S3/R2, Redis a
 - **Health and deploy:** `GET /api/health` (public, nothing about users) reports the database, storage, media tools and the queue (waiting, running, oldest wait) with 200 or 503. A database that can't be reached gives a 503 "can't reach its database" everywhere. `web/Dockerfile` (one image for both roles: Node 24 slim, tini, a non-root user, migrations on start, a health check) and `web/compose.yaml` (Postgres 18, MinIO and its bucket, a web server that only queues, a worker; `--scale worker=N`).
 - **Decision: a Postgres queue instead of Redis and BullMQ.** Same guarantees for this load (durable, leased, retried, prioritised, cancellable), one less service to run and back up, and a job is queued in the same transaction as the project change that asks for it, so neither can exist without the other. `queue.ts` is small, so it can be swapped if volume ever needs it. Redis and Docker weren't available on this machine either.
 
+### An email to every account: clipping campaigns are open (2026-10-14)
+
+The user: "Send automated mail to all users about this campaign thing."
+
+- A new email category, **news** (migration 0017), with its own switch under Notifications ("Bamio news", on by default): an announcement isn't about anyone's account, so people can turn it off, and its footer says how.
+- The email (`campaigns-open`): what clipping campaigns are, the live ones with their rate, cap and audience, that any account can join, and that views must be real and from the audience. One button to /clippers.
+- `scripts/announce-campaigns.mjs` lists every account from Clerk (not Clerk test users, not banned ones), reads the live campaigns, and with `--send` queues one email each under one key, a little over a second apart, so the mailer sends them over a few minutes and nobody gets it twice.
+
 ### Campaigns: checks against fraud (2026-10-13, evening)
 
 The user asked about showing campaigns by the clipper's location, to stop fraud. I advised against it (a VPN beats it, it turns away people who live or travel elsewhere, and the campaigns' rules are about where the audience is, not the clipper) and proposed checks instead; the user: "let's build according to the system".

@@ -43,6 +43,11 @@ export const emailSchema = z.discriminatedUnion("template", [
   z.object({ template: z.literal("campaign-live"), campaign: z.string().max(120), slug: z.string().max(80) }),
   /** A request to run a campaign was declined, with the team's word why. */
   z.object({ template: z.literal("campaign-declined"), name: z.string().max(80), note: z.string().max(300) }),
+  /** News: clipping campaigns are open, sent to everyone once. Each campaign with a line about what it pays. */
+  z.object({
+    template: z.literal("campaigns-open"),
+    campaigns: z.array(z.object({ title: z.string().max(120), slug: z.string().max(80), meta: z.string().max(200) })).min(1).max(6),
+  }),
   /** To superadmins (src/lib/server/alerts.ts): jobs failing, the queue backing up, an account that won't delete. */
   z.object({ template: z.literal("ops-alert"), title: z.string().max(120), lines: z.array(z.string().max(500)).max(10), path: z.string().startsWith("/") }),
 ]);
@@ -51,7 +56,7 @@ export type Email = z.infer<typeof emailSchema>;
 export type EmailTemplate = Email["template"];
 
 /** Who may turn an email off: account emails (plan, payments) always go out; the others follow the user's notification settings. */
-export type EmailCategory = "account" | "videos" | "minutes";
+export type EmailCategory = "account" | "videos" | "minutes" | "news";
 
 export const EMAIL_CATEGORY: Record<EmailTemplate, EmailCategory> = {
   "plan-started": "account",
@@ -69,6 +74,7 @@ export const EMAIL_CATEGORY: Record<EmailTemplate, EmailCategory> = {
   "campaign-paid": "account",
   "campaign-live": "account",
   "campaign-declined": "account",
+  "campaigns-open": "news",
 };
 
 /** The design tokens emails use (lib/brand-tokens.ts). */
@@ -298,6 +304,19 @@ function draft(email: Email): Draft {
         ],
         button: { label: "Run a campaign", path: "/clippers?run=1" },
       };
+    case "campaigns-open":
+      return {
+        subject: "Get paid to clip with Bamio",
+        preview: `${email.campaigns.length === 1 ? "A campaign is" : `${email.campaigns.length} campaigns are`} open: earn for every 1,000 views on the clips you post.`,
+        heading: "Get paid to clip",
+        blocks: [
+          { p: "Bamio now runs clipping campaigns. Make short clips, post them on your own channel, send us the links, and earn for every 1,000 views they get. Any Bamio account can join, with or without a plan." },
+          { list: email.campaigns.map((c) => ({ title: c.title, meta: c.meta })) },
+          { p: "Make your clips with Bamio in minutes. We count the views, and pay you after each cycle. Each campaign’s page has its rules and how you’re paid." },
+          { note: "Views have to be real and from the campaign’s audience. Each campaign asks for a screenshot of where your viewers are, and bought or automated views aren’t paid." },
+        ],
+        button: { label: "See the campaigns", path: "/clippers" },
+      };
     case "ops-alert":
       return {
         subject: `Bamio alert: ${email.title}`,
@@ -313,6 +332,7 @@ const FOOTER: Record<EmailCategory, { text: string; link?: string }> = {
   account: { text: "You’re getting this because it’s about your Bamio account." },
   videos: { text: "You get these emails when a video is ready or an import fails. Turn them off in", link: "Notifications" },
   minutes: { text: "You get these emails when your AI minutes run low. Turn them off in", link: "Notifications" },
+  news: { text: "You get Bamio’s news now and then because you have an account. Turn it off in", link: "Notifications" },
 };
 
 /* ------------------------------ Rendering ------------------------------ */

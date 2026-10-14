@@ -32,6 +32,7 @@ const FAILED: Extract<Email, { template: "video-failed" }> = {
 const SAMPLES: Record<EmailTemplate, Email> = {
   "campaign-live": { template: "campaign-live", campaign: "Clip the summer tournament", slug: "clip-the-summer-tournament" },
   "campaign-declined": { template: "campaign-declined", name: "The Test Show", note: "The link is to someone else’s channel." },
+  "campaigns-open": { template: "campaigns-open", campaigns: [{ title: "Clip Bamio for Europe", slug: "clip-bamio-for-europe", meta: "$1.50 per 1,000 views, up to $500 a clipper, audience in Europe" }] },
   "campaign-paid": { template: "campaign-paid", campaign: "Clip the summer tournament", brand: "Test Creator", slug: "clip-the-summer-tournament", amountCents: 4250, note: "PayPal, Friday" },
   "ops-alert": { template: "ops-alert", title: "3 jobs failed in the last hour", lines: ["import 12: It took too long."], path: "/admin/jobs?view=failed" },
   "plan-started": { template: "plan-started", plan: "pro", interval: "month", renewsAt: DAY },
@@ -117,8 +118,8 @@ describe("email templates", () => {
 describe("notification settings", () => {
   it("default to on, field by field", () => {
     expect(readNotifications(undefined)).toEqual(DEFAULT_NOTIFICATIONS);
-    expect(readNotifications({ bamioNotifications: { videos: false } })).toEqual({ videos: false, minutes: true });
-    expect(readNotifications({ bamioNotifications: { videos: "no", minutes: false } })).toEqual({ videos: true, minutes: false });
+    expect(readNotifications({ bamioNotifications: { videos: false } })).toEqual({ videos: false, minutes: true, news: true });
+    expect(readNotifications({ bamioNotifications: { videos: "no", minutes: false } })).toEqual({ videos: true, minutes: false, news: true });
   });
 });
 
@@ -128,7 +129,7 @@ describe("the email outbox", () => {
   const saved = Object.fromEntries(ENV.map((k) => [k, process.env[k]]));
 
   /** A fake Resend and Clerk: what was sent, and who the user is. */
-  function fakes(recipient: Recipient = { address: "ana@example.com", notifications: { videos: true, minutes: true } }) {
+  function fakes(recipient: Recipient = { address: "ana@example.com", notifications: { videos: true, minutes: true, news: true } }) {
     const sent: OutgoingEmail[] = [];
     let fail: SendError | null = null;
     const deps: MailerDeps = {
@@ -195,13 +196,15 @@ describe("the email outbox", () => {
     await queueEmail(user, "a", SAMPLES["video-ready"]);
     await queueEmail(user, "b", SAMPLES["minutes-low"]);
     await queueEmail(user, "c", SAMPLES["payment-failed"]);
-    const off = fakes({ address: "ana@example.com", notifications: { videos: false, minutes: false } });
+    await queueEmail(user, "n", SAMPLES["campaigns-open"]);
+    const off = fakes({ address: "ana@example.com", notifications: { videos: false, minutes: false, news: false } });
     await drain(off.deps);
     expect(off.sent.map((e) => e.template)).toEqual(["payment-failed"]);
     expect((await rows()).map((r) => [r.key, r.status, r.last_error])).toEqual([
       ["a", "skipped", "Turned off in Notifications."],
       ["b", "skipped", "Turned off in Notifications."],
       ["c", "sent", null],
+      ["n", "skipped", "Turned off in Notifications."],
     ]);
 
     await queueEmail(user, "d", SAMPLES["plan-ended"]);
@@ -210,7 +213,7 @@ describe("the email outbox", () => {
     const test = fakes({ address: "e2e+clerk_test@example.com", notifications: DEFAULT_NOTIFICATIONS });
     await drain(test.deps);
     expect(test.sent).toHaveLength(0);
-    expect((await rows()).slice(3).map((r) => [r.key, r.status])).toEqual([
+    expect((await rows()).slice(4).map((r) => [r.key, r.status])).toEqual([
       ["d", "skipped"],
       ["e", "skipped"],
     ]);
