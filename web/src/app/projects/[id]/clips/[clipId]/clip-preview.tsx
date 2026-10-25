@@ -1,10 +1,12 @@
 "use client";
 
 import { Fragment, memo, useEffect, useImperativeHandle, useRef, useState } from "react";
-import { ASS_EM, ASS_OUTLINE, ASS_SIZES, captionMarginV, MARGIN_H, TITLE_TOP } from "@/lib/clips/ass";
+import { ASS_EM, ASS_OUTLINE, ASS_SIZES, captionMarginV, lookScale, MARGIN_H, TITLE_TOP } from "@/lib/clips/ass";
 import { useSourceVideo } from "@/hooks/use-source-video";
-import { thumbUrl } from "@/lib/clips/api";
+import { brandLogoUrl, thumbUrl } from "@/lib/clips/api";
+import { focusAt } from "@/lib/clips/focus";
 import { cropRect, joinWords, lineAt, OUTPUT_SIZE, titleLines, wordGap, type CaptionLine } from "@/lib/clips/logic";
+import { LOGO_MARGIN, LOGO_WIDTH } from "@/lib/clips/render";
 import type { ClipEdit } from "@/lib/clips/schema";
 import styles from "./editor.module.css";
 
@@ -31,6 +33,8 @@ type Props = {
   title: string;
   /** The transcript's language: picks the caption fonts (Chinese characters differ by language). */
   language?: string;
+  /** The account's brand logo, when it has one and the clip shows it: when it was saved (for the URL). */
+  logoAt?: number;
   onTime: (t: number) => void;
   onPlaying: (playing: boolean) => void;
   onFocusX: (focusX: number) => void;
@@ -40,7 +44,7 @@ type Props = {
  * The clip as it will export: framed to the output aspect (crop with a focus point,
  * or fit over a blurred fill), with captions and title drawn like the ASS export.
  */
-export function ClipPreview({ ref, projectId, following, srcW, srcH, start, end, edit, lines, title, language, onTime, onPlaying, onFocusX }: Props) {
+export function ClipPreview({ ref, projectId, following, srcW, srcH, start, end, edit, lines, title, language, logoAt, onTime, onPlaying, onFocusX }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
@@ -109,9 +113,13 @@ export function ClipPreview({ ref, projectId, following, srcW, srcH, start, end,
     return () => cancelAnimationFrame(frame);
   }, [playing, onTime]);
 
-  const r = cropRect(srcW || W, srcH || H, edit.aspect, edit.focusX);
-  const canPan = edit.framing === "crop" && srcW > 0 && srcW - r.w > 2;
   const rel = t - start;
+  // With a face-tracking path the crop moves as the clip plays, exactly as the export's
+  // sendcmd script moves it (lib/clips/render.ts); without one it sits at focusX.
+  const focusX = edit.framing === "crop" && edit.focusPath?.length ? focusAt(edit.focusPath, rel, edit.focusX) : edit.focusX;
+  const r = cropRect(srcW || W, srcH || H, edit.aspect, focusX);
+  // Dragging to reframe would fight the path, so it is only offered where there is none.
+  const canPan = edit.framing === "crop" && srcW > 0 && srcW - r.w > 2 && !edit.focusPath?.length;
   const u = (n: number) => `calc(${n} * 100cqw / ${W})`;
 
   return (
@@ -162,7 +170,7 @@ export function ClipPreview({ ref, projectId, following, srcW, srcH, start, end,
         poster={poster}
         preload="auto"
         playsInline
-        style={{ objectFit: edit.framing === "fit" ? "contain" : "cover", objectPosition: `${edit.focusX * 100}% 50%` }}
+        style={{ objectFit: edit.framing === "fit" ? "contain" : "cover", objectPosition: `${focusX * 100}% 50%` }}
         onLoadedMetadata={(e) => {
           e.currentTarget.currentTime = range.current.start;
         }}
@@ -206,6 +214,21 @@ export function ClipPreview({ ref, projectId, following, srcW, srcH, start, end,
 
       {edit.captions ? <Captions lines={lines} t={rel} edit={edit} W={W} language={language} /> : null}
 
+      {/* Under the captions, as the export draws it. */}
+      {logoAt && edit.logo && edit.logo !== "off" ? (
+        <img
+          className={styles.logo}
+          src={brandLogoUrl(logoAt)}
+          alt=""
+          aria-hidden="true"
+          style={{
+            width: `${LOGO_WIDTH * 100}%`,
+            [edit.logo.endsWith("left") ? "left" : "right"]: `${((LOGO_MARGIN * Math.min(W, H)) / W) * 100}%`,
+            [edit.logo.startsWith("top") ? "top" : "bottom"]: `${((LOGO_MARGIN * Math.min(W, H)) / H) * 100}%`,
+          }}
+        />
+      ) : null}
+
       {!playing ? <span className={styles.playHint} aria-hidden="true" /> : null}
     </div>
   );
@@ -228,6 +251,8 @@ const Captions = memo(function Captions({ lines, t, edit, W, language }: { lines
   const line = lineAt(lines, t);
   if (!line) return null;
   const style = edit.captionStyle;
+  const look = edit.look;
+  const scale = lookScale(look);
   const u = (n: number) => `calc(${n} * 100cqw / ${W})`;
   const marginV = captionMarginV(edit.aspect, edit.captionPosition);
   const place: React.CSSProperties =
@@ -236,6 +261,9 @@ const Captions = memo(function Captions({ lines, t, edit, W, language }: { lines
   line.words.forEach((w, i) => {
     if (w.start <= t) active = i;
   });
+  const caps = (text: string) => (look?.uppercase ? text.toLocaleUpperCase() : text);
+  /** A word already said keeps the highlight when the look picks out the loud ones (as in ass.ts). */
+  const pastClass = (w: { loud?: boolean }) => (look?.loudWords && w.loud ? styles.wordLoud : styles.wordPast);
 
   return (
     <p
@@ -249,23 +277,34 @@ const Captions = memo(function Captions({ lines, t, edit, W, language }: { lines
         ...place,
         left: `${MARGIN_H * 100}%`,
         right: `${MARGIN_H * 100}%`,
-        fontSize: u(ASS_SIZES[style] * ASS_EM),
-        ["--stroke" as string]: u(ASS_OUTLINE[style] * 2),
+        fontSize: u(ASS_SIZES[style] * ASS_EM * scale.size),
+        ["--stroke" as string]: u(ASS_OUTLINE[style] * 2 * scale.outline),
         ["--shadow" as string]: u(style === "clean" ? 3 : 2),
-        ["--pad" as string]: u(ASS_OUTLINE.boxed),
+        ["--pad" as string]: u(ASS_OUTLINE.boxed * scale.outline),
+        ...(look?.color ? { ["--capColor" as string]: look.color } : {}),
+        ...(look?.highlight ? { ["--capHi" as string]: look.highlight } : {}),
       }}
     >
       {style === "pop" ? (
         line.words.map((w, i) => (
           <Fragment key={i}>
-            <span className={i < active ? styles.wordPast : i === active ? styles.wordNow : styles.wordNext} data-active-word={i === active ? "" : undefined}>
-              {w.text}
+            <span className={i < active ? pastClass(w) : i === active ? styles.wordNow : styles.wordNext} data-active-word={i === active ? "" : undefined}>
+              {caps(w.text)}
             </span>
             {i < line.words.length - 1 ? wordGap(w.text, line.words[i + 1]!.text) || null : null}
           </Fragment>
         ))
       ) : (
-        <span className={styles.captionText}>{joinWords(line.words.map((w) => w.text))}</span>
+        <span className={styles.captionText}>
+          {look?.loudWords
+            ? line.words.map((w, i) => (
+                <Fragment key={i}>
+                  <span className={w.loud ? styles.wordLoud : undefined}>{caps(w.text)}</span>
+                  {i < line.words.length - 1 ? wordGap(w.text, line.words[i + 1]!.text) || null : null}
+                </Fragment>
+              ))
+            : caps(joinWords(line.words.map((w) => w.text)))}
+        </span>
       )}
     </p>
   );

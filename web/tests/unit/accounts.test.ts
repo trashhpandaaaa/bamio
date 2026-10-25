@@ -53,6 +53,9 @@ async function seed(userId: string) {
   await sql`insert into billing_accounts (user_id, data, updated_at) values (${userId}, ${sql.json({ customerId: `cus_${userId}` })}, ${now})`;
   await addUsage(userId, `import:${p.id}`, 30);
   await sql`insert into plan_grants (user_id, plan, note, created_at) values (${userId}, 'pro', 'test', ${now})`;
+  // AI minutes earned from an ad, and a view still waiting to be claimed.
+  await sql`insert into ad_credits (user_id, key, sec, at) values (${userId}, 'ad:test', 30, ${now})`;
+  await sql`insert into ad_views (id, user_id, issued_at) values (${randomUUID()}, ${userId}, ${now})`;
   await sql`insert into referral_codes (user_id, code, created_at) values (${userId}, ${`c${userId.slice(-4)}`}, ${now})`;
   await sql`insert into emails (user_id, key, template, category, data, run_after, created_at, updated_at) values (${userId}, 'k', 'video-ready', 'videos', '{}', ${now}, ${now}, ${now})`;
   await sql`insert into admins (user_id, email, added_by, created_at) values (${userId}, 'x@example.com', 'test', ${now})`;
@@ -87,6 +90,8 @@ const counts = async (userId: string) => {
     (select count(*)::int from billing_accounts where user_id = ${userId}) as billing,
     (select count(*)::int from usage_entries where user_id = ${userId}) as usage,
     (select count(*)::int from plan_grants where user_id = ${userId}) as grants,
+    (select count(*)::int from ad_credits where user_id = ${userId}) as ad_credits,
+    (select count(*)::int from ad_views where user_id = ${userId}) as ad_views,
     (select count(*)::int from referral_codes where user_id = ${userId}) as codes,
     (select count(*)::int from emails where user_id = ${userId}) as emails,
     (select count(*)::int from admins where user_id = ${userId}) as admins,
@@ -104,7 +109,7 @@ const counts = async (userId: string) => {
 async function clean() {
   const sql = db();
   for (const u of USERS) {
-    for (const t of ["projects", "jobs", "billing_accounts", "usage_entries", "plan_grants", "referral_codes", "emails", "admins", "clippers", "campaign_requests", "downloads", "caption_jobs", "account_deletions"]) {
+    for (const t of ["projects", "jobs", "billing_accounts", "usage_entries", "plan_grants", "ad_credits", "ad_views", "referral_codes", "emails", "admins", "clippers", "campaign_requests", "downloads", "caption_jobs", "account_deletions"]) {
       await sql`delete from ${sql(t)} where user_id = ${u}`;
     }
   }
@@ -144,7 +149,7 @@ describe("deleting an account", () => {
     const [row] = await db()<{ status: string; reason: string }[]>`select status, reason from account_deletions where user_id = ${GONE}`;
     expect(row).toEqual({ status: "done", reason: "self" });
 
-    expect(await counts(KEPT)).toEqual({ projects: 1, transcripts: 1, jobs: 1, billing: 1, usage: 1, grants: 1, codes: 1, emails: 1, admins: 1, clippers: 1, memberships: 1, clips: 1, payouts: 1, cards: 1, requests: 1, downloads: 1, captions: 1 });
+    expect(await counts(KEPT)).toEqual({ projects: 1, transcripts: 1, jobs: 1, billing: 1, usage: 1, grants: 1, ad_credits: 1, ad_views: 1, codes: 1, emails: 1, admins: 1, clippers: 1, memberships: 1, clips: 1, payouts: 1, cards: 1, requests: 1, downloads: 1, captions: 1 });
     // The fingerprint of the card their free trial was started with stays, tied to nobody: that card can't start another trial.
     expect(await db()`select user_id, brand, last4 from trial_cards where fingerprint = ${`fp_${GONE}`}`).toMatchObject([{ user_id: null, brand: null, last4: null }]);
     // What a campaign paid them stays as an amount, tied to nobody and without its note.

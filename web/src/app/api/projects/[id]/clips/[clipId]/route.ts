@@ -1,5 +1,6 @@
 import { clipRangeError } from "@/lib/clips/logic";
 import { clipEditSchema, updateClipSchema } from "@/lib/clips/schema";
+import { assertClipEdit } from "@/lib/server/clip-access";
 import { HttpError, readJson, userRoute } from "@/lib/server/http";
 import { stopExport } from "@/lib/server/jobs";
 import { storage } from "@/lib/server/storage";
@@ -10,6 +11,10 @@ type Params = { id: string; clipId: string };
 /** Rename, retime or restyle a clip. */
 export const PATCH = userRoute<Params>(async (req, { userId, params }) => {
   const input = await readJson(req, updateClipSchema);
+  // Paid parts of a look (4K, filler removal, a look of one's own, face tracking, a
+  // translation, the logo) are refused here rather than at export time, so the editor says so
+  // the moment the control is touched. The export checks again (clip-access.ts).
+  if (input.edit) await assertClipEdit(userId, input.edit);
   const project = await mutateProject(userId, params.id, (p) => {
     const clip = p.clips.find((c) => c.id === params.clipId);
     if (!clip) throw new HttpError(404, "not_found", "That clip doesn’t exist.");

@@ -8,6 +8,10 @@ export const ASPECTS = ["9:16", "1:1", "16:9"] as const;
 export const FRAMINGS = ["crop", "fit"] as const;
 export const CAPTION_STYLES = ["pop", "clean", "boxed"] as const;
 export const CAPTION_POSITIONS = ["bottom", "middle"] as const;
+/** Export size: the long side is 1080 or 2160 (4K needs a plan; clips/features.ts). */
+export const CLIP_QUALITIES = ["1080p", "4k"] as const;
+/** Where the brand logo is burned in, if anywhere. */
+export const LOGO_SPOTS = ["off", "top-left", "top-right", "bottom-left", "bottom-right"] as const;
 export const CLIP_LENGTHS = ["short", "medium", "long"] as const;
 // "syncing" is no longer used; it stays so projects saved with it still load.
 export const JOB_STATUSES = ["queued", "uploading", "downloading", "recording", "preparing", "transcribing", "syncing", "finding", "ready", "failed"] as const;
@@ -65,6 +69,29 @@ export const transcriptSchema = z.object({
   loudness: z.array(z.number()).max(LIMITS.maxFollowSec + 3600).optional(),
 });
 
+/** #RRGGBB, as the colour inputs give it. */
+export const hexColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/, "Choose a colour.");
+
+/**
+ * A caption look of one's own (Pro: "Custom caption styling"). Every field is optional and
+ * missing means the style's own value, so a clip saved before this existed renders exactly
+ * as it did and its export stays up to date (see exportSignature).
+ */
+export const captionLookSchema = z.object({
+  /** The words' colour, and the colour of the word being spoken (pop) or said loudest. */
+  color: hexColorSchema.optional(),
+  highlight: hexColorSchema.optional(),
+  /** Size and outline as a percentage of the chosen style's own (100 = unchanged). */
+  sizePct: z.number().min(60).max(160).optional(),
+  outlinePct: z.number().min(0).max(250).optional(),
+  uppercase: z.boolean().optional(),
+  /** Pick out the words said loudest, in any style ("pop" always colours the spoken word). */
+  loudWords: z.boolean().optional(),
+});
+
+/** A point on the path the crop follows: seconds into the clip, and focusX (0 to 1) there. */
+export const focusPointSchema = z.object({ t: z.number().min(0), x: z.number().min(0).max(1) });
+
 export const clipEditSchema = z.object({
   aspect: aspectSchema,
   framing: z.enum(FRAMINGS),
@@ -75,6 +102,24 @@ export const clipEditSchema = z.object({
   captionPosition: z.enum(CAPTION_POSITIONS),
   showTitle: z.boolean(),
   titleText: z.string().max(LIMITS.overlayTitle),
+  /*
+   * Everything below needs a plan (lib/clips/features.ts, refused by the server in
+   * lib/server/clip-access.ts) and is optional, so clips made before it renders unchanged.
+   */
+  /** 1080p unless asked otherwise. */
+  quality: z.enum(CLIP_QUALITIES).optional(),
+  /** Cut "um", "uh" and the rest out of the clip, captions and all (clips/fillers.ts). */
+  removeFillers: z.boolean().optional(),
+  look: captionLookSchema.optional(),
+  /**
+   * AI face tracking: where to centre the crop as the clip plays, found in the browser
+   * (components/clips/face-track.ts). Empty or missing means focusX for the whole clip.
+   */
+  focusPath: z.array(focusPointSchema).max(2000).optional(),
+  /** Caption the clip in this language instead of the spoken one (a translation; clips/translate.ts). */
+  captionLanguage: z.string().max(20).optional(),
+  /** Burn the account's brand logo into a corner (brand.ts). */
+  logo: z.enum(LOGO_SPOTS).optional(),
 });
 
 export const exportStateSchema = z.object({
@@ -97,6 +142,8 @@ export const clipSchema = z.object({
   origin: z.enum(["ai", "manual"]),
   score: z.number().min(0).max(100).optional(),
   reason: z.string().max(300).optional(),
+  /** What the score is made of, 1 to 10 each (hypeScore in ai/server/clips-ai.ts); shown under it. */
+  ratings: z.object({ hype: z.number().min(0).max(10), hook: z.number().min(0).max(10), payoff: z.number().min(0).max(10) }).optional(),
   edit: clipEditSchema,
   export: exportStateSchema.optional(),
   createdAt: z.number(),
@@ -209,6 +256,10 @@ export type ClipLength = z.infer<typeof clipLengthSchema>;
 export type Language = z.infer<typeof languageSchema>;
 export type CaptionStyle = (typeof CAPTION_STYLES)[number];
 export type CaptionPosition = (typeof CAPTION_POSITIONS)[number];
+export type ClipQuality = (typeof CLIP_QUALITIES)[number];
+export type LogoSpot = (typeof LOGO_SPOTS)[number];
+export type CaptionLook = z.infer<typeof captionLookSchema>;
+export type FocusPoint = z.infer<typeof focusPointSchema>;
 export type Segment = z.infer<typeof segmentSchema>;
 export type Transcript = z.infer<typeof transcriptSchema>;
 export type ClipEdit = z.infer<typeof clipEditSchema>;
@@ -299,6 +350,16 @@ export const createUploadSchema = z.object({
 });
 
 export const findClipsSchema = z.object({ clipLength: clipLengthSchema });
+
+/** Subtitle files a transcript or a clip can be downloaded as (clips/subtitles.ts). */
+export const SUBTITLE_FORMATS = ["srt", "vtt", "txt"] as const;
+export type SubtitleFormat = (typeof SUBTITLE_FORMATS)[number];
+
+/** Translate the transcript into this language, for captions in it (Pro). */
+export const translateSchema = z.object({ language: z.string().trim().min(2).max(20) });
+
+/** Render several clips at once and download them as one zip (Starter). `clipIds` empty means every clip. */
+export const batchExportSchema = z.object({ clipIds: z.array(z.string().min(1).max(64)).max(LIMITS.maxClips).optional() });
 
 /** Transcribe again: in another spoken language when one is given ("auto" to detect it again). */
 export const retranscribeSchema = z.object({ language: languageSchema.optional() });

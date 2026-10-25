@@ -3,11 +3,17 @@ import { mkdir, readFile, rm, statfs } from "node:fs/promises";
 import { clipTarget, findHighlights, transcribeChunk, tidySegments } from "@/lib/ai/server/clips-ai";
 import { aiConfigured } from "@/lib/ai/server/gemini";
 import { buildAss } from "@/lib/clips/ass";
+import { applyCuts, cutDuration, mergeCuts } from "@/lib/clips/cuts";
+import { fillerCuts } from "@/lib/clips/fillers";
+import { focusCommands } from "@/lib/clips/render";
 import { captionLines, exportSignature, overlayTitle } from "@/lib/clips/logic";
 import { isFollowing, LIMITS, TRANSCRIBER_VERSION, type Clip, type ClipLength, type JobStatus, type Language, type Project, type Segment, type Transcript } from "@/lib/clips/schema";
 import { isAbortError } from "@/lib/server/bin";
 import { assertCanProcess, hasUsage, queuePriority, recordUsage, secondsLeft } from "@/lib/server/billing";
+import { brandLogoKey } from "@/lib/server/brand";
 import { assMarkup, ensureFont, fontsNeeded } from "@/lib/server/caption-fonts";
+import { assertClipEdit } from "@/lib/server/clip-access";
+import { captionsFor, runTranslate, translationCode, translationProblem } from "@/lib/server/translate";
 import { emailMode, queueEmail } from "@/lib/server/email";
 import { HttpError } from "@/lib/server/http";
 import { limiter, type Limiter } from "@/lib/server/limiter";
@@ -261,7 +267,9 @@ async function runImport(userId: string, projectId: string, signal: AbortSignal,
 
       await job.set("preparing", 0, "Preparing the video");
       const info = await probe(original, signal);
-      if (!info.hasVideo) throw new HttpError(422, "no_video", "That file has no video in it.");
+      // Sound on its own (a podcast's MP3, an interview recording) becomes a video with a
+      // still picture, so it can be transcribed and clipped like anything else (prepareSource).
+      if (!info.hasVideo && !info.hasAudio) throw new HttpError(422, "no_video", "That file has no video or sound in it.");
       if (info.durationSec < 1) throw new HttpError(422, "too_short", "That video is too short to clip.");
       if (info.durationSec > LIMITS.maxMediaSec + 5) {
         throw new HttpError(422, "too_long", "That video is longer than 3 hours. Import a part of it instead.");
@@ -433,6 +441,7 @@ async function findClipsStep(
           origin: "ai",
           score: c.score,
           reason: c.reason,
+          ratings: c.ratings,
           edit: { ...cur.defaultEdit },
           createdAt: now + i,
         }));
@@ -605,6 +614,14 @@ async function followProject(userId: string, projectId: string, signal: AbortSig
         stop.abort();
         await mutateProject(userId, projectId, (cur) => ({ ...cur, job: { ...cur.job, warning: MINUTES_OUT } }));
       }
+      // A follow writes segments for as long as the stream runs (up to LIMITS.maxFollowSec), far
+      // past the room asked for when it started. Nothing else checks the disk while it grows, so
+      // this is what stands between a long stream and a full disk; stopping closes the playlist
+      // cleanly and the project keeps what was recorded.
+      if (!stop.signal.aborted && !(await hasDiskRoom())) {
+        stop.abort();
+        await mutateProject(userId, projectId, (cur) => ({ ...cur, job: { ...cur.job, warning: DISK_OUT } }));
+      }
       if (!captions && Date.now() >= pausedUntil) {
         captions = followWork(userId, projectId, false, signal, () => stop.abort())
           .then(() => clearCaptionsPaused(userId, projectId))
@@ -648,6 +665,8 @@ async function followProject(userId: string, projectId: string, signal: AbortSig
 
 const CAPTIONS_PAUSED = "Captions paused:";
 const MINUTES_OUT = "Your AI minutes ran out, so Bamio stopped following the stream. Everything recorded so far is kept. Pricing has plans with more minutes.";
+/** The server, not the account: say so without blaming the customer or naming the server's insides. */
+const DISK_OUT = "Bamio ran out of room for more of this stream, so it stopped following it. Everything recorded so far is kept.";
 
 async function clearCaptionsPaused(userId: string, projectId: string) {
   await mutateProject(userId, projectId, (cur) => (cur.job.warning?.startsWith(CAPTIONS_PAUSED) ? { ...cur, job: { ...cur.job, warning: undefined } } : cur));
@@ -827,12 +846,21 @@ async function runExport(userId: string, projectId: string, clipId: string, vers
   const current = await getProject(userId, projectId);
   const clip = current.clips.find((c) => c.id === clipId);
   if (!clip || clip.export?.version !== version) return; // deleted, or exported again since
+  // The plan is checked again here: the edit was saved when it was allowed, and a plan can
+  // lapse in between. Nothing is quietly dropped from a render.
+  await assertClipEdit(userId, clip.edit);
   // The render uses the clip as it is now, which may be newer than when it was queued.
   await setExport({ status: "rendering", progress: 0, signature: exportSignature(clip, current.transcriptRev) });
-  const transcript = clip.edit.captions && current.hasTranscript ? await readTranscript(userId, projectId) : null;
-  const lines = transcript ? captionLines(transcript.segments, clip.start, clip.end, clip.edit.captionStyle) : [];
+  // Captions come from the clip's chosen language where it has one (a translation), else the spoken one.
+  const transcript = clip.edit.captions ? await captionsFor(userId, current, clip.edit.captionLanguage) : null;
+  const uncut = transcript ? captionLines(transcript.segments, clip.start, clip.end, clip.edit.captionStyle, { loudness: transcript.loudness }) : [];
+  // Filler words: what to drop from the picture and the sound, and the captions moved to match.
+  const cuts = clip.edit.removeFillers ? mergeCuts(fillerCuts(uncut.flatMap((l) => l.words), transcript?.language ?? current.spokenLanguage)) : [];
+  const lines = applyCuts(uncut, cuts);
   const title = overlayTitle(clip);
-  const duration = clip.end - clip.start;
+  const span = clip.end - clip.start;
+  const duration = cutDuration(span, cuts);
+  if (duration < 0.5) throw new HttpError(422, "all_cut", "Removing the filler words leaves this clip with nothing in it.");
   // Other scripts get their own fonts (downloaded the first time they're needed).
   const language = transcript?.language ?? current.spokenLanguage;
   const fonts = await Promise.all(fontsNeeded([...lines.flatMap((l) => l.words.map((w) => w.text)), title], language).map(ensureFont));
@@ -845,9 +873,14 @@ async function runExport(userId: string, projectId: string, clipId: string, vers
           position: clip.edit.captionPosition,
           durationSec: duration,
           title,
+          quality: clip.edit.quality,
+          look: clip.edit.look,
           markup: (text, size) => assMarkup(text, size, language),
         })
       : null;
+  // Face tracking moves the crop as the clip plays; the brand logo is burned into its corner.
+  const focus = clip.edit.framing === "crop" && clip.edit.focusPath?.length ? clip.edit.focusPath : null;
+  const logo = clip.edit.logo && clip.edit.logo !== "off" ? await brandLogoKey(userId) : null;
   const target = mediaKeys(userId, projectId).export(clipId);
   const render = scratch(projectId).render(clipId);
   // A followed stream renders from its video so far.
@@ -858,13 +891,16 @@ async function runExport(userId: string, projectId: string, clipId: string, vers
         output: render.output,
         workDir: render.workDir,
         start: clip.start,
-        duration,
+        duration: span,
         srcW: current.source.width,
         srcH: current.source.height,
         hasAudio: current.source.hasAudio,
         edit: clip.edit,
         ass,
         fonts,
+        cuts,
+        focus: focus ? focusCommands(focus, current.source.width, current.source.height, clip.edit) : null,
+        logoKey: logo,
       },
       {
         signal,
@@ -879,6 +915,26 @@ async function runExport(userId: string, projectId: string, clipId: string, vers
   );
   const bytes = await storage().publish(target, render.output, "video/mp4");
   await setExport({ status: "done", progress: 1, bytes, at: Date.now(), error: undefined });
+}
+
+/* ----------------------------- Translations ----------------------------- */
+
+/** Queue a translation of the project's transcript, for captions in that language. */
+export async function startTranslate(userId: string, projectId: string, language: string): Promise<Project> {
+  const code = translationCode(language);
+  const priority = await queuePriority(userId);
+  return mutateProject(
+    userId,
+    projectId,
+    (p) => {
+      if (p.job.status !== "ready") throw new HttpError(409, "not_ready", "Wait for the video to finish processing.");
+      if (!p.hasTranscript) throw new HttpError(409, "no_transcript", "This video has no captions to translate yet.");
+      const problem = translationProblem(code, p.spokenLanguage);
+      if (problem) throw new HttpError(400, "bad_language", problem);
+      return p;
+    },
+    { then: (tx) => enqueue({ kind: "translate", userId, projectId, clipId: code, payload: { language: code }, priority, maxAttempts: 2 }, tx) },
+  );
 }
 
 /* ------------------------------ Stopping ------------------------------ */
@@ -923,19 +979,57 @@ export async function cancelJob(job: { kind: JobKind; userId: string; projectId:
   await settle.catch(() => undefined);
 }
 
+/**
+ * Never taken by media: the database lives on the same disk, and a Postgres that can't write its
+ * checkpoint panics and takes the site down with it (it did, on 2026-10-15, at 0 bytes free). A
+ * job's own estimate is rough and exports and renders write without asking, so the reserve is
+ * what keeps the gap between "no room for this video" and "no room for the database" wide.
+ */
+export const DISK_RESERVE_BYTES = 3 * 1024 ** 3;
+
+/** The folders whose disk a job writes to: the scratch folder's, and the data folder's when media are kept there. */
+const diskRoots = () => (storage().name === "local" ? [workRoot(), dataRoot()] : [workRoot()]);
+
 /** Refuse new work when the disk is nearly full: the scratch folder's, and the data folder's when media are kept there. */
 export async function assertDiskSpace(bytesNeeded: number) {
-  for (const root of storage().name === "local" ? [workRoot(), dataRoot()] : [workRoot()]) {
+  for (const root of diskRoots()) {
     try {
       await mkdir(root, { recursive: true });
       const fs = await statfs(root);
       const free = Number(fs.bavail) * Number(fs.bsize);
-      if (free < bytesNeeded + 512 * 1024 * 1024) throw new HttpError(507, "no_space", "The server is running out of disk space. Delete some projects first.");
+      if (free < bytesNeeded + DISK_RESERVE_BYTES) throw new HttpError(507, "no_space", "The server is running out of disk space. Delete some projects first.");
     } catch (err) {
       if (err instanceof HttpError) throw err;
       // statfs can fail on unusual file systems; don't block the user on it.
     }
   }
+}
+
+/**
+ * Whether there is still room for work that keeps writing after it started (a followed stream).
+ * True where no disk could be read: the same benefit of the doubt assertDiskSpace gives.
+ */
+export async function hasDiskRoom(): Promise<boolean> {
+  const room = await diskStatus();
+  return !room || room.freeBytes >= DISK_RESERVE_BYTES;
+}
+
+/**
+ * How much room is left where media are written: the tightest of the folders a job writes to.
+ * Null where no disk could be read (an unusual file system), which is not a problem to report.
+ */
+export async function diskStatus(): Promise<{ freeBytes: number; totalBytes: number } | null> {
+  let tightest: { freeBytes: number; totalBytes: number } | null = null;
+  for (const root of diskRoots()) {
+    try {
+      const fs = await statfs(root);
+      const seen = { freeBytes: Number(fs.bavail) * Number(fs.bsize), totalBytes: Number(fs.blocks) * Number(fs.bsize) };
+      if (!tightest || seen.freeBytes < tightest.freeBytes) tightest = seen;
+    } catch {
+      // statfs can fail on unusual file systems; say nothing rather than raise a false alarm.
+    }
+  }
+  return tightest;
 }
 
 /* ------------------------------ Workers ------------------------------ */
@@ -968,6 +1062,10 @@ export const jobSpecs: Record<JobKind, KindSpec> = {
     timeoutMs: (LIMITS.maxFollowSec + 2 * 3600) * 1000,
   },
   "finish-follow": { run: (job, { signal }) => finishFollow(job.userId, job.projectId, signal), timeoutMs: 6 * HOUR },
+  translate: {
+    run: (job, { signal }) => runTranslate(job.userId, job.projectId, String(job.payload.language ?? job.clipId ?? ""), signal),
+    timeoutMs: 2 * HOUR,
+  },
 };
 
 /**
@@ -979,4 +1077,7 @@ export const jobPools = (): Pool[] => [
   { name: "imports", kinds: ["import", "analyze", "retranscribe"], concurrency: slots("BAMIO_IMPORT_SLOTS", 2), perUserMax: 2 },
   { name: "exports", kinds: ["export"], concurrency: slots("BAMIO_EXPORT_SLOTS", 2), perUserMax: 2 },
   { name: "streams", kinds: ["follow", "finish-follow"], concurrency: slots("BAMIO_STREAM_SLOTS", 4), perUserMax: 2 },
+  // Translating waits on Gemini, not on this machine, so it has its own slots and takes none
+  // from the transcriber (which wants every CPU thread it can get).
+  { name: "translations", kinds: ["translate"], concurrency: slots("BAMIO_TRANSLATE_SLOTS", 2), perUserMax: 1 },
 ];

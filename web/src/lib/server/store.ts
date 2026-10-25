@@ -54,6 +54,16 @@ export function userMediaPrefix(userId: string) {
 }
 
 /**
+ * An account's brand kit: its logo, under the account's own prefix, so deleting the account
+ * deletes it with everything else (brand.ts). The extension is part of the key, since the
+ * file is served again as the kind of picture it is.
+ */
+export function brandKeys(userId: string) {
+  const base = `${userMediaPrefix(userId)}/brand`;
+  return { prefix: base, logo: (ext: string) => `${base}/logo.${ext.replace(/[^a-z0-9]/gi, "").toLowerCase() || "png"}` };
+}
+
+/**
  * Where a project's media are kept (storage.ts): keys in the same layout as the data folder,
  * so with local storage they're the same files as before.
  */
@@ -372,6 +382,73 @@ export async function usageBetween(userId: string, start: number, end: number): 
 export async function hasUsage(userId: string, key: string): Promise<boolean> {
   const [row] = await db()`select 1 from usage_entries where user_id = ${userId} and key = ${key}`;
   return Boolean(row);
+}
+
+/* ------------------------------ Earned AI minutes ------------------------------ */
+
+/*
+ * The ad_credits ledger (src/lib/ads.ts, src/lib/server/ad-credits.ts): signed rows whose sum
+ * is the account's balance of earned AI seconds. Earning adds, spending subtracts, and every
+ * row is keyed by the event behind it, so nothing counts twice.
+ */
+
+/** Add a signed row to the ledger. Writing the same key again does nothing: false means it was already there. */
+export async function addAdCredit(userId: string, key: string, sec: number, at = Date.now()): Promise<boolean> {
+  if (!USER_ID.test(userId)) throw new HttpError(400, "bad_request", "Unknown user.");
+  const rows = await db()`insert into ad_credits (user_id, key, sec, at) values (${userId}, ${key}, ${sec}, ${at})
+    on conflict (user_id, key) do nothing returning 1`;
+  return rows.length > 0;
+}
+
+/** Earned AI seconds not yet spent. Never below zero: only `min(balance, …)` is ever taken off. */
+export async function adCreditsLeft(userId: string): Promise<number> {
+  const [{ sec } = { sec: 0 }] = await db()<{ sec: number }[]>`
+    select coalesce(sum(sec), 0)::float8 as sec from ad_credits where user_id = ${userId}`;
+  return Math.max(0, sec);
+}
+
+/** Seconds *earned* since `since` (spending is ignored), for the daily cap. */
+export async function adCreditsEarnedSince(userId: string, since: number): Promise<number> {
+  const [{ sec } = { sec: 0 }] = await db()<{ sec: number }[]>`
+    select coalesce(sum(sec), 0)::float8 as sec from ad_credits where user_id = ${userId} and sec > 0 and at >= ${since}`;
+  return sec;
+}
+
+/**
+ * Seconds of AI processing in [start, end) that earned time paid for, as a positive number.
+ * Usage is counted once in usage_entries whoever pays for it, so taking this off leaves what the
+ * account's own plan or trial minutes went on (measure and trial in billing.ts).
+ */
+export async function adCreditsSpentBetween(userId: string, start: number, end: number): Promise<number> {
+  const [{ sec } = { sec: 0 }] = await db()<{ sec: number }[]>`
+    select coalesce(-sum(sec), 0)::float8 as sec from ad_credits where user_id = ${userId} and sec < 0 and at >= ${start} and at < ${end}`;
+  return sec;
+}
+
+/** Offer an ad view: the row the claim is checked against. */
+export async function openAdView(userId: string, id: string, at = Date.now()): Promise<void> {
+  if (!USER_ID.test(userId)) throw new HttpError(400, "bad_request", "Unknown user.");
+  await db()`insert into ad_views (id, user_id, issued_at) values (${id}, ${userId}, ${at})`;
+}
+
+/**
+ * Claim an offered view, if it is this user's, unclaimed, and was offered between `minMs` and
+ * `maxMs` ago. One UPDATE, so two claims racing can't both win. Null: no such view to claim.
+ */
+export async function claimAdView(userId: string, id: string, opts: { minMs: number; maxMs: number; now?: number }): Promise<{ issuedAt: number } | null> {
+  if (!USER_ID.test(userId) || !UUID.test(id)) return null;
+  const now = opts.now ?? Date.now();
+  const [row] = await db()<{ issued_at: number }[]>`
+    update ad_views set claimed_at = ${now}
+     where id = ${id} and user_id = ${userId} and claimed_at is null
+       and issued_at <= ${now - opts.minMs} and issued_at >= ${now - opts.maxMs}
+     returning issued_at::float8 as issued_at`;
+  return row ? { issuedAt: row.issued_at } : null;
+}
+
+/** Drop views too old to claim, so the table stays the size of what's in flight. */
+export async function sweepAdViews(before: number): Promise<void> {
+  await db()`delete from ad_views where issued_at < ${before}`;
 }
 
 /** A validated document as postgres.js's JSON type (it's plain JSON: no dates, functions or undefined left after JSON round-trips). */

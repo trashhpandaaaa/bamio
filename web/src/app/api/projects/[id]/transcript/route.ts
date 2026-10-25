@@ -2,14 +2,18 @@ import { splitWords } from "@/lib/clips/logic";
 import { updateSegmentSchema, type Transcript } from "@/lib/clips/schema";
 import { HttpError, readJson, userRoute } from "@/lib/server/http";
 import { getProject, mutateProject, readTranscript, writeTranscript } from "@/lib/server/store";
+import { captionsFor } from "@/lib/server/translate";
 
 type Params = { id: string };
 
-export const GET = userRoute<Params>(async (_req, { userId, params }) => {
+export const GET = userRoute<Params>(async (req, { userId, params }) => {
   const project = await getProject(userId, params.id);
-  const transcript: Transcript = (project.hasTranscript ? await readTranscript(userId, project.id) : null) ?? { segments: [] };
-  // The editor needs the words; the loudness (the clip finder's, up to 40 KB) stays on the server.
-  return Response.json({ language: transcript.language, segments: transcript.segments } satisfies Transcript);
+  const language = new URL(req.url).searchParams.get("lang");
+  // A translation when the clip is captioned in one, so the editor shows the words it will burn in.
+  const transcript: Transcript = (project.hasTranscript ? await captionsFor(userId, project, language ?? undefined) : null) ?? { segments: [] };
+  // The loudness comes too (one number a second, about 40 KB for three hours): the preview needs
+  // it to pick out the same loud words the export does, and there is only one way to decide them.
+  return Response.json({ language: transcript.language, segments: transcript.segments, loudness: transcript.loudness } satisfies Transcript);
 });
 
 /**

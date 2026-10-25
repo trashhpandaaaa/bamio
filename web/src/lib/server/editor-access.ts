@@ -1,17 +1,11 @@
 import "server-only";
-import { TOP_LEVEL, type EditorLevel } from "@/lib/editor/features";
-import { adminOf } from "@/lib/server/admin";
-import { billingEnabled, billingState } from "@/lib/server/billing";
+import type { EditorLevel } from "@/lib/editor/features";
+import { planLevel } from "@/lib/server/plan-level";
 
 /*
- * Which of the editor's features an account has (lib/editor/features.ts): the plan that works
- * for it now, paid or given without paying. The free trial isn't a plan, and neither is a plan
- * that has ended. Admins have everything, since they answer for all of it. With plans off (no
- * Stripe key) nothing is limited, as everywhere else.
+ * Which of the editor's features an account has (lib/editor/features.ts). The rung it stands
+ * on is worked out once, for the editor and the clip side alike: lib/server/plan-level.ts.
  */
 export async function editorLevel(userId: string): Promise<EditorLevel> {
-  if (!billingEnabled()) return TOP_LEVEL;
-  const state = await billingState(userId);
-  if (state.active && state.plan) return state.plan;
-  return (await adminOf(userId)) ? TOP_LEVEL : "free";
+  return planLevel(userId);
 }

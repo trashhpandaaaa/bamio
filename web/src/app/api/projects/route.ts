@@ -1,5 +1,6 @@
 import { createFromUrlSchema, LIMITS } from "@/lib/clips/schema";
 import { assertCanProcess, projectLimit } from "@/lib/server/billing";
+import { brandDefaults } from "@/lib/server/brand";
 import { HttpError, readJson, userRoute } from "@/lib/server/http";
 import { assertDiskSpace, plannedStages, startFollow, startImport } from "@/lib/server/jobs";
 import { liveCaptureProblem } from "@/lib/clips/live";
@@ -50,7 +51,7 @@ export const POST = userRoute(
         findClips: input.findClips,
         clipLength: input.clipLength,
         language: input.language,
-        edit: input.edit,
+        edit: await brandDefaults(userId, input.edit),
         job: { status: "queued", message: "Waiting to start" },
       });
       // Following: connecting is the only step; captions and clips come while it grows.
@@ -85,7 +86,7 @@ export const POST = userRoute(
       findClips: input.findClips,
       clipLength: input.clipLength,
       language: input.language,
-      edit: input.edit,
+      edit: await brandDefaults(userId, input.edit),
       job: { status: "queued", message: "Waiting to start" },
     });
     const project = { ...draft, job: { ...draft.job, stages: plannedStages(draft) } };

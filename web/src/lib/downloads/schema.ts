@@ -26,6 +26,26 @@ export const DOWNLOAD_LIMITS = {
   url: 2000,
 } as const;
 
+export type DownloadLimits = { maxDurationSec: number; perDay: number; atOnce: number; keepHours: number; url: number };
+
+/**
+ * What a plan raises the limits to. The downloader stays free and useful without one (the
+ * numbers above), and these protect the server rather than sell anything: the database shares
+ * the Droplet's disk, so nobody gets an unlimited allowance. Loosen them with that disk in
+ * mind, not by what sounds generous.
+ */
+export const DOWNLOAD_LIMITS_BY_PLAN: Record<string, { perDay: number; atOnce: number }> = {
+  starter: { perDay: 40, atOnce: 4 },
+  pro: { perDay: 80, atOnce: 5 },
+  team: { perDay: 150, atOnce: 6 },
+};
+
+/** The limits for an account on `plan` (null without one). */
+export function downloadLimits(plan: string | null): DownloadLimits {
+  const raised = plan ? DOWNLOAD_LIMITS_BY_PLAN[plan] : undefined;
+  return { ...DOWNLOAD_LIMITS, ...(raised ?? {}) };
+}
+
 export type DownloadStatus = "queued" | "working" | "ready" | "failed";
 
 /** A download, as its owner sees it. */
@@ -49,7 +69,8 @@ export type Download = {
 };
 
 /** What the page shows: the account's downloads, and how many more it may start today. */
-export type DownloadList = { downloads: Download[]; leftToday: number };
+/** `perDay` and `atOnce` are this account's own, which a plan raises (downloadLimits). */
+export type DownloadList = { downloads: Download[]; leftToday: number; perDay: number; atOnce: number };
 
 export const downloadRequestSchema = z.object({
   url: z.string().trim().min(1, "Paste a link to a video.").max(DOWNLOAD_LIMITS.url, "That link is too long."),

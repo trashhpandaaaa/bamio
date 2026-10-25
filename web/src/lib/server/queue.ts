@@ -11,7 +11,7 @@ import { db, type Sql, type Tx } from "@/lib/server/db";
  * when a job is queued, and poll as a fallback (worker.ts).
  */
 
-export const JOB_KINDS = ["import", "analyze", "retranscribe", "export", "follow", "finish-follow"] as const;
+export const JOB_KINDS = ["import", "analyze", "retranscribe", "export", "follow", "finish-follow", "translate"] as const;
 export type JobKind = (typeof JOB_KINDS)[number];
 export type JobStatus = "queued" | "running" | "done" | "failed" | "cancelled";
 
@@ -182,7 +182,9 @@ export async function activeJobs(projectIds: string[], sql: Sql | Tx = db()): Pr
     const id = String(r.project_id);
     const entry = map.get(id) ?? { kinds: new Set<JobKind>(), clips: new Set<string>() };
     entry.kinds.add(r.kind as JobKind);
-    if (r.clip_id) entry.clips.add(String(r.clip_id));
+    // Only an export's clip_id names a clip; a translation keeps its language there, so that
+    // one job per project and language is what the unique index allows.
+    if (r.clip_id && r.kind === "export") entry.clips.add(String(r.clip_id));
     map.set(id, entry);
   }
   return map;

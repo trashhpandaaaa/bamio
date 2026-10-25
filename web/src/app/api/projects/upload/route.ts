@@ -1,5 +1,6 @@
 import { createUploadSchema, LIMITS, UPLOAD_CHUNK_BYTES } from "@/lib/clips/schema";
 import { assertCanProcess, projectLimit } from "@/lib/server/billing";
+import { brandDefaults } from "@/lib/server/brand";
 import { readJson, userRoute } from "@/lib/server/http";
 import { assertDiskSpace, plannedStages } from "@/lib/server/jobs";
 import { storage } from "@/lib/server/storage";
@@ -23,7 +24,7 @@ export const POST = userRoute(
       findClips: input.findClips,
       clipLength: input.clipLength,
       language: input.language,
-      edit: input.edit,
+      edit: await brandDefaults(userId, input.edit),
       job: { status: "uploading", message: "Uploading" },
       upload: { fileName: input.fileName, size: input.size, received: 0 },
     });

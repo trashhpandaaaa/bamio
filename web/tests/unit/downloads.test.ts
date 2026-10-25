@@ -90,11 +90,15 @@ describe("a download", () => {
     dir = await mkdtemp(path.join(tmpdir(), "bamio-downloads-"));
     process.env.BAMIO_DATA_DIR = path.join(dir, "data");
     process.env.BAMIO_WORK_DIR = path.join(dir, "work");
+    // What's tested here are the limits a free account gets. With plans off nothing is limited,
+    // so planLevel puts everyone on the top plan and raises them (DOWNLOAD_LIMITS_BY_PLAN).
+    process.env.STRIPE_SECRET_KEY = "sk_test_unit";
   });
   afterAll(async () => {
     await clean();
     delete process.env.BAMIO_DATA_DIR;
     delete process.env.BAMIO_WORK_DIR;
+    delete process.env.STRIPE_SECRET_KEY;
     await rm(dir, { recursive: true, force: true });
   });
   beforeEach(clean);
@@ -105,9 +109,11 @@ describe("a download", () => {
     expect(asked).toEqual(["https://vm.tiktok.com/abc"]);
     // Kept under the page the site names, not the short link that was pasted.
     expect(made).toMatchObject({ url: "https://www.tiktok.com/@a/video/123", title: "A dance", platform: "other", durationSec: 42, status: "queued", progress: null, error: null, sizeBytes: null, createdAt: 1000, expiresAt: null });
-    expect(await listDownloads(ADA, 2000)).toEqual({ downloads: [made], leftToday: DOWNLOAD_LIMITS.perDay - 1 });
+    // The list carries the account's own limits, so the page can say what's left of them.
+    const free = { perDay: DOWNLOAD_LIMITS.perDay, atOnce: DOWNLOAD_LIMITS.atOnce };
+    expect(await listDownloads(ADA, 2000)).toEqual({ downloads: [made], leftToday: DOWNLOAD_LIMITS.perDay - 1, ...free });
     // Nobody else's.
-    expect(await listDownloads(BEN, 2000)).toEqual({ downloads: [], leftToday: DOWNLOAD_LIMITS.perDay });
+    expect(await listDownloads(BEN, 2000)).toEqual({ downloads: [], leftToday: DOWNLOAD_LIMITS.perDay, ...free });
   });
 
   it("is refused for YouTube before the site is asked, and when a short link turns out to be YouTube", async () => {

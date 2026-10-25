@@ -4,7 +4,7 @@ import robots from "@/app/robots";
 import sitemap from "@/app/sitemap";
 import { PLANS } from "@/lib/billing/plans";
 import { CAPTION_LANGUAGES, captionLanguageMeta, punctuated } from "@/lib/caption-languages";
-import { ADSENSE_CLIENT, ADSENSE_SCRIPT } from "@/lib/ads";
+import { AD_NETWORK_HOST, AD_TAG } from "@/lib/ads";
 import { CONTACT_EMAIL, CONTACT_MAILTO, SUPPORT_EMAIL, SUPPORT_MAILTO } from "@/lib/contact";
 import { COMPANY, LEGAL_PAGES } from "@/lib/legal";
 import { fontRuns } from "@/lib/server/caption-fonts";
@@ -84,11 +84,17 @@ describe("search engines", () => {
     expect(m.twitter).toMatchObject({ card: "summary_large_image" });
   });
 
-  it("find the ads' publisher in ads.txt, the same one the script names", () => {
-    expect(ADSENSE_CLIENT).toMatch(/^ca-pub-[0-9]{16}$/);
-    expect(ADSENSE_SCRIPT).toBe(`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${ADSENSE_CLIENT}`);
-    // ads.txt: who may sell this site's ad space. Google's line, with the publisher id without its "ca-".
-    expect(readFileSync("public/ads.txt", "utf8").trim()).toBe(`google.com, ${ADSENSE_CLIENT.replace("ca-", "")}, DIRECT, f08c47fec0942fa0`);
+  it("get the ad network's own tag in every page, with nothing left over from AdSense", () => {
+    expect(AD_TAG).toContain(`//${AD_NETWORK_HOST}/`);
+    // The loader reads `settings` off its own element, so it only works inline in the page.
+    expect(AD_TAG).toContain("d.currentScript");
+    const layout = readFileSync("src/app/layout.tsx", "utf8");
+    expect(layout).toContain("AD_TAG");
+    // AdSense is gone: it forbids giving people anything for watching an ad, which earned
+    // minutes do (src/lib/ads.ts). Nothing may claim it any more, ads.txt included.
+    expect(layout).not.toMatch(/adsense|googlesyndication/i);
+    expect(existsSync("public/ads.txt")).toBe(false);
+    expect(readFileSync("src/app/privacy/page.tsx", "utf8")).not.toMatch(/adsense/i);
   });
 
   it("get structured data with the real prices, and plain-text answers", () => {

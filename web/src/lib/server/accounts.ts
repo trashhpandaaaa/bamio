@@ -9,6 +9,7 @@ import { reportError } from "@/lib/server/monitor";
 import { storage } from "@/lib/server/storage";
 import { isUserId, scratch, userMediaPrefix } from "@/lib/server/store";
 import { deleteCaptionsOf } from "@/lib/server/editor-captions";
+import { deleteTeamRows } from "@/lib/server/teams";
 import { releaseTrialCard } from "@/lib/server/trial-cards";
 
 /*
@@ -21,7 +22,7 @@ import { releaseTrialCard } from "@/lib/server/trial-cards";
  *   2. The user's running jobs stopped.
  *   3. Their media (storage) and work in progress (scratch folders) removed.
  *   4. Every row about them: projects (with transcripts and jobs), billing, usage, free plans,
- *      referrals, emails, admin role, and in campaigns their clipper details, memberships,
+ *      minutes earned from ads, referrals, emails, admin role, and in campaigns their clipper details, memberships,
  *      clips and requests to run one (a campaign already made from a request stays). Payments recorded to them keep only the amount (it was spent from a campaign's
  *      budget), no longer tied to anyone. So does the card their free trial was started with:
  *      only Stripe's fingerprint of it stays, so the card can't start another trial.
@@ -80,6 +81,9 @@ export async function deleteAccountData(userId: string, deps: AccountDeps = defa
     await tx`delete from billing_accounts where user_id = ${userId}`;
     await tx`delete from usage_entries where user_id = ${userId}`;
     await tx`delete from plan_grants where user_id = ${userId}`;
+    // AI minutes earned by watching ads, and the views waiting to be claimed.
+    await tx`delete from ad_credits where user_id = ${userId}`;
+    await tx`delete from ad_views where user_id = ${userId}`;
     await tx`delete from referrals where referrer_user_id = ${userId} or referred_user_id = ${userId}`;
     await tx`delete from referral_codes where user_id = ${userId}`;
     await tx`delete from emails where user_id = ${userId}`;
@@ -91,6 +95,10 @@ export async function deleteAccountData(userId: string, deps: AccountDeps = defa
     await tx`delete from clippers where user_id = ${userId}`;
     // Their files went with the rest of the account's media, above.
     await tx`delete from downloads where user_id = ${userId}`;
+    // The caption look and the logo they saved (the logo's bytes went with the media).
+    await tx`delete from brand_kits where user_id = ${userId}`;
+    // Their own team, and the seat they held on someone else's.
+    await deleteTeamRows(tx, userId);
     await releaseTrialCard(userId, tx);
   });
   await deps.deleteClerkUser(userId);

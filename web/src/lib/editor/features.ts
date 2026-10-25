@@ -1,4 +1,5 @@
-import { PLANS, type PlanId } from "@/lib/billing/plans";
+import { gate, LEVELS, TOP_LEVEL, type Level } from "@/lib/billing/levels";
+import type { PlanId } from "@/lib/billing/plans";
 
 /*
  * What the editor gives to whom. The basics are free for every account: cutting, combining,
@@ -12,13 +13,13 @@ import { PLANS, type PlanId } from "@/lib/billing/plans";
  * The editor runs in the browser, so these are locks on its own controls, not on a server:
  * someone set on it could open them in their own browser. They are there to be fair to the
  * people who pay, not to be unbreakable. A feature that needs the server can check the plan
- * there (billing.ts).
+ * there (billing.ts); the clip side does, and its own table is lib/clips/features.ts.
  */
 
-/** No plan, then the plans from the smallest up. With plans off (no Stripe key) everyone is at the top. */
-export const EDITOR_LEVELS = ["free", "starter", "pro", "team"] as const;
-export type EditorLevel = (typeof EDITOR_LEVELS)[number];
-export const TOP_LEVEL: EditorLevel = "team";
+/** The ladder every paid feature stands on (billing/levels.ts), under the editor's old names. */
+export const EDITOR_LEVELS = LEVELS;
+export type EditorLevel = Level;
+export { TOP_LEVEL };
 
 export const EDITOR_FEATURES = {
   hd: { needs: "starter", name: "1080p export" },
@@ -37,8 +38,10 @@ export const EDITOR_FEATURES = {
 } as const satisfies Record<string, { needs: PlanId; name: string }>;
 export type EditorFeature = keyof typeof EDITOR_FEATURES;
 
+const editor = gate(EDITOR_FEATURES);
+
 /** Whether an account at `level` has `feature`. */
-export const can = (level: EditorLevel, feature: EditorFeature): boolean => EDITOR_LEVELS.indexOf(level) >= EDITOR_LEVELS.indexOf(EDITOR_FEATURES[feature].needs);
+export const can = (level: EditorLevel, feature: EditorFeature): boolean => editor.can(level, feature);
 
 /** The plan a feature starts at, by its name: "Starter", "Pro". */
-export const planFor = (feature: EditorFeature): string => PLANS[EDITOR_FEATURES[feature].needs].name;
+export const planFor = (feature: EditorFeature): string => editor.planFor(feature);

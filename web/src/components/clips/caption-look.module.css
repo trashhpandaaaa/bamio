@@ -1,0 +1,12 @@
+/* A caption look of one's own, in the clip editor's inspector (caption-look.tsx). */
+.look { display: grid; gap: var(--s-3); }
+.colors { display: flex; flex-wrap: wrap; gap: var(--s-4); }
+/* A colour of one's own: the browser's picker as a swatch, as the video editor shows it. */
+.colorPick { display: flex; align-items: center; gap: var(--s-2); font: var(--t-body-sm); cursor: pointer; }
+.colorPick input { width: 32px; height: 32px; padding: 0; border: 2px solid var(--line-control); border-radius: 50%; background: none; cursor: pointer; }
+.colorPick input::-webkit-color-swatch-wrapper { padding: 0; }
+.colorPick input::-webkit-color-swatch { border: none; border-radius: 50%; }
+.colorPick input:disabled { opacity: .5; cursor: not-allowed; }
+.colorPick input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.range { width: 100%; min-height: var(--s-6); accent-color: var(--volt); }
+.switchRow { display: flex; align-items: center; justify-content: space-between; gap: var(--s-3); min-height: var(--s-6); font: var(--t-body-sm); cursor: pointer; }

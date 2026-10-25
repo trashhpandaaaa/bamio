@@ -8,6 +8,7 @@ import { useBilling } from "@/hooks/use-billing";
 import { useTrialCard } from "@/hooks/use-trial-card";
 import { cardLabel, formatPrice, FREE_TRIAL, minutesLeft, PLANS, REFERRAL_REWARD_CENTS, usedMinutes, type BillingState, type ReferralState } from "@/lib/billing/plans";
 import { api } from "@/lib/clips/api";
+import { EarnMinutesPanel } from "./earn-minutes";
 import styles from "./billing.module.css";
 
 const formatDate = (ms: number) => new Date(ms).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" });
@@ -186,6 +187,8 @@ export function BillingView({ arrived, returnedCard }: { arrived: "checkout" | "
         </>
       )}
 
+      {/* Ads pay for AI time (lib/ads.ts): open to every account here, plan or no plan. */}
+      {billing?.enabled && billing.credits.enabled ? <EarnMinutesPanel credits={billing.credits} onEarned={refresh} /> : null}
       {billing?.enabled ? <ReferralPanel /> : null}
     </main>
   );

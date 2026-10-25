@@ -72,3 +72,12 @@ export function loudnessMarks(lines: { start: number; end: number }[], loudness:
   // fifth can be that level itself.
   return level.map((v) => (v >= loudest && v >= median + 6 ? "!!" : v >= loud && v >= median + 3 ? "!" : ""));
 }
+
+/**
+ * Which of these moments are the loud ones, by the same measure as the marks above: used to
+ * pick out the words a speaker said loudest in a caption ("Custom caption styling"). All
+ * false when the sound hardly varies, so a level reading never gets every word coloured.
+ */
+export function loudMoments(spans: { start: number; end: number }[], loudness: number[] | undefined): boolean[] {
+  return loudnessMarks(spans, loudness).map((mark) => mark !== "");
+}

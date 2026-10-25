@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { AdCreditState } from "@/lib/ads";
 
 /*
  * Bamio's plans, shared by the pricing page and the server: prices, what each plan includes,
@@ -61,9 +62,12 @@ export const PLANS: Record<PlanId, Plan> = {
       { text: "Picture-in-picture and layouts", detail: "In the editor: facecam on top, split screen, a video over a video" },
       { text: "Loudness levelling", detail: "In the editor: exports at the loudness TikTok, Reels and Shorts play at" },
       { text: "Several shapes in one export", detail: "In the editor: 9:16, 1:1, 4:5 and 16:9 from one edit" },
+      { text: "Brand kit", detail: "Save your caption look and logo once; every new clip starts with it" },
+      { text: "Export every clip at once", detail: "Render the whole project and download it as one zip" },
       { text: "No watermark" },
       { text: "Vertical, square and wide clips", detail: "9:16, 1:1 or 16:9; drag the picture to reframe" },
       { text: "Basic caption styles" },
+      { text: "Subtitle files", detail: "Download any clip’s captions as SRT or VTT, or the whole transcript" },
       { text: "Captions in over 100 languages", detail: "Detected for you, with a time for every word" },
       { text: "Live stream capture", detail: "YouTube, Twitch and Kick: a part, or follow the whole stream" },
       { text: "1 user" },
@@ -95,10 +99,12 @@ export const PLANS: Record<PlanId, Plan> = {
       { text: "Cut to the beat", detail: "In the editor: finds the music’s beat and puts the cuts on it" },
       { text: "Green screen", detail: "In the editor: takes out a green background" },
       { text: "4K and longer exports", detail: "In the editor: 4K, and up to an hour saved straight to disk (Chrome and Edge)" },
-      soon("4K export"),
-      soon("Filler-word removal"),
-      soon("AI face tracking"),
-      soon("Custom caption styling"),
+      { text: "4K export", detail: "Clips rendered at 2160p instead of 1080p" },
+      { text: "Filler-word removal", detail: "“Um”, “uh” and the rest cut out of a clip, captions and all" },
+      { text: "AI face tracking", detail: "A wide clip turned vertical follows the speaker instead of sitting still" },
+      { text: "Custom caption styling", detail: "Your own colours, size, outline and capitals, and the loud words picked out" },
+      { text: "Captions in another language", detail: "A clip’s captions translated, keeping the time of every word" },
+      soon("Post to TikTok, Reels and Shorts"),
       { text: "Extended storage", detail: "Keep up to 150 projects" },
       { text: "Commercial usage" },
       { text: "Priority support" },
@@ -118,7 +124,7 @@ export const PLANS: Record<PlanId, Plan> = {
       { text: "Priority processing", detail: "Your videos go first in the queue" },
       { text: "Increased storage", detail: "Keep up to 400 projects" },
       { text: "Commercial/client usage" },
-      soon("Up to 5 team members"),
+      { text: "Up to 5 team members", detail: "Invite your team by email: they work in their own account on your plan’s minutes" },
       { text: "Priority support" },
     ],
   },
@@ -189,10 +195,20 @@ export type BillingState = {
   /** The plan was given without paying (plan_grants), for good: no price or renewal. */
   granted: boolean;
   /**
+   * The plan is a seat on someone else's Team plan (lib/server/teams.ts): it works in full,
+   * but the owner pays for it and only they can change or cancel it.
+   */
+  shared: boolean;
+  /**
    * Without a plan, for an account that never had one: the free first video's minutes
    * (FREE_TRIAL), used and given, and the card it was started with (null: one must be added first).
    */
   trial: { usedSec: number; allowanceSec: number; card: { brand: string; last4: string } | null } | null;
+  /**
+   * AI minutes earned by watching ads (src/lib/ads.ts): a balance beside the plan, open to any
+   * signed-in account, spent once the plan's or the trial's own minutes for the period are gone.
+   */
+  credits: AdCreditState;
 };
 
 const CARD_BRANDS: Record<string, string> = { visa: "Visa", mastercard: "Mastercard", amex: "American Express", discover: "Discover", diners: "Diners Club", jcb: "JCB", unionpay: "UnionPay" };

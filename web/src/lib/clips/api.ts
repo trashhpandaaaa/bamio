@@ -1,3 +1,4 @@
+import type { AdCreditState, AdView } from "@/lib/ads";
 import type { BillingState, Interval, PlanId, ReferralState } from "@/lib/billing/plans";
 import type { CampaignInput, CampaignRequestInput, ClipperInput, JoinedCampaign, MyCampaign, MyCampaignRequest, MyClipper } from "@/lib/campaigns/schema";
 import type {
@@ -9,9 +10,15 @@ import type {
   SystemStatus,
   Transcript,
 } from "@/lib/clips/schema";
+import type { SubtitleFormat } from "@/lib/clips/schema";
 import type { Download, DownloadList } from "@/lib/downloads/schema";
+import type { BrandKit, BrandLook } from "@/lib/clips/brand";
 import type { CaptionJob } from "@/lib/server/editor-captions";
 import type { EditorSource } from "@/lib/server/editor-source";
+import type { TeamMember } from "@/lib/server/teams";
+
+/** What /api/team tells the billing page: the owner's list, and whether this account is on someone's team. */
+export type TeamState = { seats: number; members: TeamMember[]; onTeam: boolean };
 
 /* Browser client for the /api routes. Errors carry the server's user-facing message. */
 
@@ -78,7 +85,9 @@ export const api = {
   applyLook: (id: string, clipId: string) => request<Project>("PATCH", base(id), { applyEditFrom: clipId }),
   deleteProject: (id: string) => request<void>("DELETE", base(id)),
   retry: (id: string) => request<Project>("POST", `${base(id)}/retry`),
-  transcript: (id: string, signal?: AbortSignal) => request<Transcript>("GET", `${base(id)}/transcript`, undefined, signal),
+  /** `lang`: one of the project's translations, instead of the spoken language. */
+  transcript: (id: string, signal?: AbortSignal, lang?: string) =>
+    request<Transcript>("GET", `${base(id)}/transcript${lang ? `?lang=${encodeURIComponent(lang)}` : ""}`, undefined, signal),
   updateSegment: (id: string, index: number, text: string) => request<{ transcriptRev: number }>("PATCH", `${base(id)}/transcript`, { index, text }),
   findClips: (id: string, clipLength: ClipLength) => request<Project>("POST", `${base(id)}/find-clips`, { clipLength }),
   retranscribe: (id: string, language?: Language) => request<Project>("POST", `${base(id)}/retranscribe`, language ? { language } : undefined),
@@ -87,6 +96,28 @@ export const api = {
   updateClip: (id: string, clipId: string, patch: ClipPatch) => request<Project>("PATCH", `${base(id)}/clips/${encodeURIComponent(clipId)}`, patch),
   deleteClip: (id: string, clipId: string) => request<Project>("DELETE", `${base(id)}/clips/${encodeURIComponent(clipId)}`),
   exportClip: (id: string, clipId: string) => request<Project>("POST", `${base(id)}/clips/${encodeURIComponent(clipId)}/export`),
+  /** Render every clip of a project at once (Starter). The clips' own states carry the progress. */
+  exportAll: (id: string, clipIds?: string[]) =>
+    request<{ queued: number; failed: { clipId: string; error: string }[] }>("POST", `${base(id)}/export-all`, clipIds?.length ? { clipIds } : {}),
+  /** Captions in another language (Pro): the languages a project has, and asking for one more. */
+  translations: {
+    list: (id: string, signal?: AbortSignal) => request<{ languages: string[] }>("GET", `${base(id)}/translate`, undefined, signal),
+    add: (id: string, language: string) => request<Project>("POST", `${base(id)}/translate`, { language }),
+    remove: (id: string, language: string) => request<{ languages: string[] }>("DELETE", `${base(id)}/translate?lang=${encodeURIComponent(language)}`),
+  },
+  /** The account's brand kit (Starter): the caption look and logo new clips start with. */
+  brand: {
+    get: (signal?: AbortSignal) => request<BrandKit>("GET", "/api/brand", undefined, signal),
+    save: (look: BrandLook) => request<BrandKit>("PUT", "/api/brand", look),
+    saveLogo: (logo: Blob) => request<BrandKit>("POST", "/api/brand", logo),
+    removeLogo: () => request<BrandKit>("DELETE", "/api/brand"),
+  },
+  /** The Team plan's members (Team). Each change answers with the list as it is now. */
+  team: {
+    get: (signal?: AbortSignal) => request<TeamState>("GET", "/api/team", undefined, signal),
+    invite: (email: string) => request<TeamState>("POST", "/api/team", { email }),
+    remove: (email: string) => request<TeamState>("DELETE", "/api/team", { email }),
+  },
   /** `fresh`: read the plan from Stripe first (back from Checkout or the billing portal). */
   billing: (opts: { fresh?: boolean; signal?: AbortSignal } = {}) => request<BillingState>("GET", opts.fresh ? "/api/billing?fresh=1" : "/api/billing", undefined, opts.signal),
   /** The user's referral link and what it has earned. */
@@ -100,6 +131,12 @@ export const api = {
   },
   /** The Stripe billing portal page to send the browser to; with a plan, it opens on switching to it. */
   billingPortal: (target?: { plan: PlanId; interval: Interval }) => request<{ url: string }>("POST", "/api/billing/portal", target ?? {}),
+  /** AI minutes earned by watching ads: the balance, and the two steps of earning more (offer a view, then claim it). */
+  adCredits: {
+    get: (signal?: AbortSignal) => request<AdCreditState>("GET", "/api/ads/reward", undefined, signal),
+    start: () => request<AdView>("POST", "/api/ads/reward", { action: "start" }),
+    claim: (id: string) => request<AdCreditState>("POST", "/api/ads/reward", { action: "claim", id }),
+  },
   /** Who the user is in campaigns (null: they've never joined one): the name and channel shown, and how to pay them. */
   clipper: {
     get: (signal?: AbortSignal) => request<MyClipper | null>("GET", "/api/clipper", undefined, signal),
@@ -181,6 +218,16 @@ export const liveUrl = (id: string) => `${base(id)}/live/source.m3u8`;
 export const thumbUrl = (id: string, t?: number) => (t === undefined ? `${base(id)}/thumb` : `${base(id)}/thumb?t=${Math.max(0, Math.round(t * 10) / 10)}`);
 export const exportUrl = (id: string, clipId: string, version: number | undefined, view = false) =>
   `${base(id)}/clips/${encodeURIComponent(clipId)}/export?v=${version ?? 0}${view ? "&view=1" : ""}`;
+/** Every finished export of a project as one zip (Starter). */
+export const exportAllUrl = (id: string) => `${base(id)}/export-all`;
+/** A clip's captions as a subtitle file; `lang` for one of the project's translations. */
+export const clipSubtitlesUrl = (id: string, clipId: string, format: SubtitleFormat, lang?: string) =>
+  `${base(id)}/clips/${encodeURIComponent(clipId)}/subtitles?format=${format}${lang ? `&lang=${encodeURIComponent(lang)}` : ""}`;
+/** The whole video's transcript as a subtitle or text file. */
+export const transcriptFileUrl = (id: string, format: SubtitleFormat, lang?: string) =>
+  `${base(id)}/transcript/file?format=${format}${lang ? `&lang=${encodeURIComponent(lang)}` : ""}`;
+/** The account's own brand logo (for the clip editor's preview). */
+export const brandLogoUrl = (at: number) => `/api/brand/logo?v=${at}`;
 
 /**
  * Send a file in chunks with progress. Resumes from the server's count after a

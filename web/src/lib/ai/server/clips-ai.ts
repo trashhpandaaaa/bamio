@@ -121,6 +121,13 @@ export function hypeScore(r: { hype?: number; hook?: number; payoff?: number; sc
   return Math.round(4 * clamp(r.hype) + 3.5 * clamp(r.hook) + 2.5 * clamp(r.payoff));
 }
 
+/** The three ratings behind the score, kept with the clip so the card can show what it is made of. */
+export function clipRatings(r: { hype?: number; hook?: number; payoff?: number }): { hype: number; hook: number; payoff: number } | undefined {
+  if (r.hype === undefined && r.hook === undefined && r.payoff === undefined) return undefined;
+  const clamp = (v: number | undefined) => Math.round(Math.min(10, Math.max(0, v ?? 5)) * 10) / 10;
+  return { hype: clamp(r.hype), hook: clamp(r.hook), payoff: clamp(r.payoff) };
+}
+
 // Short descriptions: the schema is sent with every request.
 const HIGHLIGHT_JSON_SCHEMA = {
   type: "object",
@@ -264,6 +271,7 @@ export async function findHighlights(opts: {
       ...clipTimes(c, lines, opts.durationSec, { minSec: range.min, maxSec: range.max * 1.1 }),
       reason: c.reason?.trim().slice(0, 300) || undefined,
       score: hypeScore(c),
+      ratings: clipRatings(c),
     })),
     limits,
   );
@@ -332,7 +340,15 @@ function mockHighlights(segments: Segment[], durationSec: number, clipLength: Cl
   for (let start = 0, i = 0; start + Math.min(len, 3) <= durationSec && clips.length < target; start += step, i++) {
     const end = Math.min(durationSec, start + len);
     if (avoid.some((a) => Math.min(a.end, end) - Math.max(a.start, start) > 0)) continue;
-    clips.push({ start, end, title: `Moment ${i + 1}: ${segments[Math.floor(start / 3)]?.text ?? "Highlight"}`, reason: "A clear hook and a complete thought.", score: 90 - i * 7 });
+    const hype = Math.max(1, 9 - i);
+    clips.push({
+      start,
+      end,
+      title: `Moment ${i + 1}: ${segments[Math.floor(start / 3)]?.text ?? "Highlight"}`,
+      reason: "A clear hook and a complete thought.",
+      score: 90 - i * 7,
+      ratings: { hype, hook: Math.max(1, hype - 1), payoff: Math.max(1, hype - 2) },
+    });
   }
   return clips;
 }

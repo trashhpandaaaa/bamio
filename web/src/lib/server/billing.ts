@@ -19,13 +19,16 @@ import {
   type PlanId,
   type ReferralState,
 } from "@/lib/billing/plans";
+import { adsEnabled } from "@/lib/ads";
 import type { Email } from "@/lib/email/templates";
+import { adCreditState, spendAdCredits } from "@/lib/server/ad-credits";
 import type { Tx } from "@/lib/server/db";
 import { queueEmail } from "@/lib/server/email";
 import { HttpError } from "@/lib/server/http";
 import { markCredited, markEarned, owedRewards, pendingReferral, recordReferral, referralCode, referralStats } from "@/lib/server/referrals";
+import { teamOwner } from "@/lib/server/teams";
 import { claimTrialCard, readTrialCard, type TrialCard } from "@/lib/server/trial-cards";
-import { addUsage, countProjects, readPlanGrant, hasUsage as usageCounted, isUserId, MAX_PROJECTS_PER_USER, readBilling, updateBilling, usageBetween } from "@/lib/server/store";
+import { addUsage, adCreditsLeft, adCreditsSpentBetween, countProjects, readPlanGrant, hasUsage as usageCounted, isUserId, MAX_PROJECTS_PER_USER, readBilling, updateBilling, usageBetween } from "@/lib/server/store";
 
 /*
  * Plans and payments: Stripe Checkout to buy a plan, the Stripe customer portal to change
@@ -252,22 +255,51 @@ type Allowance = {
   /** Where the plan comes from: the subscription's id, or "grant" (given without paying). */
   source: string;
   granted: boolean;
+  /** The plan is someone else's Team plan, with a seat on it (teams.ts): not this user's to manage. */
+  shared: boolean;
 };
 
-/**
- * The user's working plan and this month's use of it, or null without one: a paid plan, or a
- * plan given without paying (plan_grants, `npm run plan:grant`), whichever has more minutes.
- */
-async function allowance(userId: string, billing?: BillingRecord): Promise<Allowance | null> {
+type PlanSource = { plan: Plan; anchor: number; source: string; granted: boolean };
+
+/** The user's own plan: paid, or given without paying (plan_grants), whichever has more minutes. */
+async function ownPlan(userId: string, billing?: BillingRecord): Promise<PlanSource | null> {
   const sub = (billing ?? (await billingRecord(userId))).subscription;
   const grant = await readPlanGrant(userId);
   const paid = isWorking(sub) ? { plan: PLANS[sub.plan], anchor: sub.anchor, source: sub.id, granted: false } : null;
   const given = grant ? { plan: PLANS[grant.plan], anchor: grant.since, source: "grant", granted: true } : null;
-  const best = paid && given ? (given.plan.minutes > paid.plan.minutes ? given : paid) : (paid ?? given);
-  if (!best) return null;
+  return paid && given ? (given.plan.minutes > paid.plan.minutes ? given : paid) : (paid ?? given);
+}
+
+/** A plan with the month's use of it, counted against whichever account pays for it. */
+async function measure(payer: string, best: PlanSource, shared = false): Promise<Allowance> {
   const window = usageWindow(best.anchor, Date.now());
-  const usedSec = await usageBetween(userId, window.start, window.end);
-  return { plan: best.plan, usedSec, allowanceSec: best.plan.minutes * 60, resetsAt: window.end, source: best.source, granted: best.granted };
+  // What earned minutes paid for comes off: usedSec is the month's own minutes spent, so the
+  // meter, the "running low" emails and the gates all read the plan alone (ad-credits.ts).
+  const [used, onCredit] = await Promise.all([usageBetween(payer, window.start, window.end), adCreditsSpentBetween(payer, window.start, window.end)]);
+  const usedSec = Math.max(0, used - onCredit);
+  return { plan: best.plan, usedSec, allowanceSec: best.plan.minutes * 60, resetsAt: window.end, source: best.source, granted: best.granted, shared };
+}
+
+/**
+ * The user's working plan and this month's use of it, or null without one: their own, or the
+ * Team plan of a team they were invited to (teams.ts). A member's minutes are the owner's
+ * month, so they are counted there; nothing else about a team is shared.
+ */
+async function allowance(userId: string, billing?: BillingRecord): Promise<Allowance | null> {
+  const own = await ownPlan(userId, billing);
+  if (own) return measure(userId, own);
+  const owner = await teamOwner(userId).catch(() => null);
+  if (!owner) return null;
+  const theirs = await ownPlan(owner);
+  // Only the Team plan carries members; an owner who moved down to Pro keeps nobody.
+  if (!theirs || theirs.plan.id !== "team") return null;
+  return measure(owner, theirs, true);
+}
+
+/** The account whose month a user's work counts against: their team's owner, or themselves. */
+export async function billingUser(userId: string): Promise<string> {
+  if (!billingEnabled()) return userId;
+  return (await teamOwner(userId).catch(() => null)) ?? userId;
 }
 
 type Trial = { usedSec: number; allowanceSec: number; card: TrialCard | null };
@@ -281,12 +313,17 @@ type Trial = { usedSec: number; allowanceSec: number; card: TrialCard | null };
 async function trial(userId: string, billing?: BillingRecord): Promise<Trial | null> {
   if (!billingEnabled()) return null;
   if ((billing ?? (await billingRecord(userId))).subscription || (await readPlanGrant(userId))) return null;
-  return { usedSec: await usageBetween(userId, 0, Date.now() + 1), allowanceSec: FREE_TRIAL.minutes * 60, card: await readTrialCard(userId) };
+  const end = Date.now() + 1;
+  // As in measure: what earned minutes paid for isn't the trial's, so watching ads never eats the free video.
+  const [used, onCredit] = await Promise.all([usageBetween(userId, 0, end), adCreditsSpentBetween(userId, 0, end)]);
+  return { usedSec: Math.max(0, used - onCredit), allowanceSec: FREE_TRIAL.minutes * 60, card: await readTrialCard(userId) };
 }
 
 /** What the pages show: plan, renewal, minutes used, projects. `fresh`: read the plan from Stripe first. */
 export async function billingState(userId: string, opts: { fresh?: boolean } = {}): Promise<BillingState> {
   const count = await countProjects(userId);
+  // Minutes earned by watching ads: a balance of its own, beside the plan (ads.ts, ad-credits.ts).
+  const credits = await adCreditState(userId);
   if (!billingEnabled()) {
     return {
       enabled: false,
@@ -300,7 +337,9 @@ export async function billingState(userId: string, opts: { fresh?: boolean } = {
       projects: { count, limit: MAX_PROJECTS_PER_USER },
       canManage: false,
       granted: false,
+      shared: false,
       trial: null,
+      credits,
     };
   }
   const billing = await billingRecord(userId, opts);
@@ -308,6 +347,25 @@ export async function billingState(userId: string, opts: { fresh?: boolean } = {
   const current = await allowance(userId, billing);
   const usage = current ? { usedSec: current.usedSec, allowanceSec: current.allowanceSec, resetsAt: current.resetsAt } : null;
   const free = current ? null : await trial(userId, billing);
+  if (current?.shared) {
+    // A seat on someone's Team plan: it works in full, but it isn't this account's to change.
+    return {
+      enabled: true,
+      active: true,
+      plan: current.plan.id,
+      interval: null,
+      status: "team",
+      periodEnd: null,
+      ending: false,
+      usage,
+      projects: { count, limit: current.plan.projects },
+      canManage: Boolean(billing.customerId),
+      granted: false,
+      shared: true,
+      trial: null,
+      credits,
+    };
+  }
   if (current?.granted) {
     // A plan given without paying: no price, renewal or end date.
     return {
@@ -322,7 +380,9 @@ export async function billingState(userId: string, opts: { fresh?: boolean } = {
       projects: { count, limit: current.plan.projects },
       canManage: Boolean(billing.customerId),
       granted: true,
+      shared: false,
       trial: null,
+      credits,
     };
   }
   return {
@@ -334,10 +394,13 @@ export async function billingState(userId: string, opts: { fresh?: boolean } = {
     periodEnd: sub ? (sub.cancelAt ?? sub.periodEnd) : null,
     ending: Boolean(sub && sub.cancelAt !== null),
     usage,
-    projects: { count, limit: current?.plan.projects ?? (free ? FREE_TRIAL.projects : 0) },
+    // As projectLimit: earned minutes come with somewhere to put the video, trial or no trial.
+    projects: { count, limit: current?.plan.projects ?? (free || credits.leftSec > 0 ? FREE_TRIAL.projects : 0) },
     canManage: Boolean(billing.customerId),
     granted: false,
+    shared: false,
     trial: free,
+    credits,
   };
 }
 
@@ -354,6 +417,22 @@ const minutesText = (minutes: number) => `${minutes.toLocaleString("en-US")} ${m
 /** What to suggest when a video is longer than the minutes left. */
 const SHORTER = { link: "Import a part of it", upload: "Upload a shorter video", capture: "Capture a shorter part" } as const;
 
+/** The other way to get minutes, where there are ads to watch for them (ads.ts). */
+const earnHint = () => (adsEnabled() ? " You can also earn minutes by watching an ad under Plan and billing." : "");
+
+/**
+ * The minutes the account itself has for the period, and what it has spent of them: a plan's
+ * month, or the free video's minutes once a card is on file (without one it hasn't started, so
+ * there is nothing there to spend). Null where neither applies. Earned minutes are not in here:
+ * they are a balance of their own, read with adCreditsLeft.
+ */
+async function ownMinutes(userId: string): Promise<{ allowanceSec: number; usedSec: number } | null> {
+  const current = await allowance(userId);
+  if (current) return { allowanceSec: current.allowanceSec, usedSec: current.usedSec };
+  const free = await trial(userId);
+  return free?.card ? { allowanceSec: free.allowanceSec, usedSec: free.usedSec } : null;
+}
+
 /**
  * Before new AI processing (an import, a capture, following a stream): a working plan with
  * minutes left, and enough of them for `need` when the length is known. Nothing with billing off.
@@ -362,33 +441,48 @@ export async function assertCanProcess(userId: string, need?: { sec: number; sou
   if (!billingEnabled()) return;
   const current = await allowance(userId);
   if (!current) return assertTrial(userId, need);
-  const left = current.allowanceSec - current.usedSec;
+  // Minutes earned by watching ads are spent after the plan's own, so they count as time left.
+  const left = current.allowanceSec - current.usedSec + (await adCreditsLeft(userId));
   if (left < USED_UP_SEC) {
-    throw new HttpError(402, "minutes_used", `You’ve used this month’s ${current.plan.minutes.toLocaleString("en-US")} AI minutes. More arrive on ${formatDay(current.resetsAt)}, or upgrade for more now.`);
+    throw new HttpError(
+      402,
+      "minutes_used",
+      `You’ve used this month’s ${current.plan.minutes.toLocaleString("en-US")} AI minutes. More arrive on ${formatDay(current.resetsAt)}, or upgrade for more now.${earnHint()}`,
+    );
   }
   if (need && need.sec > left + GRACE_SEC) {
     throw new HttpError(
       402,
       "minutes_short",
-      `This video is ${minutesText(Math.ceil(need.sec / 60))} long, and you have ${minutesText(Math.floor(left / 60))} left this month. ${SHORTER[need.source]}, or upgrade for more.`,
+      `This video is ${minutesText(Math.ceil(need.sec / 60))} long, and you have ${minutesText(Math.floor(left / 60))} left. ${SHORTER[need.source]}, or upgrade for more.`,
     );
   }
 }
 
 const TRIAL_USED = `You’ve used your free ${FREE_TRIAL.minutes} minutes. Choose a plan to import more videos.`;
 
-/** Without a plan: the free first video, if the account still has it, has a card on file and the video fits. */
+/**
+ * Without a plan: minutes earned by watching ads, or the free first video if the account still
+ * has it, has a card on file and the video fits. Earned minutes were paid for by watching, so
+ * they need neither a plan nor a card; the free video's own minutes still need one, so they
+ * don't count towards what's left until it's there.
+ */
 async function assertTrial(userId: string, need?: { sec: number; source: keyof typeof SHORTER }): Promise<void> {
   const free = await trial(userId);
-  if (!free) throw new HttpError(402, "plan_required", "Choose a plan to import videos.");
-  const left = free.allowanceSec - free.usedSec;
-  if (left < USED_UP_SEC) throw new HttpError(402, "trial_used", TRIAL_USED);
-  if (!free.card) throw new HttpError(402, "card_required", "Add a card to start your free video. It’s only checked: nothing is charged.");
+  const earned = await adCreditsLeft(userId);
+  const trialLeft = free ? free.allowanceSec - free.usedSec : 0;
+  const left = (free?.card ? trialLeft : 0) + earned;
+  if (left < USED_UP_SEC) {
+    if (!free) throw new HttpError(402, "plan_required", `Choose a plan to import videos.${earnHint()}`);
+    if (trialLeft < USED_UP_SEC) throw new HttpError(402, "trial_used", `${TRIAL_USED}${earnHint()}`);
+    throw new HttpError(402, "card_required", "Add a card to start your free video. It’s only checked: nothing is charged.");
+  }
   if (need && need.sec > left + GRACE_SEC) {
+    const what = earned >= USED_UP_SEC && !free?.card ? "your earned minutes have" : "your free trial has";
     throw new HttpError(
       402,
       "minutes_short",
-      `This video is ${minutesText(Math.ceil(need.sec / 60))} long, and your free trial has ${minutesText(Math.floor(left / 60))} left. ${SHORTER[need.source]}, or choose a plan.`,
+      `This video is ${minutesText(Math.ceil(need.sec / 60))} long, and ${what} ${minutesText(Math.floor(left / 60))} left. ${SHORTER[need.source]}, or choose a plan.`,
     );
   }
 }
@@ -396,8 +490,10 @@ async function assertTrial(userId: string, need?: { sec: number; source: keyof t
 /** Before AI work on a video already imported (finding more clips, transcribing again): a working plan, or the free trial's project (with its card on file). */
 export async function assertPlan(userId: string): Promise<void> {
   if (!billingEnabled() || (await allowance(userId))) return;
+  // Minutes earned by watching ads are AI work already paid for: no plan, and no card, needed.
+  if ((await adCreditsLeft(userId)) >= USED_UP_SEC) return;
   const free = await trial(userId);
-  if (!free) throw new HttpError(402, "plan_required", "Choose a plan to use AI on your videos.");
+  if (!free) throw new HttpError(402, "plan_required", `Choose a plan to use AI on your videos.${earnHint()}`);
   if (!free.card) throw new HttpError(402, "card_required", "Add a card under Plan & billing to use your free trial. It’s only checked: nothing is charged.");
 }
 
@@ -407,22 +503,40 @@ export async function hasPlan(userId: string): Promise<boolean> {
   return (await allowance(userId)) !== null;
 }
 
-/** AI processing left this month (or of the free trial), in seconds: Infinity with billing off, 0 without a plan. */
+/** AI processing left this month (or of the free trial), plus minutes earned by watching ads, in seconds: Infinity with billing off. */
 export async function secondsLeft(userId: string): Promise<number> {
   if (!billingEnabled()) return Infinity;
   const current = (await allowance(userId)) ?? (await trial(userId));
-  return current ? Math.max(0, current.allowanceSec - current.usedSec) : 0;
+  const own = current ? Math.max(0, current.allowanceSec - current.usedSec) : 0;
+  return own + (await adCreditsLeft(userId));
 }
 
-/** Count AI processing against this month's minutes, once per `key` (a project's import, or a piece of a followed stream). */
+/**
+ * Count AI processing against this month's minutes, once per `key` (a project's import, or a
+ * piece of a followed stream). Whatever the account's own minutes for the period can't cover
+ * comes off its earned minutes, keyed by the same usage, so work repeated after a crash is
+ * paid for once.
+ */
 export async function recordUsage(userId: string, key: string, sec: number): Promise<void> {
   if (!billingEnabled() || !(sec > 0)) return;
-  await addUsage(userId, key, Math.round(sec * 10) / 10);
+  // A team member's minutes are the owner's, so they are counted there and the notice goes there.
+  const payer = await billingUser(userId);
+  const counted = Math.round(sec * 10) / 10;
+  await addUsage(payer, key, counted);
   try {
-    const billing = await billingRecord(userId);
-    const current = await allowance(userId, billing);
+    // usedSec already has this call in it, so what came before it is usedSec - counted.
+    const own = await ownMinutes(payer);
+    const before = own ? own.usedSec - counted : 0;
+    const covered = own ? Math.max(0, Math.min(counted, own.allowanceSec - before)) : 0;
+    await spendAdCredits(payer, key, counted - covered);
+  } catch (err) {
+    console.warn("[bamio/billing] couldn’t take this off the earned minutes:", err instanceof Error ? err.message : err);
+  }
+  try {
+    const billing = await billingRecord(payer);
+    const current = await allowance(payer, billing);
     const notice = current ? minutesNotice({ id: current.source, plan: current.plan.id }, current) : null;
-    if (notice) await queueEmail(userId, notice.key, notice.email);
+    if (notice) await queueEmail(payer, notice.key, notice.email);
   } catch (err) {
     console.warn("[bamio/billing] couldn’t queue the minutes email:", err instanceof Error ? err.message : err);
   }
@@ -456,10 +570,14 @@ export async function queuePriority(userId: string): Promise<number> {
   return (await allowance(userId).catch(() => null))?.plan.priority ?? 0;
 }
 
-/** How many projects the user may keep (the free trial: one at a time). */
+/** How many projects the user may keep (the free trial, or minutes earned by watching ads: one at a time). */
 export async function projectLimit(userId: string): Promise<number> {
   if (!billingEnabled()) return MAX_PROJECTS_PER_USER;
-  return (await allowance(userId))?.plan.projects ?? ((await trial(userId)) ? FREE_TRIAL.projects : 0);
+  const plan = (await allowance(userId))?.plan.projects;
+  if (plan !== undefined) return plan;
+  if (await trial(userId)) return FREE_TRIAL.projects;
+  // Earning minutes is a way in without a plan, so it comes with somewhere to put the video.
+  return (await adCreditsLeft(userId)) > 0 ? FREE_TRIAL.projects : 0;
 }
 
 /* ------------------------------ Stripe pages ------------------------------ */

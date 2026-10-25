@@ -1,0 +1,5 @@
+/* The note under a clip control that needs a plan (clip-plan-note.tsx). */
+.note { display: flex; align-items: flex-start; gap: 6px; margin: 0; font: var(--t-body-sm); color: var(--text-secondary); text-align: left; }
+.note svg { flex: none; margin-top: 3px; color: var(--text-tertiary); }
+.note a { display: inline-flex; align-items: center; min-height: var(--s-6); color: var(--text); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
+.note a:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: var(--r-sm); }

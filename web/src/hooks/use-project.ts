@@ -76,17 +76,18 @@ export function useProjects() {
 }
 
 /** The transcript, reloaded whenever its revision changes (`rev`: anything that changes with it, e.g. "3:1260.5" for a growing one). */
-export function useTranscript(id: string, enabled: boolean, rev: number | string) {
+/** `language`: caption in one of the project's translations instead of the spoken language. */
+export function useTranscript(id: string, enabled: boolean, rev: number | string, language?: string) {
   const [transcript, setTranscript] = useState<Transcript | null>(null);
   useEffect(() => {
     if (!enabled) return;
     const controller = new AbortController();
     api
-      .transcript(id, controller.signal)
+      .transcript(id, controller.signal, language)
       .then(setTranscript)
       .catch(() => undefined);
     return () => controller.abort();
-  }, [id, enabled, rev]);
+  }, [id, enabled, rev, language]);
   return { transcript: enabled ? transcript : null, setTranscript };
 }
 

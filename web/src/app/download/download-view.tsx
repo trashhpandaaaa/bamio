@@ -49,7 +49,11 @@ export function DownloadView() {
     setBusy(true);
     try {
       const made = await api.downloads.start(url.trim());
-      setList((now) => ({ downloads: [made, ...(now?.downloads ?? []).filter((d) => d.id !== made.id)], leftToday: Math.max(0, (now?.leftToday ?? DOWNLOAD_LIMITS.perDay) - 1) }));
+      setList((now) => ({
+        ...(now ?? { perDay: DOWNLOAD_LIMITS.perDay, atOnce: DOWNLOAD_LIMITS.atOnce }),
+        downloads: [made, ...(now?.downloads ?? []).filter((d) => d.id !== made.id)],
+        leftToday: Math.max(0, (now?.leftToday ?? DOWNLOAD_LIMITS.perDay) - 1),
+      }));
       setUrl("");
     } catch (err) {
       setProblem(err instanceof Error ? err.message : "Check your connection and try again.");
@@ -105,7 +109,7 @@ export function DownloadView() {
           <p id={`${id}-help`} className={problem ? "field-error" : "field-help"} role={problem ? "alert" : undefined}>
             {problem ??
               (none
-                ? `That’s ${DOWNLOAD_LIMITS.perDay} downloads in a day, the most an account can start. Try again tomorrow.`
+                ? `That’s ${list?.perDay ?? DOWNLOAD_LIMITS.perDay} downloads in a day, the most your account can start. Try again tomorrow${list && list.perDay === DOWNLOAD_LIMITS.perDay ? ", or choose a plan for more" : ""}.`
                 : `Videos of up to ${DOWNLOAD_LIMITS.maxDurationSec / 60} minutes${list ? `, ${list.leftToday} more today` : ""}. Not YouTube: to clip a YouTube video, use Import.`)}
           </p>
         </div>

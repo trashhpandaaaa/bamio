@@ -5,13 +5,14 @@ import os from "node:os";
 import path from "node:path";
 import type { InspectResult, Platform } from "@/lib/clips/schema";
 import { parseVideoUrl } from "@/lib/clips/url";
-import { blockedSite, DOWNLOAD_LIMITS, NO_YOUTUBE, type Download, type DownloadList, type DownloadStatus } from "@/lib/downloads/schema";
+import { blockedSite, downloadLimits, DOWNLOAD_LIMITS, NO_YOUTUBE, type Download, type DownloadList, type DownloadStatus } from "@/lib/downloads/schema";
 import { isAbortError } from "@/lib/server/bin";
 import { db } from "@/lib/server/db";
 import { attachmentName, HttpError } from "@/lib/server/http";
 import { assertDiskSpace } from "@/lib/server/jobs";
 import { downloadUrl, inspectCached, prepareSource, probe } from "@/lib/server/media";
 import { reportError } from "@/lib/server/monitor";
+import { planLevel } from "@/lib/server/plan-level";
 import { storage } from "@/lib/server/storage";
 import { isProjectId, isUserId, userMediaPrefix, workRoot } from "@/lib/server/store";
 
@@ -37,8 +38,6 @@ export const DOWNLOADS_CHANNEL = "bamio_downloads";
 /** A worker renews its hold every few seconds while it fetches; one silent this long has died. */
 const LEASE_MS = 2 * 60_000;
 const MAX_ATTEMPTS = 3;
-/** Never taken by downloads: the database lives on the same disk. */
-const RESERVE_BYTES = 3 * 1024 ** 3;
 /** About what a second of 1080p video weighs, for the room a download will need. */
 const BYTES_PER_SEC = 1_000_000;
 
@@ -89,12 +88,19 @@ const cols = (sql: ReturnType<typeof db>) =>
 
 /** The account's downloads, newest first, and how many more it may start today. */
 export async function listDownloads(userId: string, now = Date.now()): Promise<DownloadList> {
-  if (!isUserId(userId)) return { downloads: [], leftToday: 0 };
+  if (!isUserId(userId)) return { downloads: [], leftToday: 0, perDay: DOWNLOAD_LIMITS.perDay, atOnce: DOWNLOAD_LIMITS.atOnce };
   const sql = db();
   const rows = await sql<Row[]>`select ${cols(sql)} from downloads where user_id = ${userId} and removed_at is null order by created_at desc limit 50`;
   // Counted over every download started, kept or not: taking one off the list doesn't give it back.
   const [count] = await sql<{ n: number }[]>`select count(*)::int as n from downloads where user_id = ${userId} and created_at > ${now - 24 * HOUR}`;
-  return { downloads: rows.map(forOwner), leftToday: Math.max(0, DOWNLOAD_LIMITS.perDay - (count?.n ?? 0)) };
+  const limits = await planLimits(userId);
+  return { downloads: rows.map(forOwner), leftToday: Math.max(0, limits.perDay - (count?.n ?? 0)), perDay: limits.perDay, atOnce: limits.atOnce };
+}
+
+/** The account's download limits: a plan raises them (downloads/schema.ts). */
+async function planLimits(userId: string) {
+  const plan = await planLevel(userId).catch(() => "free" as const);
+  return downloadLimits(plan === "free" ? null : plan);
 }
 
 export type DownloadDeps = {
@@ -130,16 +136,23 @@ export async function startDownload(userId: string, input: string, deps: Downloa
   if (blocked) throw new HttpError(422, "blocked_site", blocked);
 
   const sql = db();
+  const allowed = await planLimits(userId);
   const limits = async () => {
     const [n] = await sql<{ today: number; active: number }[]>`
       select count(*) filter (where created_at > ${now - 24 * HOUR})::int as today,
              count(*) filter (where status in ('queued', 'working') and removed_at is null)::int as active
       from downloads where user_id = ${userId}`;
-    if ((n?.active ?? 0) >= DOWNLOAD_LIMITS.atOnce) {
-      throw new HttpError(429, "too_many", `You have ${DOWNLOAD_LIMITS.atOnce} downloads going. Wait for one to finish, then add the next.`);
+    if ((n?.active ?? 0) >= allowed.atOnce) {
+      throw new HttpError(429, "too_many", `You have ${allowed.atOnce} downloads going. Wait for one to finish, then add the next.`);
     }
-    if ((n?.today ?? 0) >= DOWNLOAD_LIMITS.perDay) {
-      throw new HttpError(429, "daily_limit", `That’s ${DOWNLOAD_LIMITS.perDay} downloads in a day, the most an account can start. Try again tomorrow.`);
+    if ((n?.today ?? 0) >= allowed.perDay) {
+      throw new HttpError(
+        429,
+        "daily_limit",
+        allowed.perDay === DOWNLOAD_LIMITS.perDay
+          ? `That’s ${allowed.perDay} downloads in a day, the most a free account can start. Try again tomorrow, or choose a plan for more.`
+          : `That’s ${allowed.perDay} downloads in a day, the most your plan allows. Try again tomorrow.`,
+      );
     }
   };
   // Before the site is asked anything, and again with the row.
@@ -154,8 +167,9 @@ export async function startDownload(userId: string, input: string, deps: Downloa
   if (found.durationSec > DOWNLOAD_LIMITS.maxDurationSec + 1) {
     throw new HttpError(422, "too_long", `That video is ${Math.ceil(found.durationSec / 60)} minutes long. The downloader takes videos of up to ${DOWNLOAD_LIMITS.maxDurationSec / 60} minutes.`);
   }
-  // Twice the file: once while it's fetched, once where it's kept.
-  await deps.room(RESERVE_BYTES + Math.max(60, found.durationSec) * BYTES_PER_SEC * 2);
+  // Twice the file: once while it's fetched, once where it's kept. The database's own room is
+  // the reserve assertDiskSpace keeps on top of this.
+  await deps.room(Math.max(60, found.durationSec) * BYTES_PER_SEC * 2);
 
   const id = randomUUID();
   const row = await sql.begin(async (tx) => {

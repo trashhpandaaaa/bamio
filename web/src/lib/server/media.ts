@@ -6,7 +6,9 @@ import { copyFile, mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/p
 import { isIP } from "node:net";
 import path from "node:path";
 import { parseFfmpegProgress, parseYtdlpProgress } from "@/lib/clips/progress";
-import { renderArgs, type RenderPlan } from "@/lib/clips/render";
+import { cutDuration } from "@/lib/clips/cuts";
+import { FOCUS_CMD_FILE, renderArgs, type RenderPlan } from "@/lib/clips/render";
+import { storage } from "@/lib/server/storage";
 import { detectPlatform, isPrivateAddress, parseVideoUrl, playerUrl } from "@/lib/clips/url";
 import { LIMITS, type InspectResult } from "@/lib/clips/schema";
 import { binPath, isAbortError, ProcessError, run } from "@/lib/server/bin";
@@ -518,6 +520,7 @@ export async function prepareSource(
   info: Probe,
   opts: { live?: boolean; signal?: AbortSignal; onProgress?: (p: number) => void },
 ) {
+  if (!info.hasVideo && info.hasAudio) return prepareAudioOnly(input, output, info, opts);
   const tmp = `${output}.part.mp4`;
   const common = ["-hide_banner", "-nostdin", "-y", "-i", input, "-map", "0:v:0", ...(info.hasAudio ? ["-map", "0:a:0"] : [])];
   // A live recording's audio can repeat or skip a moment where the stream's segments join,
@@ -549,6 +552,46 @@ export async function prepareSource(
     if (isAbortError(err)) throw err;
     console.error("[bamio/media] prepare failed:", err instanceof ProcessError ? err.stderrTail.slice(-1500) : err);
     throw new HttpError(422, "prepare_failed", "Bamio couldn’t convert that video. Try a different file.");
+  }
+  await replaceFile(tmp, output);
+}
+
+/** The picture a sound-only import is given: Bamio's ink, at a size every clip shape can be cut from. */
+export const AUDIO_ONLY_PICTURE = { color: "0x121212", width: 1280, height: 1280, fps: 15 } as const;
+
+/**
+ * A podcast, an interview or any other sound-only source made into a video: the sound as it
+ * is, under a still picture. Every frame is identical, so x264 spends almost nothing on it
+ * (a 3-hour file comes to a few megabytes of video), and the clips made from it are the
+ * captions and the title over a plain panel.
+ *
+ * Square, so a clip can be cut to 9:16, 1:1 or 16:9 without the fit framing having to letterbox
+ * it twice. Taking a cover picture from the file's own tags would be better still: not done.
+ */
+async function prepareAudioOnly(input: string, output: string, info: Probe, opts: { signal?: AbortSignal; onProgress?: (p: number) => void }) {
+  const tmp = `${output}.part.mp4`;
+  const { color, width, height, fps } = AUDIO_ONLY_PICTURE;
+  try {
+    await run(
+      "ffmpeg",
+      [
+        "-hide_banner", "-nostdin", "-y",
+        "-f", "lavfi", "-i", `color=c=${color}:s=${width}x${height}:r=${fps}`,
+        "-i", input,
+        "-map", "0:v:0", "-map", "1:a:0",
+        "-c:v", "libx264", "-preset", "veryfast", "-tune", "stillimage", "-crf", "28", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "160k", "-ac", "2",
+        // The colour source never ends on its own.
+        "-shortest",
+        "-movflags", "+faststart", "-progress", "pipe:1", "-nostats", tmp,
+      ],
+      { signal: opts.signal, onStdoutLine: ffmpegProgress(info.durationSec, opts.onProgress) },
+    );
+  } catch (err) {
+    await rm(tmp, { force: true });
+    if (isAbortError(err)) throw err;
+    console.error("[bamio/media] preparing sound-only failed:", err instanceof ProcessError ? err.stderrTail.slice(-1500) : err);
+    throw new HttpError(422, "prepare_failed", "Bamio couldn’t make a video from that sound file. Try a different file.");
   }
   await replaceFile(tmp, output);
 }
@@ -622,26 +665,44 @@ const FONT_FILE = "BricolageGrotesque-ExtraBold.ttf";
  * subtitles filter sees plain relative paths (no drive-letter escaping).
  */
 export async function renderClip(
-  plan: Omit<RenderPlan, "subtitles" | "output"> & { output: string; ass: string | null; fonts?: string[]; workDir: string },
+  plan: Omit<RenderPlan, "subtitles" | "output" | "logo" | "focusCmd"> & {
+    output: string;
+    ass: string | null;
+    fonts?: string[];
+    workDir: string;
+    /** A sendcmd script that moves the crop as the clip plays (face tracking), or null. */
+    focus?: string | null;
+    /** The stored brand logo to burn in, or null. It is fetched into the work folder. */
+    logoKey?: string | null;
+  },
   opts: { signal?: AbortSignal; onProgress?: (p: number) => void },
 ) {
   await rm(plan.workDir, { recursive: true, force: true });
   await mkdir(path.join(plan.workDir, "fonts"), { recursive: true });
   await mkdir(path.dirname(plan.output), { recursive: true });
   const tmp = `${plan.output}.part.mp4`;
+  // What should come out: the clip's span, less whatever is cut from the middle of it.
+  const expected = cutDuration(plan.duration, plan.cuts ?? []);
   try {
     if (plan.ass) {
       await writeFile(path.join(plan.workDir, "subs.ass"), plan.ass, "utf8");
       await copyFile(path.join(/*turbopackIgnore: true*/ process.cwd(), "assets", "fonts", FONT_FILE), path.join(plan.workDir, "fonts", FONT_FILE));
       for (const font of plan.fonts ?? []) await copyFile(font, path.join(plan.workDir, "fonts", path.basename(font)));
     }
-    const args = renderArgs({ ...plan, output: tmp, subtitles: Boolean(plan.ass) });
-    await run("ffmpeg", args, { cwd: plan.workDir, signal: opts.signal, onStdoutLine: ffmpegProgress(plan.duration, opts.onProgress) });
+    // ffmpeg runs with the work folder as its cwd, so both of these are named by filename alone.
+    if (plan.focus) await writeFile(path.join(plan.workDir, FOCUS_CMD_FILE), plan.focus, "utf8");
+    let logo: string | undefined;
+    if (plan.logoKey) {
+      logo = path.join(plan.workDir, `logo${path.extname(plan.logoKey) || ".png"}`);
+      await storage().download(plan.logoKey, logo);
+    }
+    const args = renderArgs({ ...plan, output: tmp, subtitles: Boolean(plan.ass), focusCmd: Boolean(plan.focus), logo });
+    await run("ffmpeg", args, { cwd: plan.workDir, signal: opts.signal, onStdoutLine: ffmpegProgress(expected, opts.onProgress) });
     // ffmpeg can finish "successfully" having read nothing (a source it couldn't seek in): never
     // hand that out as a download.
     const made = await probe(tmp, opts.signal).catch(() => null);
-    if (!made?.hasVideo || made.durationSec < Math.min(1, plan.duration * 0.5)) {
-      console.error(`[bamio/media] render came out empty (${made ? `${made.durationSec.toFixed(2)} s` : "unreadable"} of ${plan.duration.toFixed(2)} s) from ${path.basename(plan.input)}`);
+    if (!made?.hasVideo || made.durationSec < Math.min(1, expected * 0.5)) {
+      console.error(`[bamio/media] render came out empty (${made ? `${made.durationSec.toFixed(2)} s` : "unreadable"} of ${expected.toFixed(2)} s) from ${path.basename(plan.input)}`);
       throw new HttpError(500, "render_empty", `The export came out empty. Try again; if it keeps happening, write to ${CONTACT_EMAIL} and say which video.`);
     }
     await replaceFile(tmp, plan.output);

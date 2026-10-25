@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { db } from "@/lib/server/db";
 import { HttpError } from "@/lib/server/http";
-import { claim, enqueue, requestCancel, type JobKind, type JobRow } from "@/lib/server/queue";
+import { claim, enqueue, JOB_KINDS, requestCancel, type JobKind, type JobRow } from "@/lib/server/queue";
 import { blankProject, createProject } from "@/lib/server/store";
 import { startWorker, type KindSpec, type Pool, type Worker } from "@/lib/server/worker";
 
@@ -44,7 +44,7 @@ async function job(userId = "user_w", kind: JobKind = KIND) {
 
 function specs(run: KindSpec["run"], extra: Partial<KindSpec> = {}): Record<JobKind, KindSpec> {
   const spec: KindSpec = { run, timeoutMs: 10_000, ...extra };
-  return { import: spec, analyze: spec, retranscribe: spec, export: spec, follow: spec, "finish-follow": spec };
+  return Object.fromEntries(JOB_KINDS.map((kind) => [kind, spec])) as Record<JobKind, KindSpec>;
 }
 
 describe("worker", { timeout: 20_000 }, () => {

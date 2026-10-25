@@ -24,6 +24,8 @@ async function job(projectId: string, kind: string, status: string, at: number, 
 }
 
 const CAMPAIGN = "0c0ffee0-0000-4000-8000-0000000a1e47";
+/** Room to spare, so the other tests don't depend on the free space of the machine running them. */
+const PLENTY = async () => ({ freeBytes: 200 * 1024 ** 3, totalBytes: 400 * 1024 ** 3 });
 
 async function clean() {
   await db()`delete from projects where user_id = ${USER}`;
@@ -37,17 +39,17 @@ describe("alerts", () => {
   afterAll(clean);
 
   it("find jobs failing, the queue backing up, and deletions that keep failing", async () => {
-    expect(await findAlerts(NOW)).toEqual([]);
+    expect(await findAlerts(NOW, undefined, PLENTY)).toEqual([]);
     const ids = await Promise.all([project(), project(), project(), project()]);
     await job(ids[0]!, "import", "failed", NOW - 10 * MIN, "ffmpeg crashed");
     await job(ids[1]!, "export", "failed", NOW - 20 * MIN, "render failed");
-    expect(await findAlerts(NOW)).toEqual([]); // two isn't three
+    expect(await findAlerts(NOW, undefined, PLENTY)).toEqual([]); // two isn't three
     await job(ids[2]!, "import", "failed", NOW - 30 * MIN, "download failed");
     await job(ids[3]!, "import", "failed", NOW - 2 * 60 * MIN, "old news"); // outside the hour
     await job(ids[3]!, "analyze", "queued", NOW - 20 * MIN);
     await db()`insert into account_deletions (user_id, reason, attempts, run_after, requested_at, last_error) values (${USER}, 'self', 3, ${NOW}, ${NOW}, 'Stripe is down')`;
 
-    const alerts = await findAlerts(NOW);
+    const alerts = await findAlerts(NOW, undefined, PLENTY);
     const hour = Math.floor(NOW / 3600_000);
     expect(alerts.map((a) => a.key)).toEqual([`ops:jobs-failed:${hour}`, `ops:queue-waiting:${hour}`, `ops:deletions-failing:${hour}`]);
     expect(alerts[0]).toMatchObject({ title: "3 jobs failed in the last hour", path: "/admin/jobs?view=failed" });
@@ -59,12 +61,29 @@ describe("alerts", () => {
 
   it("find the AI not working because of Bamio’s Gemini setup, for an hour after a video hit it", async () => {
     const detail = "Google refused Bamio’s Gemini key: “Your project has been denied access. Please contact support.”";
-    const alerts = await findAlerts(NOW, { at: NOW - 5 * MIN, detail });
+    const alerts = await findAlerts(NOW, { at: NOW - 5 * MIN, detail }, PLENTY);
     expect(alerts).toEqual([{ key: `ops:ai-setup:${Math.floor(NOW / 3600_000)}`, title: "Bamio’s AI isn’t working: videos get no AI clips", lines: [detail, expect.stringContaining("Find clips")], path: "/admin/jobs" }]);
     expect(alerts[0]!.title.length).toBeLessThanOrEqual(120);
     // Nobody imported in the last hour, or nothing is wrong: nothing to say.
-    expect(await findAlerts(NOW, { at: NOW - 61 * MIN, detail })).toEqual([]);
-    expect(await findAlerts(NOW, null)).toEqual([]);
+    expect(await findAlerts(NOW, { at: NOW - 61 * MIN, detail }, PLENTY)).toEqual([]);
+    expect(await findAlerts(NOW, null, PLENTY)).toEqual([]);
+  });
+
+  it("find the disk filling up, and say so more plainly once media are being refused", async () => {
+    const hour = Math.floor(NOW / 3600_000);
+    // Plenty of room, and a disk that can't be read, are both quiet.
+    expect(await findAlerts(NOW, undefined, PLENTY)).toEqual([]);
+    expect(await findAlerts(NOW, undefined, async () => null)).toEqual([]);
+
+    const low = await findAlerts(NOW, undefined, async () => ({ freeBytes: 5 * 1024 ** 3, totalBytes: 77 * 1024 ** 3 }));
+    expect(low).toEqual([{ key: `ops:disk-low:${hour}`, title: "5.0 GB left on the server’s disk", lines: [expect.stringContaining("77.0 GB"), expect.stringContaining("Delete projects")], path: "/admin" }]);
+    expect(low[0]!.title.length).toBeLessThanOrEqual(120);
+
+    // Under the reserve: imports are already being refused and the database is close to its panic.
+    const tight = await findAlerts(NOW, undefined, async () => ({ freeBytes: 1024 ** 3, totalBytes: 77 * 1024 ** 3 }));
+    expect(tight[0]!.lines[1]).toContain("being refused");
+    // The customer's words are never in an alert, and the alert never names a customer.
+    expect(tight[0]!.lines.join(" ")).not.toMatch(/user_|password|key/i);
   });
 
   it("find campaign clips waiting for a look, once a day", async () => {
@@ -77,14 +96,14 @@ describe("alerts", () => {
     await clip(2, "pending");
     await clip(3, "approved");
     // A draft's clips (there can't be any yet) and looked-at clips don't count.
-    expect(await findAlerts(NOW)).toEqual([]);
+    expect(await findAlerts(NOW, undefined, PLENTY)).toEqual([]);
     await sql`update campaigns set status = 'live' where id = ${CAMPAIGN}`;
-    const alerts = await findAlerts(NOW);
+    const alerts = await findAlerts(NOW, undefined, PLENTY);
     expect(alerts).toEqual([
       { key: `ops:clips-waiting:${Math.floor(NOW / 86_400_000)}`, title: "2 campaign clips are waiting for a look", lines: [expect.stringContaining("a campaign")], path: "/admin/campaigns" },
     ]);
     await sql`update campaign_clips set status = 'rejected' where campaign_id = ${CAMPAIGN} and status = 'pending'`;
-    expect(await findAlerts(NOW)).toEqual([]);
+    expect(await findAlerts(NOW, undefined, PLENTY)).toEqual([]);
   });
 
   it("find requests to run a campaign waiting for an answer, once a day", async () => {
@@ -93,10 +112,10 @@ describe("alerts", () => {
       sql`insert into campaign_requests (user_id, kind, name, source_url, brief, platforms, rate_cents, budget_cents, status, created_at)
         values (${USER}, 'streamer', ${name}, 'https://example.com/a', 'Clip the best minute.', '["tiktok"]', 100, 10000, ${status}, 1)`;
     await ask("Declined show", "declined");
-    expect(await findAlerts(NOW)).toEqual([]);
+    expect(await findAlerts(NOW, undefined, PLENTY)).toEqual([]);
     await ask("Stream One", "pending");
     await ask("Stream Two", "pending");
-    expect(await findAlerts(NOW)).toEqual([
+    expect(await findAlerts(NOW, undefined, PLENTY)).toEqual([
       { key: `ops:campaign-requests:${Math.floor(NOW / 86_400_000)}`, title: "2 requests to run a campaign are waiting", lines: [expect.stringContaining("Stream One, Stream Two")], path: "/admin/campaigns" },
     ]);
   });

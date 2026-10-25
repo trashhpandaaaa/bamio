@@ -56,7 +56,7 @@ BAMIO_AI_MOCK=1 npm run dev
 | `YTDLP_COOKIES` | not set | A cookies.txt from a spare YouTube account, passed to every yt-dlp call. Servers in data centres get YouTube's "confirm you're not a bot" without it. See DEPLOY.md. |
 | `BAMIO_EMAIL` | on with a key | `off`: no emails. `preview`: emails are written and logged, never sent (no key needed; the end-to-end test server, which Playwright sets). |
 | `BAMIO_DOWNLOAD_SLOTS`, `BAMIO_DOWNLOADS` | 2, on | The downloader (`/download`): how many videos are fetched at once, and `off` to stop this process fetching them. |
-| `BAMIO_ADS` | on | `off`: the Google AdSense script (`src/lib/ads.ts`, in every page's head) is left out. Test servers and CI set it, for `npm run build` as well as the start, since static pages keep what the build saw. |
+| `BAMIO_ADS` | on | `off`: the ad network's tag (`src/lib/ads.ts`, in every page's head) is left out, and no AI minutes can be earned by watching an ad. Test servers and CI set it, for `npm run build` as well as the start, since static pages keep what the build saw. |
 
 ## Plans and payments (Stripe)
 

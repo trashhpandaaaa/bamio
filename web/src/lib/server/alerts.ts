@@ -4,6 +4,7 @@ import { aiTrouble, type AiTrouble } from "@/lib/ai/server/gemini";
 import { superadminEmails } from "@/lib/server/admin-roles";
 import { db } from "@/lib/server/db";
 import { queueEmail } from "@/lib/server/email";
+import { DISK_RESERVE_BYTES, diskStatus } from "@/lib/server/jobs";
 import { reportMessage } from "@/lib/server/monitor";
 
 /*
@@ -12,6 +13,8 @@ import { reportMessage } from "@/lib/server/monitor";
  * outbox, once per problem per hour) and Sentry a warning:
  *   - the AI not working because of Bamio's own Gemini setup (a rejected key, a project Google
  *     has shut out, a model that's gone), with Google's words;
+ *   - the disk filling up, while there is still time to do something: the database shares it, and
+ *     a Postgres that can't write panics and takes the site down (BAMIO_ALERT_DISK_GB, 8);
  *   - jobs failing: BAMIO_ALERT_FAILED_JOBS (3) or more failed for good in the last hour;
  *   - the queue backing up: a job has waited longer than BAMIO_ALERT_WAIT_MIN (15) minutes;
  *   - an account deletion that keeps failing (3 tries), so a deleted user's plan may still charge;
@@ -26,7 +29,7 @@ const setting = (name: string, fallback: number) => Math.max(1, Number(process.e
 const minutes = (ms: number) => `${Math.round(ms / 60_000)} min`;
 
 /** What needs a person now. Keys name the problem and the hour, so each goes out once an hour. */
-export async function findAlerts(now = Date.now(), ai: AiTrouble | null = aiTrouble()): Promise<Alert[]> {
+export async function findAlerts(now = Date.now(), ai: AiTrouble | null = aiTrouble(), disk: typeof diskStatus = diskStatus): Promise<Alert[]> {
   const sql = db();
   const hour = Math.floor(now / HOUR);
   const alerts: Alert[] = [];
@@ -39,6 +42,28 @@ export async function findAlerts(now = Date.now(), ai: AiTrouble | null = aiTrou
       lines: [ai.detail.slice(0, 500), "Videos still import and get their captions. People are told the problem is on Bamio’s side, and can press Find clips once it’s fixed."],
       path: "/admin/jobs",
     });
+  }
+
+  // Room on the disk, while there is still time to act: below the reserve, imports are already
+  // being refused and the database is close to the panic that takes the whole site down.
+  const room = await disk();
+  if (room) {
+    const lowBytes = setting("BAMIO_ALERT_DISK_GB", 8) * 1024 ** 3;
+    if (room.freeBytes < lowBytes) {
+      const gb = (n: number) => `${(n / 1024 ** 3).toFixed(1)} GB`;
+      const tight = room.freeBytes < DISK_RESERVE_BYTES;
+      alerts.push({
+        key: `ops:disk-low:${hour}`,
+        title: `${gb(room.freeBytes)} left on the server’s disk`,
+        lines: [
+          `${gb(room.freeBytes)} free of ${gb(room.totalBytes)}. Source videos are the bulk of it: a project’s source.mp4 stays until the project is deleted.`,
+          tight
+            ? "Below the reserve: imports, uploads and downloads are being refused, and the database is near the point where it stops being able to write. Make room now."
+            : "Delete projects that are finished with, or give the server a bigger disk.",
+        ],
+        path: "/admin",
+      });
+    }
   }
 
   const failedLimit = setting("BAMIO_ALERT_FAILED_JOBS", 3);

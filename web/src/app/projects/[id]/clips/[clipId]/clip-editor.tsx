@@ -10,25 +10,47 @@ import {
   Export,
   Pause,
   Play,
+  Sparkle,
+  Translate,
   WarningCircle,
   X,
 } from "@phosphor-icons/react";
 import Link from "next/link";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { AiMark } from "@/components/brand";
+import { CaptionLookControls } from "@/components/clips/caption-look";
+import { ClipPlanNote } from "@/components/clips/clip-plan-note";
+import { facesSeen, trackFaces } from "@/components/clips/face-track";
 import { useToast } from "@/components/toast";
 import { useProject, useTranscript } from "@/hooks/use-project";
-import { api, exportUrl, type ClipPatch } from "@/lib/clips/api";
+import { api, clipSubtitlesUrl, exportUrl, sourceUrl, type ClipPatch } from "@/lib/clips/api";
+import { kitIsEmpty, lookOf, withBrand, type BrandKit } from "@/lib/clips/brand";
+import { canClip, type ClipLevel } from "@/lib/clips/features";
+import { countFillers } from "@/lib/clips/fillers";
+import { focusPath, visibleWidth } from "@/lib/clips/focus";
 import { ASPECT_LABEL, CAPTION_POSITION_LABEL, CAPTION_STYLE_HELP, CAPTION_STYLE_LABEL, formatBytes } from "@/lib/clips/labels";
 import { captionLines, clipRangeError, cropRect, formatTimecode, overlayTitle, parseTimecode, sortClips, splitWords } from "@/lib/clips/logic";
-import { languageName } from "@/lib/clips/languages";
-import { ASPECTS, CAPTION_POSITIONS, CAPTION_STYLES, isFollowing, isJobActive, LIMITS, retranscribeReason, type Clip, type ClipEdit, type Project } from "@/lib/clips/schema";
+import { languageName, LANGUAGE_OPTIONS } from "@/lib/clips/languages";
+import {
+  ASPECTS,
+  CAPTION_POSITIONS,
+  CAPTION_STYLES,
+  CLIP_QUALITIES,
+  isFollowing,
+  isJobActive,
+  LIMITS,
+  LOGO_SPOTS,
+  retranscribeReason,
+  type Clip,
+  type ClipEdit,
+  type Project,
+} from "@/lib/clips/schema";
 import { exportState } from "../../clip-card";
 import { ClipPreview, type PreviewHandle } from "./clip-preview";
 import { TrimBar } from "./trim-bar";
 import styles from "./editor.module.css";
 
-export function ClipEditor({ projectId, clipId }: { projectId: string; clipId: string }) {
+export function ClipEditor({ projectId, clipId, level }: { projectId: string; clipId: string; level: ClipLevel }) {
   const { project, error, setProject } = useProject(projectId);
   const clip = project?.clips.find((c) => c.id === clipId);
 
@@ -63,15 +85,26 @@ export function ClipEditor({ projectId, clipId }: { projectId: string; clipId: s
       </main>
     );
   }
-  return <Editor key={clip.id} project={project} clip={clip} setProject={setProject} />;
+  return <Editor key={clip.id} project={project} clip={clip} setProject={setProject} level={level} />;
 }
 
 type Draft = { title: string; start: number; end: number; edit: ClipEdit };
 type SaveState = "saved" | "saving" | "error";
 
-function Editor({ project, clip, setProject }: { project: Project; clip: Clip; setProject: (p: Project) => void }) {
+/** Where the brand logo goes, as the buttons read. */
+const LOGO_SPOT_LABEL: Record<(typeof LOGO_SPOTS)[number], string> = {
+  off: "None",
+  "top-left": "Top left",
+  "top-right": "Top right",
+  "bottom-left": "Bottom left",
+  "bottom-right": "Bottom right",
+};
+
+function Editor({ project, clip, setProject, level }: { project: Project; clip: Clip; setProject: (p: Project) => void; level: ClipLevel }) {
   const toast = useToast();
   const id = useId();
+  const srcW = project.source.width;
+  const srcH = project.source.height;
   const preview = useRef<PreviewHandle>(null);
   const [draft, setDraft] = useState<Draft>({ title: clip.title, start: clip.start, end: clip.end, edit: clip.edit });
   const [time, setTime] = useState(clip.start);
@@ -83,7 +116,45 @@ function Editor({ project, clip, setProject }: { project: Project; clip: Clip; s
   const [exporting, setExporting] = useState(false);
   const [watching, setWatching] = useState(false);
   // A followed stream's transcript grows as it's captioned: reload as it reaches further.
-  const { transcript, setTranscript } = useTranscript(project.id, project.hasTranscript, `${project.transcriptRev}:${project.transcribedSec ?? 0}`);
+  // In a caption language of its own, the translation's words are what the editor shows.
+  const { transcript, setTranscript } = useTranscript(
+    project.id,
+    project.hasTranscript,
+    `${project.transcriptRev}:${project.transcribedSec ?? 0}`,
+    draft.edit.captionLanguage,
+  );
+  // The account's brand kit (for the logo in the preview) and this project's translations.
+  const [kit, setKit] = useState<BrandKit | null>(null);
+  const [languages, setLanguages] = useState<string[]>([]);
+  /** The language a translation was just asked for, until it shows up in `languages`. */
+  const [translating, setTranslating] = useState<string | null>(null);
+  const [tracking, setTracking] = useState<{ done: number } | null>(null);
+  const trackStop = useRef<AbortController | null>(null);
+
+  /** The languages the project has, with the one just asked for cleared once it has arrived. */
+  const takeLanguages = useCallback((list: string[]) => {
+    setLanguages(list);
+    setTranslating((want) => (want && list.includes(want) ? null : want));
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void api.brand.get(controller.signal).then(setKit, () => undefined);
+    void api.translations.list(project.id, controller.signal).then((r) => takeLanguages(r.languages), () => undefined);
+    return () => controller.abort();
+  }, [project.id, takeLanguages]);
+
+  // A translation is made in the background: look again until it shows up.
+  useEffect(() => {
+    if (!translating) return;
+    const timer = setInterval(() => {
+      void api.translations.list(project.id).then((r) => takeLanguages(r.languages), () => undefined);
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [project.id, translating, takeLanguages]);
+
+  // Stop any face tracking still running when the page goes.
+  useEffect(() => () => trackStop.current?.abort(), []);
 
   /* ---------- Saving: changes are batched and sent 400 ms after the last edit ---------- */
   const pending = useRef<ClipPatch>({});
@@ -212,9 +283,11 @@ function Editor({ project, clip, setProject }: { project: Project; clip: Clip; s
 
   /* ---------- Captions ---------- */
   const lines = useMemo(
-    () => (transcript ? captionLines(transcript.segments, draft.start, draft.end, draft.edit.captionStyle) : []),
+    () => (transcript ? captionLines(transcript.segments, draft.start, draft.end, draft.edit.captionStyle, { loudness: transcript.loudness }) : []),
     [transcript, draft.start, draft.end, draft.edit.captionStyle],
   );
+  /** The words the export would drop, so the count can be shown before anyone turns it on. */
+  const fillers = useMemo(() => countFillers(lines.flatMap((l) => l.words), transcript?.language ?? project.spokenLanguage), [lines, transcript?.language, project.spokenLanguage]);
   const phrases = useMemo(
     () => (transcript?.segments ?? []).map((s, index) => ({ ...s, index })).filter((s) => s.end > draft.start && s.start < draft.end),
     [transcript, draft.start, draft.end],
@@ -271,14 +344,76 @@ function Editor({ project, clip, setProject }: { project: Project; clip: Clip; s
     }
   }
 
+  /* ---------- AI face tracking (Pro): the faces are found here, in the browser ---------- */
+  async function trackSpeaker() {
+    trackStop.current?.abort();
+    const controller = new AbortController();
+    trackStop.current = controller;
+    setTracking({ done: 0 });
+    try {
+      const samples = await trackFaces({
+        src: sourceUrl(project.id),
+        start: draft.start,
+        end: draft.end,
+        onProgress: (done) => setTracking({ done }),
+        signal: controller.signal,
+      });
+      if (facesSeen(samples) === 0) {
+        toast({ tone: "error", title: "No face found in this clip", body: "The framing is unchanged. Drag the picture to reframe it by hand." });
+        return;
+      }
+      const path = focusPath(samples, visibleWidth(srcW, srcH, draft.edit.aspect));
+      if (path.length === 0) {
+        toast({ tone: "error", title: "Nothing to follow", body: "This clip's frame already shows the whole picture." });
+        return;
+      }
+      setEdit({ focusPath: path, framing: "crop" });
+      toast({ tone: "success", title: "Following the speaker", body: `The crop now moves with the face, ${path.length} steps across the clip.` });
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      toast({ tone: "error", title: "Couldn’t track the speaker", body: err instanceof Error ? err.message : undefined });
+    } finally {
+      setTracking(null);
+      trackStop.current = null;
+    }
+  }
+
+  async function translate(language: string) {
+    try {
+      await flush();
+      setProject(await api.translations.add(project.id, language));
+      setTranslating(language);
+      toast({ tone: "success", title: `Translating into ${languageName(language)}`, body: "It takes a minute or two. The language appears here when it’s ready." });
+    } catch (err) {
+      toast({ tone: "error", title: "Couldn’t start the translation", body: err instanceof Error ? err.message : undefined });
+    }
+  }
+
+  function applyBrandKit() {
+    if (!kit) return;
+    const edit = withBrand(draft.edit, kit);
+    setDraft((d) => ({ ...d, edit }));
+    queue({ edit });
+    toast({ tone: "success", title: "Your brand kit is on this clip" });
+  }
+
+  async function saveBrandKit() {
+    try {
+      await api.brand.save(lookOf(draft.edit));
+      setKit(await api.brand.get());
+      toast({ tone: "success", title: "Saved as your brand kit", body: "New videos start with this caption look." });
+    } catch (err) {
+      toast({ tone: "error", title: "Couldn’t save your brand kit", body: err instanceof Error ? err.message : undefined });
+    }
+  }
+
   /* ---------- Layout ---------- */
   const ordered = sortClips(project.clips, "best");
   const index = ordered.findIndex((c) => c.id === clip.id);
   const prev = index > 0 ? ordered[index - 1] : undefined;
   const next = index >= 0 && index < ordered.length - 1 ? ordered[index + 1] : undefined;
-  const srcW = project.source.width;
-  const srcH = project.source.height;
   const canPan = draft.edit.framing === "crop" && srcW - cropRect(srcW, srcH, draft.edit.aspect, draft.edit.focusX).w > 2;
+  const tracked = Boolean(draft.edit.focusPath?.length);
   const length = draft.end - draft.start;
   const title = overlayTitle({ title: draft.title, edit: draft.edit });
 
@@ -354,6 +489,7 @@ function Editor({ project, clip, setProject }: { project: Project; clip: Clip; s
               lines={lines}
               title={title}
               language={transcript?.language ?? project.spokenLanguage}
+              logoAt={kit?.logo?.at}
               onTime={setTime}
               onPlaying={setPlaying}
               onFocusX={(focusX) => setEdit({ focusX: Math.round(focusX * 1000) / 1000 })}
@@ -435,6 +571,20 @@ function Editor({ project, clip, setProject }: { project: Project; clip: Clip; s
               <AiMark size={14} />
               <span>
                 <strong>Why Bamio picked this{clip.score !== undefined ? ` (${clip.score}/100)` : ""}</strong> {clip.reason}
+                {/* What the score is made of: the three ratings behind hypeScore. */}
+                {clip.ratings ? (
+                  <span className={styles.ratings}>
+                    <span>
+                      Hype <b>{clip.ratings.hype}/10</b>
+                    </span>
+                    <span>
+                      Hook <b>{clip.ratings.hook}/10</b>
+                    </span>
+                    <span>
+                      Payoff <b>{clip.ratings.payoff}/10</b>
+                    </span>
+                  </span>
+                ) : null}
               </span>
             </p>
           ) : null}
@@ -458,7 +608,7 @@ function Editor({ project, clip, setProject }: { project: Project; clip: Clip; s
                 Fit whole frame
               </button>
             </div>
-            {canPan ? (
+            {canPan && !tracked ? (
               <div className="field">
                 <label className="field-label" htmlFor={`${id}-focus`}>
                   Focus
@@ -477,6 +627,56 @@ function Editor({ project, clip, setProject }: { project: Project; clip: Clip; s
                 <p className="field-help">Which part of the picture stays in the frame.</p>
               </div>
             ) : null}
+
+            {/* AI face tracking (Pro): the faces are found in this browser, so nothing is uploaded. */}
+            {draft.edit.framing === "crop" && (canPan || tracked) ? (
+              <div className="field">
+                {tracked ? (
+                  <div className={styles.sync}>
+                    <span>The crop follows the speaker across this clip.</span>
+                    <button className="btn btn-secondary btn-sm" type="button" onClick={() => setEdit({ focusPath: [] })}>
+                      Stop following
+                    </button>
+                  </div>
+                ) : tracking ? (
+                  <div className={styles.sync} role="status">
+                    <span>Watching the clip for a face… {Math.round(tracking.done * 100)}%</span>
+                    <button className="btn btn-ghost btn-sm" type="button" onClick={() => trackStop.current?.abort()}>
+                      Stop
+                    </button>
+                  </div>
+                ) : (
+                  <button className="btn btn-secondary btn-sm" type="button" disabled={!canClip(level, "faceTrack")} onClick={() => void trackSpeaker()}>
+                    <Sparkle size={16} aria-hidden /> Follow the speaker
+                  </button>
+                )}
+                {!canClip(level, "faceTrack") && !tracked ? (
+                  <ClipPlanNote feature="faceTrack" />
+                ) : !tracked && !tracking ? (
+                  <p className="field-help">Plays the clip here to find the face, then moves the crop with it instead of leaving it still.</p>
+                ) : null}
+              </div>
+            ) : null}
+
+            <div className="field">
+              <span className="field-label" id={`${id}-quality`}>
+                Export size
+              </span>
+              <div className="seg" role="group" aria-labelledby={`${id}-quality`}>
+                {CLIP_QUALITIES.map((q) => (
+                  <button
+                    key={q}
+                    type="button"
+                    aria-pressed={(draft.edit.quality ?? "1080p") === q}
+                    disabled={q === "4k" && !canClip(level, "uhd")}
+                    onClick={() => setEdit({ quality: q === "1080p" ? undefined : q })}
+                  >
+                    {q === "4k" ? "4K" : "1080p"}
+                  </button>
+                ))}
+              </div>
+              {!canClip(level, "uhd") ? <ClipPlanNote feature="uhd" /> : <p className="field-help">4K takes longer to render and makes a much bigger file.</p>}
+            </div>
           </section>
 
           <section className={styles.group} aria-labelledby={`${id}-cap`}>
@@ -524,6 +724,103 @@ function Editor({ project, clip, setProject }: { project: Project; clip: Clip; s
                       {CAPTION_POSITION_LABEL[p]}
                     </button>
                   ))}
+                </div>
+
+                {/* Captions in another language (Pro): the spoken one, or a translation of it. */}
+                <div className="field">
+                  <label className="field-label" htmlFor={`${id}-caplang`}>
+                    Caption language
+                  </label>
+                  <select
+                    id={`${id}-caplang`}
+                    className="input"
+                    value={draft.edit.captionLanguage ?? ""}
+                    disabled={!draft.edit.captions}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      if (value === "" || languages.includes(value)) setEdit({ captionLanguage: value || undefined });
+                      else void translate(value);
+                    }}
+                  >
+                    <option value="">{languageName(project.spokenLanguage)} (spoken)</option>
+                    {languages.length > 0 ? (
+                      <optgroup label="Translated">
+                        {languages.map((code) => (
+                          <option key={code} value={code}>
+                            {languageName(code)}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ) : null}
+                    {canClip(level, "translate") ? (
+                      <optgroup label="Translate into…">
+                        {LANGUAGE_OPTIONS.filter((o) => !languages.includes(o.code) && o.code !== project.spokenLanguage?.toLowerCase().split("-")[0]).map((o) => (
+                          <option key={o.code} value={o.code}>
+                            {o.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ) : null}
+                  </select>
+                  {translating ? (
+                    <p className="field-help" role="status">
+                      <Translate size={14} aria-hidden /> Translating into {languageName(translating)}. It appears here when it’s ready.
+                    </p>
+                  ) : canClip(level, "translate") ? (
+                    <p className="field-help">Each line keeps its own time; the words inside a line are spread across it.</p>
+                  ) : (
+                    <ClipPlanNote feature="translate" />
+                  )}
+                </div>
+
+                {/* Filler-word removal (Pro): the sounds people make while thinking, and stutters. */}
+                <div className="field">
+                  <label className={styles.switchRow}>
+                    <span>Remove filler words{fillers > 0 ? ` (${fillers} here)` : ""}</span>
+                    <input
+                      className="switch"
+                      type="checkbox"
+                      role="switch"
+                      checked={draft.edit.removeFillers ?? false}
+                      disabled={!canClip(level, "fillers")}
+                      onChange={(e) => setEdit({ removeFillers: e.target.checked || undefined })}
+                    />
+                  </label>
+                  {!canClip(level, "fillers") ? (
+                    <ClipPlanNote feature="fillers" />
+                  ) : (
+                    <p className="field-help">
+                      “Um”, “uh” and a short word said twice are cut out of the picture, the sound and the captions. Words that are filler in one sentence and the point of
+                      another are left alone.
+                    </p>
+                  )}
+                </div>
+
+                <details className={styles.phrases}>
+                  <summary>Caption look</summary>
+                  <CaptionLookControls
+                    look={draft.edit.look}
+                    style={draft.edit.captionStyle}
+                    disabled={!draft.edit.captions}
+                    locked={!canClip(level, "captionStyle")}
+                    onChange={(look) => setEdit({ look })}
+                  />
+                </details>
+
+                {/* Free for every account: the words were measured when the video was transcribed. */}
+                <div className={styles.subtitleRow}>
+                  <span className="field-label">Subtitle file</span>
+                  <span className={styles.subtitleLinks}>
+                    <a className="btn btn-ghost btn-sm" href={clipSubtitlesUrl(project.id, clip.id, "srt", draft.edit.captionLanguage)} download>
+                      SRT
+                    </a>
+                    <a className="btn btn-ghost btn-sm" href={clipSubtitlesUrl(project.id, clip.id, "vtt", draft.edit.captionLanguage)} download>
+                      VTT
+                    </a>
+                    <a className="btn btn-ghost btn-sm" href={clipSubtitlesUrl(project.id, clip.id, "txt", draft.edit.captionLanguage)} download>
+                      Text
+                    </a>
+                  </span>
                 </div>
                 {phrases.length > 0 ? (
                   <details className={styles.phrases}>
@@ -580,6 +877,52 @@ function Editor({ project, clip, setProject }: { project: Project; clip: Clip; s
             ) : (
               <p className="field-help">A highlighted headline at the top of the video.</p>
             )}
+          </section>
+
+          {/* The brand kit (Starter): the logo burned into a corner, and this look saved for next time. */}
+          <section className={styles.group} aria-labelledby={`${id}-brand`}>
+            <h2 id={`${id}-brand`} className={styles.groupTitle}>
+              Brand
+            </h2>
+            {kit?.logo ? (
+              <>
+                <div className="field">
+                  <span className="field-label" id={`${id}-logo`}>
+                    Logo
+                  </span>
+                  <div className={styles.logoSpots} role="group" aria-labelledby={`${id}-logo`}>
+                    {LOGO_SPOTS.map((spot) => (
+                      <button
+                        key={spot}
+                        type="button"
+                        className={styles.logoSpot}
+                        data-spot={spot}
+                        aria-pressed={(draft.edit.logo ?? "off") === spot}
+                        disabled={!canClip(level, "brandKit")}
+                        onClick={() => setEdit({ logo: spot === "off" ? undefined : spot })}
+                      >
+                        {LOGO_SPOT_LABEL[spot]}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {!canClip(level, "brandKit") ? <ClipPlanNote feature="brandKit" /> : null}
+              </>
+            ) : (
+              <p className="field-help">
+                Save a logo under <Link href="/profile">your profile</Link> to burn it into a corner of every clip.
+              </p>
+            )}
+            <div className={styles.brandActions}>
+              {kit && !kitIsEmpty(kit) ? (
+                <button className="btn btn-ghost btn-sm" type="button" onClick={applyBrandKit}>
+                  Use my brand kit
+                </button>
+              ) : null}
+              <button className="btn btn-ghost btn-sm" type="button" disabled={!canClip(level, "brandKit")} onClick={() => void saveBrandKit()}>
+                Save this look as my brand kit
+              </button>
+            </div>
           </section>
 
           {project.clips.length > 1 ? (

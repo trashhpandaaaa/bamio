@@ -37,7 +37,7 @@ const page: UseCase = {
   faq: [
     {
       q: "Does it work with audio-only podcasts?",
-      a: "Not yet: Bamio makes video clips, so it needs a video recording of the episode. Most video podcasts on YouTube work as they are.",
+      a: "Yes. Upload the audio and Bamio makes a video of it: the sound under a plain dark panel, with the captions and the title over it. A video recording still looks better, and most video podcasts on YouTube work as they are.",
     },
     {
       q: "How does Bamio choose the moments?",

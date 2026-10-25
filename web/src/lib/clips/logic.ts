@@ -1,4 +1,5 @@
-import { LIMITS, type Aspect, type CaptionStyle, type ClipEdit, type Segment } from "@/lib/clips/schema";
+import { loudMoments } from "@/lib/clips/loudness";
+import { LIMITS, type Aspect, type CaptionStyle, type ClipEdit, type ClipQuality, type Segment } from "@/lib/clips/schema";
 
 /* Pure helpers shared by the browser (preview) and the server (export). */
 
@@ -35,7 +36,8 @@ export function parseTimecode(input: string): number | null {
 
 /* ---------------------------- Captions ---------------------------- */
 
-export type CaptionWord = { text: string; start: number; end: number };
+/** `loud`: said louder than most of the clip, so a custom look can pick it out (see captionLines). */
+export type CaptionWord = { text: string; start: number; end: number; loud?: boolean };
 export type CaptionLine = { start: number; end: number; words: CaptionWord[] };
 
 const WORDS_PER_LINE: Record<CaptionStyle, number> = { pop: 3, clean: 7, boxed: 6 };
@@ -123,29 +125,43 @@ export function segmentWordTimes(seg: Segment): CaptionWord[] {
 /**
  * Caption lines for the part of the transcript inside [clipStart, clipEnd], with times
  * relative to the clip (see segmentWordTimes for where word times come from).
+ *
+ * `loudness` (the video's dBFS a second at a time, kept with the transcript) marks the words
+ * said loudest in this clip, for a caption look that picks them out.
  */
-export function captionLines(segments: Segment[], clipStart: number, clipEnd: number, style: CaptionStyle): CaptionLine[] {
+export function captionLines(segments: Segment[], clipStart: number, clipEnd: number, style: CaptionStyle, opts: { loudness?: number[] } = {}): CaptionLine[] {
   const perLine = WORDS_PER_LINE[style];
-  const lines: CaptionLine[] = [];
-  for (const seg of segments) {
-    if (seg.end <= clipStart || seg.start >= clipEnd || seg.end <= seg.start) continue;
-    const words = segmentWordTimes(seg);
-    if (words.length === 0) continue;
-    // Keep only words that are mostly inside the clip.
-    const inside = words.filter((w) => (w.start + w.end) / 2 >= clipStart && (w.start + w.end) / 2 < clipEnd);
-    let chunk: CaptionWord[] = [];
-    const flush = () => {
-      if (chunk.length > 0) lines.push({ start: chunk[0]!.start, end: chunk.at(-1)!.end, words: chunk });
-      chunk = [];
-    };
-    for (const w of inside) {
-      const texts = [...chunk.map((c) => c.text), w.text];
-      const tooWide = chunk.length > 0 && hasNoSpaceScript(w.text) && textEm(joinWords(texts)) > MAX_LINE_EM[style];
-      if (chunk.length >= perLine || tooWide) flush();
-      chunk.push({ text: w.text, start: Math.max(0, w.start - clipStart), end: Math.min(clipEnd, w.end) - clipStart });
+  // Every word of the clip first, with its time in the video, so loudness can be judged across
+  // the whole clip rather than one phrase at a time.
+  const picked: { phrase: number; word: CaptionWord }[] = [];
+  segments.forEach((seg, phrase) => {
+    if (seg.end <= clipStart || seg.start >= clipEnd || seg.end <= seg.start) return;
+    for (const word of segmentWordTimes(seg)) {
+      // Keep only words that are mostly inside the clip.
+      if ((word.start + word.end) / 2 >= clipStart && (word.start + word.end) / 2 < clipEnd) picked.push({ phrase, word });
     }
-    flush();
-  }
+  });
+  const loud = opts.loudness?.length ? loudMoments(picked.map((p) => p.word), opts.loudness) : [];
+
+  const lines: CaptionLine[] = [];
+  let chunk: CaptionWord[] = [];
+  const flush = () => {
+    if (chunk.length > 0) lines.push({ start: chunk[0]!.start, end: chunk.at(-1)!.end, words: chunk });
+    chunk = [];
+  };
+  picked.forEach(({ phrase, word }, i) => {
+    const texts = [...chunk.map((c) => c.text), word.text];
+    const tooWide = chunk.length > 0 && hasNoSpaceScript(word.text) && textEm(joinWords(texts)) > MAX_LINE_EM[style];
+    // A line never runs across a phrase (the transcriber's own break), as before.
+    if (chunk.length >= perLine || tooWide || (i > 0 && picked[i - 1]!.phrase !== phrase)) flush();
+    chunk.push({
+      text: word.text,
+      start: Math.max(0, word.start - clipStart),
+      end: Math.min(clipEnd, word.end) - clipStart,
+      ...(loud[i] ? { loud: true } : {}),
+    });
+  });
+  flush();
   return lines;
 }
 
@@ -161,6 +177,19 @@ export const OUTPUT_SIZE: Record<Aspect, { width: number; height: number }> = {
   "1:1": { width: 1080, height: 1080 },
   "16:9": { width: 1920, height: 1080 },
 };
+
+/** How much bigger than the 1080p frame each quality is: 4K doubles the short side (1080 to 2160). */
+export const QUALITY_SCALE: Record<ClipQuality, number> = { "1080p": 1, "4k": 2 };
+
+/**
+ * The frame a clip is rendered at. Caption sizes are measured against the short side
+ * (ass.ts), so everything drawn on it grows with the frame and a 4K export looks the same.
+ */
+export function outputSize(aspect: Aspect, quality: ClipQuality = "1080p") {
+  const scale = QUALITY_SCALE[quality];
+  const base = OUTPUT_SIZE[aspect];
+  return { width: base.width * scale, height: base.height * scale };
+}
 
 /** Even sizes (at least 2 px) and even offsets (at least 0): x264 needs even dimensions for yuv420p. */
 const evenSize = (n: number) => Math.max(2, Math.floor(n / 2) * 2);
@@ -217,7 +246,7 @@ export function sortClips<T extends { start: number; score?: number; createdAt: 
 
 /* --------------------------- AI clip cleanup --------------------------- */
 
-export type RawClip = { start: number; end: number; title: string; reason?: string; score?: number };
+export type RawClip = { start: number; end: number; title: string; reason?: string; score?: number; ratings?: { hype: number; hook: number; payoff: number } };
 
 /**
  * Make AI clip suggestions safe to use: inside the media, snapped to phrase

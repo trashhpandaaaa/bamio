@@ -32,6 +32,7 @@ import type { Admin } from "@/lib/server/admin";
 import { db, type Sql, type Tx } from "@/lib/server/db";
 import { queueEmail } from "@/lib/server/email";
 import { HttpError } from "@/lib/server/http";
+import { imageKind, imageType } from "@/lib/server/image-kind";
 import { storage } from "@/lib/server/storage";
 import { isUserId, userMediaPrefix, workRoot } from "@/lib/server/store";
 
@@ -783,15 +784,6 @@ async function sharedDetails(userIds: string[]): Promise<{ payout: Map<string, n
   return out;
 }
 
-/** The kinds of picture taken as audience proof, by their first bytes (what the browser says isn't trusted). */
-function imageKind(bytes: Uint8Array): { ext: string; type: string } | null {
-  const starts = (...b: number[]) => b.every((v, i) => bytes[i] === v);
-  if (starts(0x89, 0x50, 0x4e, 0x47)) return { ext: "png", type: "image/png" };
-  if (starts(0xff, 0xd8, 0xff)) return { ext: "jpg", type: "image/jpeg" };
-  if (starts(0x52, 0x49, 0x46, 0x46) && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) return { ext: "webp", type: "image/webp" };
-  return null;
-}
-
 const proofPrefix = (userId: string, campaignId: string) => `${userMediaPrefix(userId)}/campaigns/${campaignId.toLowerCase()}`;
 
 /**
@@ -836,7 +828,7 @@ export async function serveProof(req: Request, campaignId: string, userId: strin
   const key = member?.proof_keys[n - 1];
   if (!key || !key.startsWith(`${proofPrefix(userId, campaignId)}/`)) throw notFound();
   const ext = key.split(".").pop();
-  return storage().serve(req, key, { type: ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg" });
+  return storage().serve(req, key, { type: imageType(ext) });
 }
 
 /** Accept a clipper's audience proof, or reject it with a word about why (they see it). Logged. */

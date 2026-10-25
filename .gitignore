@@ -1,6 +1,9 @@
 # Playwright CLI output (may contain credentials)
 .playwright-cli/
 
+# Playwright's run state, written when the tests are started from the repository root.
+test-results/
+
 # Cloned reference library (nested git repo). Restore with:
 #   git clone --depth 1 https://github.com/VoltAgent/awesome-design-md.git references/awesome-design-md
 references/awesome-design-md/
