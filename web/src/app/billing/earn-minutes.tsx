@@ -3,7 +3,7 @@
 import { PlayCircle } from "@phosphor-icons/react";
 import { useRef, useState } from "react";
 import { useToast } from "@/components/toast";
-import { earnedMinutes, type AdCreditState } from "@/lib/ads";
+import { AD_REWARD_LINK, earnedMinutes, type AdCreditState } from "@/lib/ads";
 import { api } from "@/lib/clips/api";
 import styles from "./billing.module.css";
 
@@ -11,42 +11,55 @@ import styles from "./billing.module.css";
 const timeText = (sec: number) => (sec < 60 ? `${Math.floor(sec)} sec` : `${earnedMinutes(sec)} min`);
 
 /**
- * Resolves after `ms` of the page being visible. A tab in the background is showing nobody an
- * ad, so its time doesn't count. The server checks its own clock too: this only keeps an honest
- * page honest.
+ * Resolves after `ms`, counting down for the page. The ad is in another tab, so this is wall
+ * clock, not time spent looking at Bamio. Each tick works the time out from a deadline rather
+ * than subtracting, because a browser slows timers right down in a tab nobody is looking at.
+ * The server checks its own clock before it credits anything; this only drives the countdown.
  */
-function visibleFor(ms: number, onLeft: (left: number) => void): Promise<void> {
+function countdown(ms: number, onLeft: (left: number) => void): Promise<void> {
   return new Promise((resolve) => {
-    const step = 250;
-    let left = ms;
-    onLeft(left);
+    const until = Date.now() + ms;
+    onLeft(ms);
     const timer = setInterval(() => {
-      if (document.visibilityState !== "visible") return;
-      left = Math.max(0, left - step);
+      const left = Math.max(0, until - Date.now());
       onLeft(left);
       if (left > 0) return;
       clearInterval(timer);
       resolve();
-    }, step);
+    }, 250);
   });
 }
 
 /**
- * Ask the ad network for an ad. The tag in every page's head (src/lib/ads.ts) places its own
- * formats and has nothing to call for most of them; a zone set up as a rewarded format puts a
- * `show_<zone>` function on window, and this uses it when it's there. Either way the minutes
- * come from the server's own clock, never from what this returns.
+ * Show an ad, from the click that asked for one. A zone with a rewarded format of its own puts
+ * a `show_<zone>` function on window and that is used when it's there; otherwise the network's
+ * direct link (AD_REWARD_LINK) opens in a new tab.
+ *
+ * Called straight from the click with nothing awaited first, so the browser still counts it as
+ * the person's own gesture and no pop-up has to be slipped past a blocker. `opener` is dropped
+ * at once: the destination is the network's to choose, and it is never given a handle on a page
+ * where someone is signed in. Null means the browser blocked it, which the panel says out loud.
  */
-function showAd(): void {
+function showAd(): Window | "vendor" | null {
   const name = Object.keys(window).find((key) => /^show_\d+$/.test(key));
   const fn = name ? (window as unknown as Record<string, unknown>)[name] : undefined;
-  if (typeof fn !== "function") return;
-  try {
-    const shown = (fn as () => unknown)();
-    if (shown instanceof Promise) void shown.catch(() => undefined);
-  } catch {
-    // The network's own function failing changes nothing: the view is counted here either way.
+  if (typeof fn === "function") {
+    try {
+      const shown = (fn as () => unknown)();
+      if (shown instanceof Promise) void shown.catch(() => undefined);
+      return "vendor";
+    } catch {
+      // The network's own function failed: fall back to the link below.
+    }
   }
+  const tab = window.open(AD_REWARD_LINK, "_blank");
+  if (!tab) return null;
+  try {
+    tab.opener = null;
+  } catch {
+    // Some browsers won't let it be set; the link is still in its own tab.
+  }
+  return tab;
 }
 
 /**
@@ -68,12 +81,18 @@ export function EarnMinutesPanel({ credits, onEarned }: { credits: AdCreditState
 
   async function watch() {
     if (busy.current) return;
-    busy.current = true;
     setProblem(null);
+    // The ad opens first, before anything is awaited, so the browser still sees the person's own
+    // click behind it. The network is paid once its page opens, so an ad that opens and then
+    // can't be counted costs the claim, not the advertiser: asking the server comes next.
+    if (!showAd()) {
+      setProblem("Your browser blocked the ad. Allow pop-ups for this site, then try again.");
+      return;
+    }
+    busy.current = true;
     try {
       const view = await api.adCredits.start();
-      showAd();
-      await visibleFor(view.watchMs, setLeftMs);
+      await countdown(view.watchMs, setLeftMs);
       const next = await api.adCredits.claim(view.id);
       setState(next);
       onEarned();
@@ -112,7 +131,7 @@ export function EarnMinutesPanel({ credits, onEarned }: { credits: AdCreditState
         <span style={{ "--value": `${Math.max(pct, state.earnedTodaySec > 0 ? 2 : 0)}%` } as React.CSSProperties} />
       </div>
       <p className="t-body-sm t-secondary" aria-live="polite">
-        {watching ? `Keep watching: ${Math.ceil(leftMs / 1000)} seconds to go.` : `${timeText(state.earnedTodaySec)} earned today, of ${capMin} minutes a day.`}
+        {watching ? `The ad is open in another tab. ${Math.ceil(leftMs / 1000)} seconds to go.` : `${timeText(state.earnedTodaySec)} earned today, of ${capMin} minutes a day.`}
       </p>
       {problem ? (
         <p className="field-error" role="alert">
@@ -128,7 +147,9 @@ export function EarnMinutesPanel({ credits, onEarned }: { credits: AdCreditState
           </button>
         </div>
       )}
-      <p className={styles.small}>An ad can open over this page or in another tab. Keep this tab in front: the time only counts while you can see it.</p>
+      <p className={styles.small}>
+        The ad opens in a new tab, on a page the advertiser controls, not Bamio. Leave it open for the few seconds above, then come back here and the time is added.
+      </p>
     </section>
   );
 }

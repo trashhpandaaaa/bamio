@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { ContactEmail, LegalPage, legalMetadata } from "@/components/site/legal-page";
-import { AD_NETWORK_HOST } from "@/lib/ads";
+import { AD_LINK_HOST, AD_NETWORK_HOST } from "@/lib/ads";
 import { COMPANY } from "@/lib/legal";
 
 const title = "Privacy policy";
@@ -111,8 +111,9 @@ export default function PrivacyPage() {
             <strong>Resend</strong>: sends Bamio’s emails.
           </li>
           <li>
-            <strong>Our ad network</strong> (ads are served from <code>{AD_NETWORK_HOST}</code>): shows the ads. Its script loads with Bamio’s pages, so it sees your
-            IP address, your browser and which page you’re on. See “Ads” below.
+            <strong>Our ad network</strong> (ads are served from <code>{AD_NETWORK_HOST}</code>, and an ad you choose to watch for AI minutes opens from{" "}
+            <code>{AD_LINK_HOST}</code>): shows the ads. Its script loads with Bamio’s pages, so it sees your IP address, your browser and which page you’re on. See
+            “Ads” below.
           </li>
           <li>
             <strong>Sentry</strong>: error reports.
@@ -190,8 +191,10 @@ export default function PrivacyPage() {
             what you’ve done.
           </li>
           <li>
-            Watching an ad can earn you AI minutes. When you do, Bamio records that an ad was watched and the minutes it earned, against your account. That record is
-            ours, not the network’s, and it says nothing about which ad you saw.
+            Watching an ad can earn you AI minutes. Asking for one opens an advertiser’s page in a new tab, from <code>{AD_LINK_HOST}</code>. That page is the
+            advertiser’s, not Bamio’s: what it shows, sees and stores is covered by its own privacy policy, and Bamio neither chooses it nor passes anything to it
+            beyond what your browser sends any site you open. Nothing opens unless you ask for it. Bamio records that an ad was watched and the minutes it earned,
+            against your account; that record is ours, not the network’s, and it says nothing about which ad you saw.
           </li>
         </ul>
         <p>Bamio doesn’t send your videos, transcripts, clips or edits to the ad network, and files you open in the editor never leave your device.</p>

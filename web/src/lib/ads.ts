@@ -55,6 +55,18 @@ export const adsEnabled = () => process.env.BAMIO_ADS !== "off";
  * most a determined account can mint by calling /api/ads/reward in a loop.
  */
 
+/** The host the rewarded link sends people to. The privacy page names it, as it does the tag's host. */
+export const AD_LINK_HOST = "pleased-report.com";
+
+/**
+ * The network's direct link, opened in a new tab when someone asks to earn minutes
+ * (app/billing/earn-minutes.tsx). Opening it is what pays, so it is opened from the person's
+ * own click on a button that says so, never from a timer, an unrelated click or under the
+ * page: a browser that blocks it is asked to allow it, not worked around. The destination is
+ * the network's to choose and changes per visitor, so it is never framed or trusted here.
+ */
+export const AD_REWARD_LINK = `https://${AD_LINK_HOST}/bM3.VY0wPv3WpevSbnmuV_JjZ/Dz0S3INzTgUszbMlDmYI5uLPTicU1FNlTZM-wWNlzkMJ`;
+
 /** AI seconds one watched ad is worth. */
 export const AD_REWARD_SEC = 30;
 

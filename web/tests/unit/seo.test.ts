@@ -4,7 +4,7 @@ import robots from "@/app/robots";
 import sitemap from "@/app/sitemap";
 import { PLANS } from "@/lib/billing/plans";
 import { CAPTION_LANGUAGES, captionLanguageMeta, punctuated } from "@/lib/caption-languages";
-import { AD_NETWORK_HOST, AD_TAG } from "@/lib/ads";
+import { AD_LINK_HOST, AD_NETWORK_HOST, AD_REWARD_LINK, AD_TAG } from "@/lib/ads";
 import { CONTACT_EMAIL, CONTACT_MAILTO, SUPPORT_EMAIL, SUPPORT_MAILTO } from "@/lib/contact";
 import { COMPANY, LEGAL_PAGES } from "@/lib/legal";
 import { fontRuns } from "@/lib/server/caption-fonts";
@@ -94,7 +94,12 @@ describe("search engines", () => {
     // minutes do (src/lib/ads.ts). Nothing may claim it any more, ads.txt included.
     expect(layout).not.toMatch(/adsense|googlesyndication/i);
     expect(existsSync("public/ads.txt")).toBe(false);
-    expect(readFileSync("src/app/privacy/page.tsx", "utf8")).not.toMatch(/adsense/i);
+    const privacy = readFileSync("src/app/privacy/page.tsx", "utf8");
+    expect(privacy).not.toMatch(/adsense/i);
+    // The rewarded link opens an advertiser's page in a new tab, so the privacy page names both
+    // hosts: the one the tag loads from and the one an ad opens from.
+    expect(AD_REWARD_LINK.startsWith(`https://${AD_LINK_HOST}/`)).toBe(true);
+    for (const host of ["AD_NETWORK_HOST", "AD_LINK_HOST"]) expect(privacy, host).toContain(host);
   });
 
   it("get structured data with the real prices, and plain-text answers", () => {
